@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::Vec;
 
 use crate::types::{
     Base64ImageSource,
@@ -63,11 +62,13 @@ impl ImageBlockParam {
 mod tests {
     use super::*;
     use serde_json::{json, to_value};
+    use crate::types::base64_image_source::ImageMediaType;
 
     #[test]
     fn test_image_block_param_with_base64() {
         let base64_source = Base64ImageSource::new(
-            "data:image/jpeg;base64,SGVsbG8gd29ybGQ=".to_string()
+            "data:image/jpeg;base64,SGVsbG8gd29ybGQ=".to_string(),
+            ImageMediaType::Jpeg
         );
         
         let image_block = ImageBlockParam::new_with_base64(base64_source);

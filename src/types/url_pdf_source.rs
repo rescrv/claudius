@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 /// A source for a PDF from a URL.
 ///
 /// This type is used to provide a PDF to the model from a URL.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UrlPdfSource {
     /// The type of source, always "url" for this struct.
     #[serde(default = "default_type")]

@@ -198,7 +198,7 @@ mod tests {
     fn test_document_block_param_with_all_fields() {
         let url_source = UrlPdfSource::new("https://example.com/document.pdf".to_string());
         let cache_control = CacheControlEphemeral::new();
-        let citations = CitationsConfig::new();
+        let citations = CitationsConfig::enabled();
         
         let document_block = DocumentBlockParam::new_with_url_pdf(url_source)
             .with_cache_control(cache_control)

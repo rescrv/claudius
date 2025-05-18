@@ -84,7 +84,7 @@ mod tests {
     fn test_message_delta_with_values() {
         let delta = MessageDelta::new()
             .with_stop_reason(StopReason::EndTurn)
-            .with_stop_sequence("###");
+            .with_stop_sequence("###".to_string());
             
         let json = to_value(&delta).unwrap();
         

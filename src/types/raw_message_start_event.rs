@@ -32,7 +32,7 @@ mod tests {
     fn test_raw_message_start_event_serialization() {
         let text_block = TextBlock::new("Hello, I'm Claude.".to_string());
         let content = vec![ContentBlock::Text(text_block)];
-        let model = Model::Known(crate::types::KnownModel::Claude3Sonnet);
+        let model = Model::Known(crate::types::KnownModel::Claude3Sonnet20240229);
         let usage = Usage::new(50, 100);
         
         let message = Message::new(

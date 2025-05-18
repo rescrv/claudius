@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 /// Represents a content block-based location citation.
 ///
 /// This type is used to indicate a specific span of content blocks in a document.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CitationContentBlockLocation {
     /// The text that was cited
     pub cited_text: String,

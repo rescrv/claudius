@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 /// Represents a page-based location citation.
 ///
 /// This type is used to indicate a specific span of pages in a document.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CitationPageLocation {
     /// The text that was cited
     pub cited_text: String,

@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 /// A redacted thinking block that contains encoded/obscured thinking data.
 ///
 /// This block is used when the full thinking contents are not directly accessible.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RedactedThinkingBlock {
     /// The encoded thinking data (redacted from normal display).
     pub data: String,

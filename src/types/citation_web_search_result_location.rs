@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 /// Represents a web search result location citation.
 ///
 /// This type is used to specify a citation that references web search results.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CitationWebSearchResultLocation {
     /// The text that was cited
     pub cited_text: String,

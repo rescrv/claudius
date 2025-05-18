@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 /// A block containing model thinking details.
 ///
 /// ThinkingBlocks contain internal reasoning or deliberation from the model.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ThinkingBlock {
     /// A signature for the thinking (typically a hash).
     pub signature: String,

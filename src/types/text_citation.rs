@@ -11,7 +11,7 @@ use crate::types::{
 ///
 /// This enum represents the different types of citations that can be included 
 /// in a text block's content.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum TextCitation {
     /// A character-based location citation

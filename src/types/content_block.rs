@@ -12,7 +12,7 @@ use crate::types::{
 ///
 /// This enum represents the different types of content blocks that can be included 
 /// in a message's content.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum ContentBlock {
     /// A block of text content

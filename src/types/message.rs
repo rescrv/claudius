@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::collections::Vec;
 
 use crate::types::{
     ContentBlock,
     Model,
+    ServerToolUsage,
     StopReason,
     Usage,
 };
@@ -93,7 +93,7 @@ mod tests {
     fn test_message_serialization() {
         let text_block = TextBlock::new("Hello, I'm Claude.".to_string());
         let content = vec![ContentBlock::Text(text_block)];
-        let model = Model::Known(crate::types::KnownModel::Claude3Sonnet);
+        let model = Model::Known(crate::types::KnownModel::Claude3Sonnet20240229);
         let usage = Usage::new(50, 100);
         
         let message = Message::new(
@@ -129,7 +129,7 @@ mod tests {
     fn test_message_with_stop_reason() {
         let text_block = TextBlock::new("Hello, I'm Claude.".to_string());
         let content = vec![ContentBlock::Text(text_block)];
-        let model = Model::Known(crate::types::KnownModel::Claude3Sonnet);
+        let model = Model::Known(crate::types::KnownModel::Claude3Sonnet20240229);
         let usage = Usage::new(50, 100);
         
         let message = Message::new(
@@ -203,7 +203,7 @@ mod tests {
         
         match message.model {
             Model::Known(model) => {
-                assert_eq!(model, crate::types::KnownModel::Claude3Sonnet);
+                assert_eq!(model, crate::types::KnownModel::Claude3Sonnet20240229);
             },
             _ => panic!("Expected Known model variant"),
         }

@@ -8,7 +8,7 @@ use crate::types::{
 };
 
 /// Represents a citation object that could be any of the supported citation types
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum Citation {
     #[serde(rename = "char_location")]
@@ -25,7 +25,7 @@ pub enum Citation {
 }
 
 /// A delta representing a new citation in a streaming response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CitationsDelta {
     /// The citation that was added
     pub citation: Citation,

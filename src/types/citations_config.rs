@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 /// Configuration for enabling or disabling citations in the response.
 ///
 /// This type allows controlling whether citations will be included in the model's response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CitationsConfig {
     /// Whether citations are enabled
     pub enabled: bool,

@@ -31,8 +31,9 @@ impl From<ImageBlockParam> for ContentBlockSourceContentParam {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::base64_image_source::{Base64ImageSource, ImageMediaType};
     use serde_json::{json, to_value};
-    use crate::types::{UrlImageSource, Base64ImageSource};
+    use crate::types::UrlImageSource;
 
     #[test]
     fn test_content_block_source_content_param_text() {
@@ -86,7 +87,8 @@ mod tests {
     #[test]
     fn test_from_image_block_param() {
         let base64_source = Base64ImageSource::new(
-            "data:image/jpeg;base64,SGVsbG8gd29ybGQ=".to_string()
+            "data:image/jpeg;base64,SGVsbG8gd29ybGQ=".to_string(),
+            ImageMediaType::Jpeg
         );
         let image_param = ImageBlockParam::new_with_base64(base64_source);
         let content_param: ContentBlockSourceContentParam = image_param.into();

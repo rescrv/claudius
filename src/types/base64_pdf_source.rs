@@ -7,7 +7,7 @@ use serde::{Serialize, Deserialize};
 /// 
 /// This can be created from either a base64-encoded string or from a file path.
 /// The media_type is always "application/pdf".
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Base64PdfSource {
     /// The base64-encoded data of the PDF
     pub data: String,

@@ -5,7 +5,7 @@ use crate::types::TextCitation;
 /// A block of text content in a message.
 ///
 /// TextBlocks contain plain text content and optional citations.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TextBlock {
     /// Optional citations supporting the text block.
     ///

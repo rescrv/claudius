@@ -24,16 +24,16 @@
 [x] anthropic-sdk-python/src/anthropic/types/document_block_param.py
 [x] anthropic-sdk-python/src/anthropic/types/image_block_param.py
 [x] anthropic-sdk-python/src/anthropic/types/input_json_delta.py
-[ ] anthropic-sdk-python/src/anthropic/types/message_count_tokens_params.py
-[ ] anthropic-sdk-python/src/anthropic/types/message_count_tokens_tool_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/message_create_params.py
+[x] anthropic-sdk-python/src/anthropic/types/message_count_tokens_params.py
+[x] anthropic-sdk-python/src/anthropic/types/message_count_tokens_tool_param.py
+[x] anthropic-sdk-python/src/anthropic/types/message_create_params.py
 [x] anthropic-sdk-python/src/anthropic/types/message_delta_event.py
 [x] anthropic-sdk-python/src/anthropic/types/message_delta_usage.py
 [x] anthropic-sdk-python/src/anthropic/types/message_param.py
 [x] anthropic-sdk-python/src/anthropic/types/message_start_event.py
 [x] anthropic-sdk-python/src/anthropic/types/message_stop_event.py
 [x] anthropic-sdk-python/src/anthropic/types/message_stream_event.py
-[ ] anthropic-sdk-python/src/anthropic/types/message_tokens_count.py
+[x] anthropic-sdk-python/src/anthropic/types/message_tokens_count.py
 [x] anthropic-sdk-python/src/anthropic/types/message.py
 [ ] anthropic-sdk-python/src/anthropic/types/messages
 [ ] anthropic-sdk-python/src/anthropic/types/messages/__init__.py
@@ -94,15 +94,15 @@
 [ ] anthropic-sdk-python/src/anthropic/types/thinking_config_param.py
 [x] anthropic-sdk-python/src/anthropic/types/thinking_delta.py
 [ ] anthropic-sdk-python/src/anthropic/types/tool_bash_20250124_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/tool_choice_any_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/tool_choice_auto_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/tool_choice_none_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/tool_choice_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/tool_choice_tool_param.py
+[x] anthropic-sdk-python/src/anthropic/types/tool_choice_any_param.py
+[x] anthropic-sdk-python/src/anthropic/types/tool_choice_auto_param.py
+[x] anthropic-sdk-python/src/anthropic/types/tool_choice_none_param.py
+[x] anthropic-sdk-python/src/anthropic/types/tool_choice_param.py
+[x] anthropic-sdk-python/src/anthropic/types/tool_choice_tool_param.py
 [ ] anthropic-sdk-python/src/anthropic/types/tool_param.py
 [x] anthropic-sdk-python/src/anthropic/types/tool_result_block_param.py
 [ ] anthropic-sdk-python/src/anthropic/types/tool_text_editor_20250124_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/tool_union_param.py
+[x] anthropic-sdk-python/src/anthropic/types/tool_union_param.py
 [x] anthropic-sdk-python/src/anthropic/types/tool_use_block_param.py
 [x] anthropic-sdk-python/src/anthropic/types/tool_use_block.py
 [x] anthropic-sdk-python/src/anthropic/types/url_image_source_param.py

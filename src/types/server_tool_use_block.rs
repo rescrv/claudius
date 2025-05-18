@@ -4,7 +4,7 @@ use serde_json::Value;
 /// A block representing a server-side tool use request from the model.
 ///
 /// ServerToolUseBlocks indicate the model wants to use a server-side tool (like web search).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ServerToolUseBlock {
     /// A unique identifier for this tool use request.
     pub id: String,

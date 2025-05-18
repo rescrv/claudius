@@ -4,7 +4,7 @@ use serde::{Serialize, Deserialize};
 /// not be cached or persisted beyond the immediate request.
 ///
 /// This is useful for sensitive information that shouldn't be stored long-term.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CacheControlEphemeral {
     /// The type is always "ephemeral" for this struct
     #[serde(default = "default_type")]

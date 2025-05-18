@@ -8,7 +8,7 @@ use serde_json::Value;
 /// 
 /// This can be created from either a base64-encoded string or from a file path.
 /// The media_type must be one of the supported image formats: "image/jpeg", "image/png", "image/gif", or "image/webp".
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Base64ImageSource {
     /// The base64-encoded data of the image
     pub data: String,
@@ -22,7 +22,7 @@ pub struct Base64ImageSource {
 }
 
 /// Supported image media types
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ImageMediaType {
     #[serde(rename = "image/jpeg")]

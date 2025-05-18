@@ -4,7 +4,7 @@ use serde::{Serialize, Deserialize};
 ///
 /// This type is used to indicate a specific span of text in a document by 
 /// character indices.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CitationCharLocation {
     /// The text that was cited
     pub cited_text: String,

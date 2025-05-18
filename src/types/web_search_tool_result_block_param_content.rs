@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::Vec;
 
 use crate::types::{
     WebSearchResultBlockParam,

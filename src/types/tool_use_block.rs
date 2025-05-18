@@ -4,7 +4,7 @@ use serde_json::Value;
 /// A block representing a tool use request from the model.
 ///
 /// ToolUseBlocks indicate the model wants to use a specific tool with certain inputs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolUseBlock {
     /// A unique identifier for this tool use request.
     pub id: String,
