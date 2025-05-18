@@ -1,0 +1,101 @@
+use serde::{Deserialize, Serialize};
+
+use crate::types::{
+    TextBlockParam,
+    ImageBlockParam,
+};
+
+/// Parameter for a content block source content, which can be either a text block or an image block.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum ContentBlockSourceContentParam {
+    /// A text block source content.
+    Text(TextBlockParam),
+    
+    /// An image block source content.
+    Image(ImageBlockParam),
+}
+
+impl From<TextBlockParam> for ContentBlockSourceContentParam {
+    fn from(param: TextBlockParam) -> Self {
+        ContentBlockSourceContentParam::Text(param)
+    }
+}
+
+impl From<ImageBlockParam> for ContentBlockSourceContentParam {
+    fn from(param: ImageBlockParam) -> Self {
+        ContentBlockSourceContentParam::Image(param)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, to_value};
+    use crate::types::{UrlImageSource, Base64ImageSource};
+
+    #[test]
+    fn test_content_block_source_content_param_text() {
+        let text_param = TextBlockParam::new("Sample text content".to_string());
+        let content_param = ContentBlockSourceContentParam::Text(text_param);
+        
+        let json = to_value(&content_param).unwrap();
+        
+        assert_eq!(
+            json,
+            json!({
+                "text": "Sample text content",
+                "type": "text"
+            })
+        );
+    }
+
+    #[test]
+    fn test_content_block_source_content_param_image() {
+        let url_source = UrlImageSource::new("https://example.com/image.jpg".to_string());
+        let image_param = ImageBlockParam::new_with_url(url_source);
+        let content_param = ContentBlockSourceContentParam::Image(image_param);
+        
+        let json = to_value(&content_param).unwrap();
+        
+        assert_eq!(
+            json,
+            json!({
+                "source": {
+                    "url": "https://example.com/image.jpg",
+                    "type": "url"
+                },
+                "type": "image"
+            })
+        );
+    }
+    
+    #[test]
+    fn test_from_text_block_param() {
+        let text_param = TextBlockParam::new("Sample text content".to_string());
+        let content_param: ContentBlockSourceContentParam = text_param.into();
+        
+        match content_param {
+            ContentBlockSourceContentParam::Text(param) => {
+                assert_eq!(param.text, "Sample text content");
+            },
+            _ => panic!("Expected Text variant"),
+        }
+    }
+    
+    #[test]
+    fn test_from_image_block_param() {
+        let base64_source = Base64ImageSource::new(
+            "data:image/jpeg;base64,SGVsbG8gd29ybGQ=".to_string()
+        );
+        let image_param = ImageBlockParam::new_with_base64(base64_source);
+        let content_param: ContentBlockSourceContentParam = image_param.into();
+        
+        match content_param {
+            ContentBlockSourceContentParam::Image(_) => {
+                // Test passes if we got the Image variant
+            },
+            _ => panic!("Expected Image variant"),
+        }
+    }
+}

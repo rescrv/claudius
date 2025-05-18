@@ -1,0 +1,62 @@
+use serde::{Deserialize, Serialize};
+
+/// A plain text source parameter for content blocks.
+///
+/// This represents plain text data that can be used as a source in content blocks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PlainTextSource {
+    /// The plain text data.
+    pub data: String,
+    
+    /// The media type, which is always "text/plain".
+    #[serde(rename = "media_type")]
+    pub media_type: String,
+    
+    /// The type, which is always "text".
+    pub r#type: String,
+}
+
+impl PlainTextSource {
+    /// Create a new `PlainTextSource` with the given text data.
+    pub fn new(data: String) -> Self {
+        Self {
+            data,
+            media_type: "text/plain".to_string(),
+            r#type: "text".to_string(),
+        }
+    }
+    
+    /// Create a new `PlainTextSource` from a string reference.
+    pub fn from_str(data: &str) -> Self {
+        Self::new(data.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, to_value};
+
+    #[test]
+    fn test_plain_text_source_serialization() {
+        let source = PlainTextSource::new("Sample text content".to_string());
+        let json = to_value(&source).unwrap();
+        
+        assert_eq!(
+            json,
+            json!({
+                "data": "Sample text content",
+                "media_type": "text/plain",
+                "type": "text"
+            })
+        );
+    }
+
+    #[test]
+    fn test_plain_text_source_from_str() {
+        let source = PlainTextSource::from_str("Sample text content");
+        assert_eq!(source.data, "Sample text content");
+        assert_eq!(source.media_type, "text/plain");
+        assert_eq!(source.r#type, "text");
+    }
+}

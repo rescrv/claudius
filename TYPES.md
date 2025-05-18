@@ -15,14 +15,14 @@
 [x] anthropic-sdk-python/src/anthropic/types/completion_create_params.py
 [x] anthropic-sdk-python/src/anthropic/types/completion.py
 [ ] anthropic-sdk-python/src/anthropic/types/content_block_delta_event.py
-[ ] anthropic-sdk-python/src/anthropic/types/content_block_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/content_block_source_content_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/content_block_source_param.py
+[x] anthropic-sdk-python/src/anthropic/types/content_block_param.py
+[x] anthropic-sdk-python/src/anthropic/types/content_block_source_content_param.py
+[x] anthropic-sdk-python/src/anthropic/types/content_block_source_param.py
 [ ] anthropic-sdk-python/src/anthropic/types/content_block_start_event.py
 [ ] anthropic-sdk-python/src/anthropic/types/content_block_stop_event.py
 [x] anthropic-sdk-python/src/anthropic/types/content_block.py
-[ ] anthropic-sdk-python/src/anthropic/types/document_block_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/image_block_param.py
+[x] anthropic-sdk-python/src/anthropic/types/document_block_param.py
+[x] anthropic-sdk-python/src/anthropic/types/image_block_param.py
 [ ] anthropic-sdk-python/src/anthropic/types/input_json_delta.py
 [ ] anthropic-sdk-python/src/anthropic/types/message_count_tokens_params.py
 [ ] anthropic-sdk-python/src/anthropic/types/message_count_tokens_tool_param.py
@@ -53,7 +53,7 @@
 [ ] anthropic-sdk-python/src/anthropic/types/model_list_params.py
 [x] anthropic-sdk-python/src/anthropic/types/model_param.py
 [x] anthropic-sdk-python/src/anthropic/types/model.py
-[ ] anthropic-sdk-python/src/anthropic/types/plain_text_source_param.py
+[x] anthropic-sdk-python/src/anthropic/types/plain_text_source_param.py
 [ ] anthropic-sdk-python/src/anthropic/types/raw_content_block_delta_event.py
 [ ] anthropic-sdk-python/src/anthropic/types/raw_content_block_delta.py
 [ ] anthropic-sdk-python/src/anthropic/types/raw_content_block_start_event.py
@@ -82,7 +82,7 @@
 [ ] anthropic-sdk-python/src/anthropic/types/shared/rate_limit_error.py
 [ ] anthropic-sdk-python/src/anthropic/types/signature_delta.py
 [x] anthropic-sdk-python/src/anthropic/types/stop_reason.py
-[ ] anthropic-sdk-python/src/anthropic/types/text_block_param.py
+[x] anthropic-sdk-python/src/anthropic/types/text_block_param.py
 [x] anthropic-sdk-python/src/anthropic/types/text_block.py
 [ ] anthropic-sdk-python/src/anthropic/types/text_citation_param.py
 [x] anthropic-sdk-python/src/anthropic/types/text_citation.py
@@ -109,11 +109,11 @@
 [ ] anthropic-sdk-python/src/anthropic/types/url_pdf_source_param.py
 [ ] anthropic-sdk-python/src/anthropic/types/usage.py
 [ ] anthropic-sdk-python/src/anthropic/types/web_search_result_block_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/web_search_result_block.py
+[x] anthropic-sdk-python/src/anthropic/types/web_search_result_block.py
 [ ] anthropic-sdk-python/src/anthropic/types/web_search_tool_20250305_param.py
 [ ] anthropic-sdk-python/src/anthropic/types/web_search_tool_request_error_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_block_content.py
+[x] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_block_content.py
 [ ] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_block_param_content_param.py
 [ ] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_block_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_block.py
-[ ] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_error.py
+[x] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_block.py
+[x] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_error.py
