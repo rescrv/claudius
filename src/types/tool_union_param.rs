@@ -23,7 +23,5 @@ pub enum ToolUnionParam {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    
     // Tests will be added as tool types are implemented
 }

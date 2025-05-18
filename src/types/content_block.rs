@@ -142,7 +142,6 @@ impl From<RedactedThinkingBlock> for ContentBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::Value;
     
     #[test]
     fn test_text_block_serialization() {

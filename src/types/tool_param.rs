@@ -1,7 +1,4 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-
-use crate::types::CacheControlEphemeral;
+// Our tool_param.rs is just a re-export file
 
 /// A tool parameter that can be used to specify a custom tool.
 ///
@@ -19,6 +16,8 @@ pub use crate::types::message_count_tokens_tool_param::InputSchema;
 mod tests {
     use super::*;
     use serde_json::{json, to_value};
+    use std::collections::HashMap;
+    use crate::types::CacheControlEphemeral;
 
     #[test]
     fn test_tool_param_complete() {

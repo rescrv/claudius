@@ -34,7 +34,7 @@ impl ContentBlockSourceParam {
     }
     
     /// Create a new `ContentBlockSourceParam` with string content from a str reference.
-    pub fn from_str(content: &str) -> Self {
+    pub fn from_string_ref(content: &str) -> Self {
         Self::new_with_string(content.to_string())
     }
     
@@ -49,6 +49,14 @@ impl ContentBlockSourceParam {
     /// Create a new `ContentBlockSourceParam` with a single content item.
     pub fn new_with_item(content: ContentBlockSourceContentParam) -> Self {
         Self::new_with_array(vec![content])
+    }
+}
+
+impl std::str::FromStr for ContentBlockSourceParam {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from_string_ref(s))
     }
 }
 
@@ -131,8 +139,22 @@ mod tests {
     }
     
     #[test]
+    fn test_from_string_ref() {
+        let source = ContentBlockSourceParam::from_string_ref("Sample content");
+        
+        match &source.content {
+            ContentBlockSourceContent::String(content) => {
+                assert_eq!(content, "Sample content");
+            },
+            _ => panic!("Expected String variant"),
+        }
+        
+        assert_eq!(source.r#type, "content");
+    }
+    
+    #[test]
     fn test_from_str() {
-        let source = ContentBlockSourceParam::from_str("Sample content");
+        let source = "Sample content".parse::<ContentBlockSourceParam>().unwrap();
         
         match &source.content {
             ContentBlockSourceContent::String(content) => {

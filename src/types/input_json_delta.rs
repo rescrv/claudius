@@ -21,8 +21,16 @@ impl InputJsonDelta {
     }
     
     /// Create a new `InputJsonDelta` from a string reference.
-    pub fn from_str(partial_json: &str) -> Self {
+    pub fn from_string_ref(partial_json: &str) -> Self {
         Self::new(partial_json.to_string())
+    }
+}
+
+impl std::str::FromStr for InputJsonDelta {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from_string_ref(s))
     }
 }
 
@@ -54,6 +62,13 @@ mod tests {
         
         let delta: InputJsonDelta = serde_json::from_value(json).unwrap();
         assert_eq!(delta.partial_json, r#"{"key":"#);
+        assert_eq!(delta.r#type, "input_json_delta");
+    }
+    
+    #[test]
+    fn test_from_str() {
+        let delta = "partial json".parse::<InputJsonDelta>().unwrap();
+        assert_eq!(delta.partial_json, "partial json");
         assert_eq!(delta.r#type, "input_json_delta");
     }
 }

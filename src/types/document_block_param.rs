@@ -158,7 +158,7 @@ mod tests {
     
     #[test]
     fn test_document_block_param_with_content_block() {
-        let content_source = ContentBlockSourceParam::from_str("Sample content");
+        let content_source = ContentBlockSourceParam::from_string_ref("Sample content");
         
         let document_block = DocumentBlockParam::new_with_content_block(content_source);
         let json = to_value(&document_block).unwrap();

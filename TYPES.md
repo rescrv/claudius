@@ -1,4 +1,4 @@
-[ ] anthropic-sdk-python/src/anthropic/types/__init__.py
+[-] anthropic-sdk-python/src/anthropic/types/__init__.py
 [x] anthropic-sdk-python/src/anthropic/types/base64_image_source_param.py
 [x] anthropic-sdk-python/src/anthropic/types/base64_pdf_source_param.py
 [x] anthropic-sdk-python/src/anthropic/types/cache_control_ephemeral_param.py
@@ -35,22 +35,21 @@
 [x] anthropic-sdk-python/src/anthropic/types/message_stream_event.py
 [x] anthropic-sdk-python/src/anthropic/types/message_tokens_count.py
 [x] anthropic-sdk-python/src/anthropic/types/message.py
-[ ] anthropic-sdk-python/src/anthropic/types/messages
-[ ] anthropic-sdk-python/src/anthropic/types/messages/__init__.py
-[ ] anthropic-sdk-python/src/anthropic/types/messages/batch_create_params.py
-[ ] anthropic-sdk-python/src/anthropic/types/messages/batch_list_params.py
-[ ] anthropic-sdk-python/src/anthropic/types/messages/deleted_message_batch.py
-[ ] anthropic-sdk-python/src/anthropic/types/messages/message_batch_canceled_result.py
-[ ] anthropic-sdk-python/src/anthropic/types/messages/message_batch_errored_result.py
-[ ] anthropic-sdk-python/src/anthropic/types/messages/message_batch_expired_result.py
-[ ] anthropic-sdk-python/src/anthropic/types/messages/message_batch_individual_response.py
-[ ] anthropic-sdk-python/src/anthropic/types/messages/message_batch_request_counts.py
-[ ] anthropic-sdk-python/src/anthropic/types/messages/message_batch_result.py
-[ ] anthropic-sdk-python/src/anthropic/types/messages/message_batch_succeeded_result.py
-[ ] anthropic-sdk-python/src/anthropic/types/messages/message_batch.py
+[-] anthropic-sdk-python/src/anthropic/types/messages/__init__.py
+[-] anthropic-sdk-python/src/anthropic/types/messages/batch_create_params.py
+[-] anthropic-sdk-python/src/anthropic/types/messages/batch_list_params.py
+[-] anthropic-sdk-python/src/anthropic/types/messages/deleted_message_batch.py
+[-] anthropic-sdk-python/src/anthropic/types/messages/message_batch_canceled_result.py
+[-] anthropic-sdk-python/src/anthropic/types/messages/message_batch_errored_result.py
+[-] anthropic-sdk-python/src/anthropic/types/messages/message_batch_expired_result.py
+[-] anthropic-sdk-python/src/anthropic/types/messages/message_batch_individual_response.py
+[-] anthropic-sdk-python/src/anthropic/types/messages/message_batch_request_counts.py
+[-] anthropic-sdk-python/src/anthropic/types/messages/message_batch_result.py
+[-] anthropic-sdk-python/src/anthropic/types/messages/message_batch_succeeded_result.py
+[-] anthropic-sdk-python/src/anthropic/types/messages/message_batch.py
 [x] anthropic-sdk-python/src/anthropic/types/metadata_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/model_info.py
-[ ] anthropic-sdk-python/src/anthropic/types/model_list_params.py
+[x] anthropic-sdk-python/src/anthropic/types/model_info.py
+[x] anthropic-sdk-python/src/anthropic/types/model_list_params.py
 [x] anthropic-sdk-python/src/anthropic/types/model_param.py
 [x] anthropic-sdk-python/src/anthropic/types/model.py
 [x] anthropic-sdk-python/src/anthropic/types/plain_text_source_param.py
@@ -67,41 +66,41 @@
 [x] anthropic-sdk-python/src/anthropic/types/server_tool_usage.py
 [x] anthropic-sdk-python/src/anthropic/types/server_tool_use_block_param.py
 [x] anthropic-sdk-python/src/anthropic/types/server_tool_use_block.py
-[ ] anthropic-sdk-python/src/anthropic/types/shared
-[ ] anthropic-sdk-python/src/anthropic/types/shared/__init__.py
-[ ] anthropic-sdk-python/src/anthropic/types/shared/api_error_object.py
-[ ] anthropic-sdk-python/src/anthropic/types/shared/authentication_error.py
-[ ] anthropic-sdk-python/src/anthropic/types/shared/billing_error.py
-[ ] anthropic-sdk-python/src/anthropic/types/shared/error_object.py
-[ ] anthropic-sdk-python/src/anthropic/types/shared/error_response.py
-[ ] anthropic-sdk-python/src/anthropic/types/shared/gateway_timeout_error.py
-[ ] anthropic-sdk-python/src/anthropic/types/shared/invalid_request_error.py
-[ ] anthropic-sdk-python/src/anthropic/types/shared/not_found_error.py
-[ ] anthropic-sdk-python/src/anthropic/types/shared/overloaded_error.py
-[ ] anthropic-sdk-python/src/anthropic/types/shared/permission_error.py
-[ ] anthropic-sdk-python/src/anthropic/types/shared/rate_limit_error.py
+[x] anthropic-sdk-python/src/anthropic/types/shared
+[x] anthropic-sdk-python/src/anthropic/types/shared/__init__.py
+[x] anthropic-sdk-python/src/anthropic/types/shared/api_error_object.py
+[x] anthropic-sdk-python/src/anthropic/types/shared/authentication_error.py
+[x] anthropic-sdk-python/src/anthropic/types/shared/billing_error.py
+[x] anthropic-sdk-python/src/anthropic/types/shared/error_object.py
+[x] anthropic-sdk-python/src/anthropic/types/shared/error_response.py
+[x] anthropic-sdk-python/src/anthropic/types/shared/gateway_timeout_error.py
+[x] anthropic-sdk-python/src/anthropic/types/shared/invalid_request_error.py
+[x] anthropic-sdk-python/src/anthropic/types/shared/not_found_error.py
+[x] anthropic-sdk-python/src/anthropic/types/shared/overloaded_error.py
+[x] anthropic-sdk-python/src/anthropic/types/shared/permission_error.py
+[x] anthropic-sdk-python/src/anthropic/types/shared/rate_limit_error.py
 [x] anthropic-sdk-python/src/anthropic/types/signature_delta.py
 [x] anthropic-sdk-python/src/anthropic/types/stop_reason.py
 [x] anthropic-sdk-python/src/anthropic/types/text_block_param.py
 [x] anthropic-sdk-python/src/anthropic/types/text_block.py
-[ ] anthropic-sdk-python/src/anthropic/types/text_citation_param.py
+[x] anthropic-sdk-python/src/anthropic/types/text_citation_param.py
 [x] anthropic-sdk-python/src/anthropic/types/text_citation.py
 [x] anthropic-sdk-python/src/anthropic/types/text_delta.py
 [x] anthropic-sdk-python/src/anthropic/types/thinking_block_param.py
 [x] anthropic-sdk-python/src/anthropic/types/thinking_block.py
-[ ] anthropic-sdk-python/src/anthropic/types/thinking_config_disabled_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/thinking_config_enabled_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/thinking_config_param.py
+[x] anthropic-sdk-python/src/anthropic/types/thinking_config_disabled_param.py
+[x] anthropic-sdk-python/src/anthropic/types/thinking_config_enabled_param.py
+[x] anthropic-sdk-python/src/anthropic/types/thinking_config_param.py
 [x] anthropic-sdk-python/src/anthropic/types/thinking_delta.py
-[ ] anthropic-sdk-python/src/anthropic/types/tool_bash_20250124_param.py
+[x] anthropic-sdk-python/src/anthropic/types/tool_bash_20250124_param.py
 [x] anthropic-sdk-python/src/anthropic/types/tool_choice_any_param.py
 [x] anthropic-sdk-python/src/anthropic/types/tool_choice_auto_param.py
 [x] anthropic-sdk-python/src/anthropic/types/tool_choice_none_param.py
 [x] anthropic-sdk-python/src/anthropic/types/tool_choice_param.py
 [x] anthropic-sdk-python/src/anthropic/types/tool_choice_tool_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/tool_param.py
+[x] anthropic-sdk-python/src/anthropic/types/tool_param.py
 [x] anthropic-sdk-python/src/anthropic/types/tool_result_block_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/tool_text_editor_20250124_param.py
+[x] anthropic-sdk-python/src/anthropic/types/tool_text_editor_20250124_param.py
 [x] anthropic-sdk-python/src/anthropic/types/tool_union_param.py
 [x] anthropic-sdk-python/src/anthropic/types/tool_use_block_param.py
 [x] anthropic-sdk-python/src/anthropic/types/tool_use_block.py
@@ -110,7 +109,7 @@
 [x] anthropic-sdk-python/src/anthropic/types/usage.py
 [x] anthropic-sdk-python/src/anthropic/types/web_search_result_block_param.py
 [x] anthropic-sdk-python/src/anthropic/types/web_search_result_block.py
-[ ] anthropic-sdk-python/src/anthropic/types/web_search_tool_20250305_param.py
+[x] anthropic-sdk-python/src/anthropic/types/web_search_tool_20250305_param.py
 [x] anthropic-sdk-python/src/anthropic/types/web_search_tool_request_error_param.py
 [x] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_block_content.py
 [x] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_block_param_content_param.py

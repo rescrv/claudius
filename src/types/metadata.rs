@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 /// Metadata that can be included with requests.
 ///
 /// This can be used to provide additional context or client information with requests.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Metadata {
     /// An external identifier for the user who is associated with the request.
     ///

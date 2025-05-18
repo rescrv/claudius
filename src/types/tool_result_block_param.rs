@@ -101,10 +101,10 @@ impl ToolResultBlockParam {
                 ToolResultBlockParamContent::Array(items)
             },
             Some(ToolResultBlockParamContent::String(s)) => {
-                let mut items = Vec::new();
-                items.push(ToolResultContent::Text(TextBlockParam::from_str(&s)));
-                items.push(ToolResultContent::Text(text));
-                ToolResultBlockParamContent::Array(items)
+                ToolResultBlockParamContent::Array(vec![
+                    ToolResultContent::Text(TextBlockParam::from_string_ref(&s)),
+                    ToolResultContent::Text(text)
+                ])
             },
             None => {
                 ToolResultBlockParamContent::Array(vec![ToolResultContent::Text(text)])

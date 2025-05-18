@@ -27,8 +27,16 @@ impl PlainTextSource {
     }
     
     /// Create a new `PlainTextSource` from a string reference.
-    pub fn from_str(data: &str) -> Self {
+    pub fn from_string_ref(data: &str) -> Self {
         Self::new(data.to_string())
+    }
+}
+
+impl std::str::FromStr for PlainTextSource {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from_string_ref(s))
     }
 }
 
@@ -53,8 +61,16 @@ mod tests {
     }
 
     #[test]
-    fn test_plain_text_source_from_str() {
-        let source = PlainTextSource::from_str("Sample text content");
+    fn test_plain_text_source_from_string_ref() {
+        let source = PlainTextSource::from_string_ref("Sample text content");
+        assert_eq!(source.data, "Sample text content");
+        assert_eq!(source.media_type, "text/plain");
+        assert_eq!(source.r#type, "text");
+    }
+    
+    #[test]
+    fn test_from_str() {
+        let source = "Sample text content".parse::<PlainTextSource>().unwrap();
         assert_eq!(source.data, "Sample text content");
         assert_eq!(source.media_type, "text/plain");
         assert_eq!(source.r#type, "text");

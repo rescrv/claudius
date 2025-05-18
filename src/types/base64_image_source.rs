@@ -2,7 +2,7 @@ use std::path::Path;
 use std::fs::File;
 use std::io::Read;
 use serde::{Serialize, Deserialize};
-use serde_json::Value;
+use base64::Engine;
 
 /// Represents a base64-encoded image source.
 /// 
@@ -77,7 +77,7 @@ impl Base64ImageSource {
         file.read_to_end(&mut buffer)?;
         
         // Encode as base64
-        let data = base64::encode(&buffer);
+        let data = base64::engine::general_purpose::STANDARD.encode(&buffer);
         
         Ok(Self {
             data,

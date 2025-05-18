@@ -30,8 +30,11 @@ pub mod message_start_event;
 pub mod message_stop_event;
 pub mod message_stream_event;
 pub mod message_tokens_count;
+pub mod messages;
 pub mod metadata;
 pub mod model;
+pub mod model_info;
+pub mod model_list_params;
 pub mod plain_text_source;
 pub mod raw_content_block_delta;
 pub mod raw_content_block_delta_event;
@@ -46,11 +49,13 @@ pub mod redacted_thinking_block_param;
 pub mod server_tool_usage;
 pub mod server_tool_use_block;
 pub mod server_tool_use_block_param;
+pub mod shared;
 pub mod signature_delta;
 pub mod stop_reason;
 pub mod text_block;
 pub mod text_block_param;
 pub mod text_citation;
+pub mod text_citation_param;
 pub mod text_delta;
 pub mod thinking_block;
 pub mod thinking_block_param;
@@ -58,6 +63,7 @@ pub mod thinking_config_disabled_param;
 pub mod thinking_config_enabled_param;
 pub mod thinking_config_param;
 pub mod thinking_delta;
+pub mod tool_bash_20250124_param;
 pub mod tool_choice_any_param;
 pub mod tool_choice_auto_param;
 pub mod tool_choice_none_param;
@@ -65,6 +71,7 @@ pub mod tool_choice_param;
 pub mod tool_choice_tool_param;
 pub mod tool_param;
 pub mod tool_result_block_param;
+pub mod tool_text_editor_20250124_param;
 pub mod tool_union_param;
 pub mod tool_use_block;
 pub mod tool_use_block_param;
@@ -73,6 +80,7 @@ pub mod url_pdf_source;
 pub mod usage;
 pub mod web_search_result_block;
 pub mod web_search_result_block_param;
+pub mod web_search_tool_20250305_param;
 pub mod web_search_tool_request_error_param;
 pub mod web_search_tool_result_block;
 pub mod web_search_tool_result_block_content;
@@ -112,8 +120,15 @@ pub use message_start_event::MessageStartEvent;
 pub use message_stop_event::MessageStopEvent;
 pub use message_stream_event::MessageStreamEvent;
 pub use message_tokens_count::MessageTokensCount;
+pub use messages::{
+    BatchCreateParams,
+    BatchListParams,
+    Request,
+};
 pub use metadata::Metadata;
 pub use model::{Model, KnownModel};
+pub use model_info::{ModelInfo, ModelType};
+pub use model_list_params::ModelListParams;
 pub use plain_text_source::PlainTextSource;
 pub use raw_content_block_delta::RawContentBlockDelta;
 pub use raw_content_block_delta_event::RawContentBlockDeltaEvent;
@@ -133,6 +148,7 @@ pub use stop_reason::StopReason;
 pub use text_block::TextBlock;
 pub use text_block_param::TextBlockParam;
 pub use text_citation::TextCitation;
+pub use text_citation_param::TextCitationParam;
 pub use text_delta::TextDelta;
 pub use thinking_block::ThinkingBlock;
 pub use thinking_block_param::ThinkingBlockParam;
@@ -142,10 +158,12 @@ pub use thinking_config_param::ThinkingConfigParam;
 pub use thinking_delta::ThinkingDelta;
 pub use tool_choice_any_param::ToolChoiceAnyParam;
 pub use tool_choice_auto_param::ToolChoiceAutoParam;
+pub use tool_bash_20250124_param::ToolBash20250124Param;
 pub use tool_choice_none_param::ToolChoiceNoneParam;
 pub use tool_choice_param::ToolChoiceParam;
 pub use tool_choice_tool_param::ToolChoiceToolParam;
 pub use tool_result_block_param::{ToolResultBlockParam, ToolResultBlockParamContent, ToolResultContent};
+pub use tool_text_editor_20250124_param::ToolTextEditor20250124Param;
 pub use tool_union_param::ToolUnionParam;
 pub use tool_use_block::ToolUseBlock;
 pub use tool_use_block_param::ToolUseBlockParam;
@@ -154,9 +172,23 @@ pub use url_pdf_source::UrlPdfSource;
 pub use usage::Usage;
 pub use web_search_result_block::WebSearchResultBlock;
 pub use web_search_result_block_param::WebSearchResultBlockParam;
+pub use web_search_tool_20250305_param::{WebSearchTool20250305Param, UserLocation};
 pub use web_search_tool_request_error_param::{WebSearchToolRequestErrorParam, WebSearchToolRequestErrorCode};
 pub use web_search_tool_result_block::WebSearchToolResultBlock;
 pub use web_search_tool_result_block_content::WebSearchToolResultBlockContent;
 pub use web_search_tool_result_block_param::WebSearchToolResultBlockParam;
 pub use web_search_tool_result_block_param_content::WebSearchToolResultBlockParamContent;
 pub use web_search_tool_result_error::{WebSearchToolResultError, WebSearchErrorCode};
+pub use shared::{
+    ApiErrorObject, 
+    AuthenticationError,
+    BillingError,
+    ErrorObject,
+    ErrorResponse,
+    GatewayTimeoutError,
+    InvalidRequestError,
+    NotFoundError,
+    OverloadedError,
+    PermissionError,
+    RateLimitError,
+};

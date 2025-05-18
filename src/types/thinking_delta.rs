@@ -20,8 +20,16 @@ impl ThinkingDelta {
     }
     
     /// Create a new `ThinkingDelta` from a string reference.
-    pub fn from_str(thinking: &str) -> Self {
+    pub fn from_string_ref(thinking: &str) -> Self {
         Self::new(thinking.to_string())
+    }
+}
+
+impl std::str::FromStr for ThinkingDelta {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from_string_ref(s))
     }
 }
 
@@ -52,6 +60,13 @@ mod tests {
         });
         
         let delta: ThinkingDelta = serde_json::from_value(json).unwrap();
+        assert_eq!(delta.thinking, "Let me think about this...");
+        assert_eq!(delta.r#type, "thinking_delta");
+    }
+    
+    #[test]
+    fn test_from_str() {
+        let delta = "Let me think about this...".parse::<ThinkingDelta>().unwrap();
         assert_eq!(delta.thinking, "Let me think about this...");
         assert_eq!(delta.r#type, "thinking_delta");
     }

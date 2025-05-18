@@ -35,7 +35,7 @@ impl TextBlockParam {
     }
     
     /// Create a new `TextBlockParam` from a string reference.
-    pub fn from_str(text: &str) -> Self {
+    pub fn from_string_ref(text: &str) -> Self {
         Self::new(text.to_string())
     }
     
@@ -59,6 +59,14 @@ impl TextBlockParam {
             self.citations = Some(vec![citation]);
         }
         self
+    }
+}
+
+impl std::str::FromStr for TextBlockParam {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from_string_ref(s))
     }
 }
 

@@ -20,8 +20,16 @@ impl SignatureDelta {
     }
     
     /// Create a new `SignatureDelta` from a string reference.
-    pub fn from_str(signature: &str) -> Self {
+    pub fn from_string_ref(signature: &str) -> Self {
         Self::new(signature.to_string())
+    }
+}
+
+impl std::str::FromStr for SignatureDelta {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from_string_ref(s))
     }
 }
 
@@ -52,6 +60,13 @@ mod tests {
         });
         
         let delta: SignatureDelta = serde_json::from_value(json).unwrap();
+        assert_eq!(delta.signature, "Robert Paulson");
+        assert_eq!(delta.r#type, "signature_delta");
+    }
+    
+    #[test]
+    fn test_from_str() {
+        let delta = "Robert Paulson".parse::<SignatureDelta>().unwrap();
         assert_eq!(delta.signature, "Robert Paulson");
         assert_eq!(delta.r#type, "signature_delta");
     }

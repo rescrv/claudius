@@ -131,7 +131,7 @@ impl MessageCountTokensParams {
 mod tests {
     use super::*;
     use serde_json::{json, to_value};
-    use crate::types::{KnownModel, TextBlockParam, MessageRole};
+    use crate::types::{KnownModel, MessageRole};
 
     #[test]
     fn test_message_count_tokens_params_serialization() {

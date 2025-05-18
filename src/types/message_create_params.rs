@@ -11,7 +11,7 @@ use crate::types::{
 };
 
 /// Base parameters for creating messages.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MessageCreateParamsBase {
     /// The maximum number of tokens to generate before stopping.
     ///
@@ -124,7 +124,7 @@ pub struct MessageCreateParamsBase {
 }
 
 /// Parameters for creating messages without streaming.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MessageCreateParamsNonStreaming {
     #[serde(flatten)]
     pub base: MessageCreateParamsBase,
@@ -161,7 +161,7 @@ pub enum MessageCreateParams {
 }
 
 /// Represents either a string or an array of TextBlockParam for system prompts.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SystemPrompt {
     /// A simple string system prompt.
