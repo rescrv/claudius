@@ -1,17 +1,17 @@
 [ ] anthropic-sdk-python/src/anthropic/types/__init__.py
-[ ] anthropic-sdk-python/src/anthropic/types/base64_image_source_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/base64_pdf_source_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/cache_control_ephemeral_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/citation_char_location_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/citation_char_location.py
-[ ] anthropic-sdk-python/src/anthropic/types/citation_content_block_location_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/citation_content_block_location.py
-[ ] anthropic-sdk-python/src/anthropic/types/citation_page_location_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/citation_page_location.py
-[ ] anthropic-sdk-python/src/anthropic/types/citation_web_search_result_location_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/citations_config_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/citations_delta.py
-[ ] anthropic-sdk-python/src/anthropic/types/citations_web_search_result_location.py
+[x] anthropic-sdk-python/src/anthropic/types/base64_image_source_param.py
+[x] anthropic-sdk-python/src/anthropic/types/base64_pdf_source_param.py
+[x] anthropic-sdk-python/src/anthropic/types/cache_control_ephemeral_param.py
+[x] anthropic-sdk-python/src/anthropic/types/citation_char_location_param.py
+[x] anthropic-sdk-python/src/anthropic/types/citation_char_location.py
+[x] anthropic-sdk-python/src/anthropic/types/citation_content_block_location_param.py
+[x] anthropic-sdk-python/src/anthropic/types/citation_content_block_location.py
+[x] anthropic-sdk-python/src/anthropic/types/citation_page_location_param.py
+[x] anthropic-sdk-python/src/anthropic/types/citation_page_location.py
+[x] anthropic-sdk-python/src/anthropic/types/citation_web_search_result_location_param.py
+[x] anthropic-sdk-python/src/anthropic/types/citations_config_param.py
+[x] anthropic-sdk-python/src/anthropic/types/citations_delta.py
+[x] anthropic-sdk-python/src/anthropic/types/citations_web_search_result_location.py
 [ ] anthropic-sdk-python/src/anthropic/types/completion_create_params.py
 [ ] anthropic-sdk-python/src/anthropic/types/completion.py
 [ ] anthropic-sdk-python/src/anthropic/types/content_block_delta_event.py
