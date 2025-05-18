@@ -29,7 +29,7 @@
 [ ] anthropic-sdk-python/src/anthropic/types/message_create_params.py
 [x] anthropic-sdk-python/src/anthropic/types/message_delta_event.py
 [x] anthropic-sdk-python/src/anthropic/types/message_delta_usage.py
-[ ] anthropic-sdk-python/src/anthropic/types/message_param.py
+[x] anthropic-sdk-python/src/anthropic/types/message_param.py
 [x] anthropic-sdk-python/src/anthropic/types/message_start_event.py
 [x] anthropic-sdk-python/src/anthropic/types/message_stop_event.py
 [x] anthropic-sdk-python/src/anthropic/types/message_stream_event.py
@@ -108,12 +108,12 @@
 [x] anthropic-sdk-python/src/anthropic/types/url_image_source_param.py
 [x] anthropic-sdk-python/src/anthropic/types/url_pdf_source_param.py
 [x] anthropic-sdk-python/src/anthropic/types/usage.py
-[ ] anthropic-sdk-python/src/anthropic/types/web_search_result_block_param.py
+[x] anthropic-sdk-python/src/anthropic/types/web_search_result_block_param.py
 [x] anthropic-sdk-python/src/anthropic/types/web_search_result_block.py
 [ ] anthropic-sdk-python/src/anthropic/types/web_search_tool_20250305_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/web_search_tool_request_error_param.py
+[x] anthropic-sdk-python/src/anthropic/types/web_search_tool_request_error_param.py
 [x] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_block_content.py
-[ ] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_block_param_content_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_block_param.py
+[x] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_block_param_content_param.py
+[x] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_block_param.py
 [x] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_block.py
 [x] anthropic-sdk-python/src/anthropic/types/web_search_tool_result_error.py
