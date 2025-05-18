@@ -1,4 +1,5 @@
 // Public modules
+pub mod anthropic_beta;
 pub mod base64_image_source;
 pub mod base64_pdf_source;
 pub mod cache_control_ephemeral;
@@ -8,8 +9,20 @@ pub mod citation_page_location;
 pub mod citation_web_search_result_location;
 pub mod citations_config;
 pub mod citations_delta;
+pub mod completion;
+pub mod content_block;
+pub mod metadata;
+pub mod model;
+pub mod redacted_thinking_block;
+pub mod server_tool_use_block;
+pub mod stop_reason;
+pub mod text_block;
+pub mod text_citation;
+pub mod thinking_block;
+pub mod tool_use_block;
 
 // Re-exports
+pub use anthropic_beta::{AnthropicBeta, KnownBeta};
 pub use base64_image_source::Base64ImageSource;
 pub use base64_pdf_source::Base64PdfSource;
 pub use cache_control_ephemeral::CacheControlEphemeral;
@@ -19,3 +32,14 @@ pub use citation_page_location::CitationPageLocation;
 pub use citation_web_search_result_location::CitationWebSearchResultLocation;
 pub use citations_config::CitationsConfig;
 pub use citations_delta::{Citation, CitationsDelta};
+pub use completion::{Completion, CompletionCreateParams};
+pub use content_block::ContentBlock;
+pub use metadata::Metadata;
+pub use model::{Model, KnownModel};
+pub use redacted_thinking_block::RedactedThinkingBlock;
+pub use server_tool_use_block::ServerToolUseBlock;
+pub use stop_reason::StopReason;
+pub use text_block::TextBlock;
+pub use text_citation::TextCitation;
+pub use thinking_block::ThinkingBlock;
+pub use tool_use_block::ToolUseBlock;
