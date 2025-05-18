@@ -1,0 +1,69 @@
+use serde::{Serialize, Deserialize};
+use time::OffsetDateTime;
+
+/// Information about a specific model.
+///
+/// This struct contains details about an Anthropic model, including its
+/// unique identifier, creation time, display name, and type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelInfo {
+    /// Unique model identifier.
+    pub id: String,
+
+    /// RFC 3339 datetime string representing the time at which the model was released.
+    ///
+    /// May be set to an epoch value if the release date is unknown.
+    #[serde(rename = "created_at")]
+    pub created_at: OffsetDateTime,
+
+    /// A human-readable name for the model.
+    #[serde(rename = "display_name")]
+    pub display_name: String,
+
+    /// Object type.
+    ///
+    /// For Models, this is always `"model"`.
+    #[serde(rename = "type")]
+    pub type_field: ModelType,
+}
+
+/// Type of the model object.
+///
+/// For model objects, this is always "model".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelType {
+    /// Model type
+    Model,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use time::macros::datetime;
+
+    #[test]
+    fn test_model_info_serialization() {
+        let model_info = ModelInfo {
+            id: "claude-3-7-sonnet-20250219".to_string(),
+            created_at: datetime!(2025-02-19 0:00:00 UTC),
+            display_name: "Claude 3.7 Sonnet".to_string(),
+            type_field: ModelType::Model,
+        };
+
+        let json = serde_json::to_string(&model_info).unwrap();
+        let expected = r#"{"id":"claude-3-7-sonnet-20250219","created_at":"2025-02-19T00:00:00Z","display_name":"Claude 3.7 Sonnet","type":"model"}"#;
+        assert_eq!(json, expected);
+    }
+
+    #[test]
+    fn test_model_info_deserialization() {
+        let json = r#"{"id":"claude-3-7-sonnet-20250219","created_at":"2025-02-19T00:00:00Z","display_name":"Claude 3.7 Sonnet","type":"model"}"#;
+        let model_info: ModelInfo = serde_json::from_str(json).unwrap();
+
+        assert_eq!(model_info.id, "claude-3-7-sonnet-20250219");
+        assert_eq!(model_info.created_at, datetime!(2025-02-19 0:00:00 UTC));
+        assert_eq!(model_info.display_name, "Claude 3.7 Sonnet");
+        assert_eq!(model_info.type_field, ModelType::Model);
+    }
+}
