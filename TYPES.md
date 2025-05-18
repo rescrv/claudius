@@ -18,8 +18,8 @@
 [x] anthropic-sdk-python/src/anthropic/types/content_block_param.py
 [x] anthropic-sdk-python/src/anthropic/types/content_block_source_content_param.py
 [x] anthropic-sdk-python/src/anthropic/types/content_block_source_param.py
-[ ] anthropic-sdk-python/src/anthropic/types/content_block_start_event.py
-[ ] anthropic-sdk-python/src/anthropic/types/content_block_stop_event.py
+[x] anthropic-sdk-python/src/anthropic/types/content_block_start_event.py
+[x] anthropic-sdk-python/src/anthropic/types/content_block_stop_event.py
 [x] anthropic-sdk-python/src/anthropic/types/content_block.py
 [x] anthropic-sdk-python/src/anthropic/types/document_block_param.py
 [x] anthropic-sdk-python/src/anthropic/types/image_block_param.py
@@ -56,8 +56,8 @@
 [x] anthropic-sdk-python/src/anthropic/types/plain_text_source_param.py
 [x] anthropic-sdk-python/src/anthropic/types/raw_content_block_delta_event.py
 [x] anthropic-sdk-python/src/anthropic/types/raw_content_block_delta.py
-[ ] anthropic-sdk-python/src/anthropic/types/raw_content_block_start_event.py
-[ ] anthropic-sdk-python/src/anthropic/types/raw_content_block_stop_event.py
+[x] anthropic-sdk-python/src/anthropic/types/raw_content_block_start_event.py
+[x] anthropic-sdk-python/src/anthropic/types/raw_content_block_stop_event.py
 [ ] anthropic-sdk-python/src/anthropic/types/raw_message_delta_event.py
 [ ] anthropic-sdk-python/src/anthropic/types/raw_message_start_event.py
 [ ] anthropic-sdk-python/src/anthropic/types/raw_message_stop_event.py
