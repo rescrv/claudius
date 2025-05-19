@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Represents a web search result location citation.
 ///
@@ -7,18 +7,18 @@ use serde::{Serialize, Deserialize};
 pub struct CitationWebSearchResultLocation {
     /// The text that was cited
     pub cited_text: String,
-    
+
     /// An encrypted identifier for the web search result
     pub encrypted_index: String,
-    
+
     /// Optional title of the web page
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    
+
     /// The type of citation, always "web_search_result_location" for this struct
     #[serde(default = "default_type")]
     pub r#type: String,
-    
+
     /// The URL of the web page containing the cited content
     pub url: String,
 }
@@ -43,7 +43,7 @@ impl CitationWebSearchResultLocation {
             url,
         }
     }
-    
+
     /// Returns the URL domain (host) part of the citation
     pub fn domain(&self) -> Option<String> {
         url::Url::parse(&self.url)
@@ -55,7 +55,7 @@ impl CitationWebSearchResultLocation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_serialization() {
         let location = CitationWebSearchResultLocation {
@@ -65,13 +65,13 @@ mod tests {
             r#type: "web_search_result_location".to_string(),
             url: "https://example.com/page".to_string(),
         };
-        
+
         let json = serde_json::to_string(&location).unwrap();
         let expected = r#"{"cited_text":"example text","encrypted_index":"abc123","title":"Example Website","type":"web_search_result_location","url":"https://example.com/page"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_serialization_without_title() {
         let location = CitationWebSearchResultLocation {
@@ -81,25 +81,25 @@ mod tests {
             r#type: "web_search_result_location".to_string(),
             url: "https://example.com/page".to_string(),
         };
-        
+
         let json = serde_json::to_string(&location).unwrap();
         let expected = r#"{"cited_text":"example text","encrypted_index":"abc123","type":"web_search_result_location","url":"https://example.com/page"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_deserialization() {
         let json = r#"{"cited_text":"example text","encrypted_index":"abc123","title":"Example Website","type":"web_search_result_location","url":"https://example.com/page"}"#;
         let location: CitationWebSearchResultLocation = serde_json::from_str(json).unwrap();
-        
+
         assert_eq!(location.cited_text, "example text");
         assert_eq!(location.encrypted_index, "abc123");
         assert_eq!(location.title, Some("Example Website".to_string()));
         assert_eq!(location.r#type, "web_search_result_location");
         assert_eq!(location.url, "https://example.com/page");
     }
-    
+
     #[test]
     fn test_domain() {
         let location = CitationWebSearchResultLocation {
@@ -109,7 +109,7 @@ mod tests {
             r#type: "web_search_result_location".to_string(),
             url: "https://example.com/page".to_string(),
         };
-        
+
         assert_eq!(location.domain(), Some("example.com".to_string()));
     }
 }

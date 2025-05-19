@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 pub struct PlainTextSource {
     /// The plain text data.
     pub data: String,
-    
+
     /// The media type, which is always "text/plain".
     #[serde(rename = "media_type")]
     pub media_type: String,
-    
+
     /// The type, which is always "text".
     pub r#type: String,
 }
@@ -25,7 +25,7 @@ impl PlainTextSource {
             r#type: "text".to_string(),
         }
     }
-    
+
     /// Create a new `PlainTextSource` from a string reference.
     pub fn from_string_ref(data: &str) -> Self {
         Self::new(data.to_string())
@@ -49,7 +49,7 @@ mod tests {
     fn test_plain_text_source_serialization() {
         let source = PlainTextSource::new("Sample text content".to_string());
         let json = to_value(&source).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -67,7 +67,7 @@ mod tests {
         assert_eq!(source.media_type, "text/plain");
         assert_eq!(source.r#type, "text");
     }
-    
+
     #[test]
     fn test_from_str() {
         let source = "Sample text content".parse::<PlainTextSource>().unwrap();

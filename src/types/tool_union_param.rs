@@ -15,7 +15,7 @@ pub enum ToolUnionParam {
     // Note: These variants will be enabled as each tool type is implemented
     // TODO: Add CustomTool(ToolParam) when implemented
     // TODO: Add Bash20250124(ToolBash20250124Param) when implemented
-    // TODO: Add TextEditor20250124(ToolTextEditor20250124Param) when implemented 
+    // TODO: Add TextEditor20250124(ToolTextEditor20250124Param) when implemented
     // TODO: Add WebSearch20250305(WebSearchTool20250305Param) when implemented
 }
 

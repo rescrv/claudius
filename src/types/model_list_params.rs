@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Parameters for listing models.
 ///
@@ -102,7 +102,7 @@ mod tests {
         assert_eq!(params.before_id, None);
         assert_eq!(params.limit, Some(50));
         assert_eq!(
-            params.betas, 
+            params.betas,
             Some(vec!["token-counting-2024-11-01".to_string()])
         );
     }
@@ -120,13 +120,14 @@ mod tests {
 
     #[test]
     fn test_model_list_params_deserialization() {
-        let json = r#"{"after_id":"model_123","limit":50,"anthropic-beta":["token-counting-2024-11-01"]}"#;
+        let json =
+            r#"{"after_id":"model_123","limit":50,"anthropic-beta":["token-counting-2024-11-01"]}"#;
         let params: ModelListParams = serde_json::from_str(json).unwrap();
 
         assert_eq!(params.after_id, Some("model_123".to_string()));
         assert_eq!(params.limit, Some(50));
         assert_eq!(
-            params.betas, 
+            params.betas,
             Some(vec!["token-counting-2024-11-01".to_string()])
         );
     }

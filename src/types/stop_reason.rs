@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
-use serde::{Serialize, Deserialize};
 
 /// Reasons why the model stopped generating a response.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -7,19 +7,19 @@ use serde::{Serialize, Deserialize};
 pub enum StopReason {
     /// The model reached the end of a generated turn
     EndTurn,
-    
+
     /// The response reached the maximum token limit for the response
     MaxTokens,
-    
+
     /// The model reached a specified stop sequence
     StopSequence,
-    
+
     /// The model indicated it wants to use a tool
     ToolUse,
-    
+
     /// The model paused in the middle of a turn
     PauseTurn,
-    
+
     /// The model refused to respond due to safety or other considerations
     Refusal,
 }
@@ -54,34 +54,34 @@ impl From<&str> for StopReason {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_serialization() {
         let reason = StopReason::EndTurn;
         let json = serde_json::to_string(&reason).unwrap();
         assert_eq!(json, r#""end_turn""#);
-        
+
         let reason = StopReason::MaxTokens;
         let json = serde_json::to_string(&reason).unwrap();
         assert_eq!(json, r#""max_tokens""#);
     }
-    
+
     #[test]
     fn test_deserialization() {
         let json = r#""end_turn""#;
         let reason: StopReason = serde_json::from_str(json).unwrap();
         assert_eq!(reason, StopReason::EndTurn);
-        
+
         let json = r#""stop_sequence""#;
         let reason: StopReason = serde_json::from_str(json).unwrap();
         assert_eq!(reason, StopReason::StopSequence);
     }
-    
+
     #[test]
     fn test_display() {
         let reason = StopReason::EndTurn;
         assert_eq!(reason.to_string(), "end_turn");
-        
+
         let reason = StopReason::MaxTokens;
         assert_eq!(reason.to_string(), "max_tokens");
     }

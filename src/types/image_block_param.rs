@@ -1,10 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{
-    Base64ImageSource,
-    CacheControlEphemeral,
-    UrlImageSource,
-};
+use crate::types::{Base64ImageSource, CacheControlEphemeral, UrlImageSource};
 
 /// The source type for an image block, which can be either Base64 encoded or a URL.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -12,7 +8,7 @@ use crate::types::{
 pub enum ImageSource {
     /// A Base64 encoded image source.
     Base64(Base64ImageSource),
-    
+
     /// A URL image source.
     Url(UrlImageSource),
 }
@@ -22,10 +18,10 @@ pub enum ImageSource {
 pub struct ImageBlockParam {
     /// The source of the image.
     pub source: ImageSource,
-    
+
     /// The type, which is always "image".
     pub r#type: String,
-    
+
     /// Create a cache control breakpoint at this content block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControlEphemeral>,
@@ -40,17 +36,17 @@ impl ImageBlockParam {
             cache_control: None,
         }
     }
-    
+
     /// Create a new `ImageBlockParam` with a Base64 image source.
     pub fn new_with_base64(source: Base64ImageSource) -> Self {
         Self::new(ImageSource::Base64(source))
     }
-    
+
     /// Create a new `ImageBlockParam` with a URL image source.
     pub fn new_with_url(source: UrlImageSource) -> Self {
         Self::new(ImageSource::Url(source))
     }
-    
+
     /// Add a cache control to this image block.
     pub fn with_cache_control(mut self, cache_control: CacheControlEphemeral) -> Self {
         self.cache_control = Some(cache_control);
@@ -61,19 +57,19 @@ impl ImageBlockParam {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, to_value};
     use crate::types::base64_image_source::ImageMediaType;
+    use serde_json::{json, to_value};
 
     #[test]
     fn test_image_block_param_with_base64() {
         let base64_source = Base64ImageSource::new(
             "data:image/jpeg;base64,SGVsbG8gd29ybGQ=".to_string(),
-            ImageMediaType::Jpeg
+            ImageMediaType::Jpeg,
         );
-        
+
         let image_block = ImageBlockParam::new_with_base64(base64_source);
         let json = to_value(&image_block).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -85,14 +81,14 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_image_block_param_with_url() {
         let url_source = UrlImageSource::new("https://example.com/image.jpg".to_string());
-        
+
         let image_block = ImageBlockParam::new_with_url(url_source);
         let json = to_value(&image_block).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -104,17 +100,17 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_image_block_param_with_cache_control() {
         let url_source = UrlImageSource::new("https://example.com/image.jpg".to_string());
         let cache_control = CacheControlEphemeral::new();
-        
-        let image_block = ImageBlockParam::new_with_url(url_source)
-            .with_cache_control(cache_control);
-        
+
+        let image_block =
+            ImageBlockParam::new_with_url(url_source).with_cache_control(cache_control);
+
         let json = to_value(&image_block).unwrap();
-        
+
         assert_eq!(
             json,
             json!({

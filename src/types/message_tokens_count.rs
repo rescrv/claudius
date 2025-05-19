@@ -18,12 +18,12 @@ impl MessageTokensCount {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, to_value, from_value};
+    use serde_json::{from_value, json, to_value};
 
     #[test]
     fn test_message_tokens_count_serialization() {
         let count = MessageTokensCount::new(123);
-        
+
         let json = to_value(&count).unwrap();
         assert_eq!(
             json,
@@ -32,13 +32,13 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_message_tokens_count_deserialization() {
         let json = json!({
             "input_tokens": 456
         });
-        
+
         let count: MessageTokensCount = from_value(json).unwrap();
         assert_eq!(count.input_tokens, 456);
     }

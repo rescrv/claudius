@@ -1,7 +1,7 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Represents a not found error returned by the Anthropic API.
-/// 
+///
 /// This error occurs when a requested resource cannot be found.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NotFoundError {
@@ -31,7 +31,10 @@ mod tests {
     fn test_not_found_error_serialization() {
         let error = NotFoundError::new("Resource not found");
         let json = serde_json::to_string(&error).unwrap();
-        assert_eq!(json, r#"{"message":"Resource not found","type":"not_found_error"}"#);
+        assert_eq!(
+            json,
+            r#"{"message":"Resource not found","type":"not_found_error"}"#
+        );
     }
 
     #[test]

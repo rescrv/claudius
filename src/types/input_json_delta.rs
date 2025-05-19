@@ -6,7 +6,7 @@ pub struct InputJsonDelta {
     /// The partial JSON content.
     #[serde(rename = "partial_json")]
     pub partial_json: String,
-    
+
     /// The type, which is always "input_json_delta".
     pub r#type: String,
 }
@@ -19,7 +19,7 @@ impl InputJsonDelta {
             r#type: "input_json_delta".to_string(),
         }
     }
-    
+
     /// Create a new `InputJsonDelta` from a string reference.
     pub fn from_string_ref(partial_json: &str) -> Self {
         Self::new(partial_json.to_string())
@@ -43,7 +43,7 @@ mod tests {
     fn test_input_json_delta_serialization() {
         let delta = InputJsonDelta::new(r#"{"key":"#.to_string());
         let json = to_value(&delta).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -59,12 +59,12 @@ mod tests {
             "partial_json": r#"{"key":"#,
             "type": "input_json_delta"
         });
-        
+
         let delta: InputJsonDelta = serde_json::from_value(json).unwrap();
         assert_eq!(delta.partial_json, r#"{"key":"#);
         assert_eq!(delta.r#type, "input_json_delta");
     }
-    
+
     #[test]
     fn test_from_str() {
         let delta = "partial json".parse::<InputJsonDelta>().unwrap();

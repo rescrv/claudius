@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::types::cache_control_ephemeral::CacheControlEphemeral;
 
@@ -183,7 +183,7 @@ impl Default for WebSearchTool20250305Param {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_user_location_serialization() {
         let user_location = UserLocation::new()
@@ -191,13 +191,13 @@ mod tests {
             .with_country("US")
             .with_region("California")
             .with_timezone("America/Los_Angeles");
-        
+
         let json = serde_json::to_string(&user_location).unwrap();
         let expected = r#"{"type":"approximate","city":"San Francisco","country":"US","region":"California","timezone":"America/Los_Angeles"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_user_location_deserialization() {
         let json = r#"{
@@ -207,34 +207,37 @@ mod tests {
             "region": "California",
             "timezone": "America/Los_Angeles"
         }"#;
-        
+
         let user_location: UserLocation = serde_json::from_str(json).unwrap();
-        
+
         assert_eq!(user_location.r#type, "approximate");
         assert_eq!(user_location.city, Some("San Francisco".to_string()));
         assert_eq!(user_location.country, Some("US".to_string()));
         assert_eq!(user_location.region, Some("California".to_string()));
-        assert_eq!(user_location.timezone, Some("America/Los_Angeles".to_string()));
+        assert_eq!(
+            user_location.timezone,
+            Some("America/Los_Angeles".to_string())
+        );
     }
-    
+
     #[test]
     fn test_web_search_tool_serialization() {
         let user_location = UserLocation::new()
             .with_city("San Francisco")
             .with_country("US");
-            
+
         let web_search_tool = WebSearchTool20250305Param::new()
             .with_allowed_domains(vec!["example.com".to_string(), "example.org".to_string()])
             .with_max_uses(5)
             .with_user_location(user_location)
             .with_cache_control(CacheControlEphemeral::new());
-        
+
         let json = serde_json::to_string(&web_search_tool).unwrap();
         let expected = r#"{"name":"web_search","type":"web_search_20250305","allowed_domains":["example.com","example.org"],"cache_control":{"type":"ephemeral"},"max_uses":5,"user_location":{"type":"approximate","city":"San Francisco","country":"US"}}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_web_search_tool_deserialization() {
         let json = r#"{
@@ -249,42 +252,45 @@ mod tests {
                 "country": "US"
             }
         }"#;
-        
+
         let web_search_tool: WebSearchTool20250305Param = serde_json::from_str(json).unwrap();
-        
+
         assert_eq!(web_search_tool.name, "web_search");
         assert_eq!(web_search_tool.r#type, "web_search_20250305");
-        assert_eq!(web_search_tool.allowed_domains, Some(vec!["example.com".to_string(), "example.org".to_string()]));
+        assert_eq!(
+            web_search_tool.allowed_domains,
+            Some(vec!["example.com".to_string(), "example.org".to_string()])
+        );
         assert_eq!(web_search_tool.blocked_domains, None);
         assert_eq!(web_search_tool.max_uses, Some(5));
         assert!(web_search_tool.cache_control.is_some());
         assert!(web_search_tool.user_location.is_some());
-        
+
         let user_location = web_search_tool.user_location.unwrap();
         assert_eq!(user_location.city, Some("San Francisco".to_string()));
         assert_eq!(user_location.country, Some("US".to_string()));
     }
-    
+
     #[test]
     fn test_allowed_blocked_domains_mutual_exclusivity() {
         // Test that setting allowed_domains clears blocked_domains
-        let mut web_search_tool = WebSearchTool20250305Param::new()
-            .with_blocked_domains(vec!["blocked.com".to_string()]);
-            
+        let mut web_search_tool =
+            WebSearchTool20250305Param::new().with_blocked_domains(vec!["blocked.com".to_string()]);
+
         // Verify blocked_domains is set
         assert!(web_search_tool.blocked_domains.is_some());
         assert!(web_search_tool.allowed_domains.is_none());
-        
+
         // Now set allowed_domains
         web_search_tool = web_search_tool.with_allowed_domains(vec!["allowed.com".to_string()]);
-        
+
         // Verify blocked_domains is cleared
         assert!(web_search_tool.allowed_domains.is_some());
         assert!(web_search_tool.blocked_domains.is_none());
-        
+
         // Now test the reverse
         web_search_tool = web_search_tool.with_blocked_domains(vec!["blocked.com".to_string()]);
-        
+
         // Verify allowed_domains is cleared
         assert!(web_search_tool.blocked_domains.is_some());
         assert!(web_search_tool.allowed_domains.is_none());

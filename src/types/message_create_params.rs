@@ -1,12 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    MessageParam,
-    Model,
-    Metadata,
-    TextBlockParam,
-    ToolChoiceParam,
-    ThinkingConfigParam,
+    MessageParam, Metadata, Model, TextBlockParam, ThinkingConfigParam, ToolChoiceParam,
     ToolUnionParam,
 };
 
@@ -166,7 +161,7 @@ pub enum MessageCreateParams {
 pub enum SystemPrompt {
     /// A simple string system prompt.
     String(String),
-    
+
     /// An array of text block parameters.
     Blocks(Vec<TextBlockParam>),
 }
@@ -262,41 +257,36 @@ impl MessageCreateParams {
 
     /// Create streaming message creation parameters.
     pub fn new_streaming(base: MessageCreateParamsBase) -> Self {
-        Self::Streaming(MessageCreateParamsStreaming {
-            base,
-            stream: true,
-        })
+        Self::Streaming(MessageCreateParamsStreaming { base, stream: true })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, to_value};
     use crate::types::{KnownModel, MessageRole};
+    use serde_json::{json, to_value};
 
     #[test]
     fn test_message_create_params_non_streaming() {
-        let message = MessageParam::new_with_string(
-            "Hello, Claude".to_string(),
-            MessageRole::User
-        );
-        
+        let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
+
         let base = MessageCreateParamsBase::new(
             1000,
             vec![message],
-            Model::Known(KnownModel::Claude3Sonnet20240229)
-        ).with_system_string("You are a helpful assistant.".to_string())
-         .with_temperature(0.7);
-        
+            Model::Known(KnownModel::Claude3Sonnet20240229),
+        )
+        .with_system_string("You are a helpful assistant.".to_string())
+        .with_temperature(0.7);
+
         let params = MessageCreateParams::new_non_streaming(base);
-        
+
         let json = to_value(&params).unwrap();
         match params {
-            MessageCreateParams::NonStreaming(_) => {},
+            MessageCreateParams::NonStreaming(_) => {}
             _ => panic!("Expected NonStreaming variant"),
         }
-        
+
         assert_eq!(
             json,
             json!({
@@ -314,28 +304,25 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_message_create_params_streaming() {
-        let message = MessageParam::new_with_string(
-            "Hello, Claude".to_string(),
-            MessageRole::User
-        );
-        
+        let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
+
         let base = MessageCreateParamsBase::new(
             1000,
             vec![message],
-            Model::Known(KnownModel::Claude3Sonnet20240229)
+            Model::Known(KnownModel::Claude3Sonnet20240229),
         );
-        
+
         let params = MessageCreateParams::new_streaming(base);
-        
+
         let json = to_value(&params).unwrap();
         match params {
-            MessageCreateParams::Streaming(_) => {},
+            MessageCreateParams::Streaming(_) => {}
             _ => panic!("Expected Streaming variant"),
         }
-        
+
         assert_eq!(
             json,
             json!({

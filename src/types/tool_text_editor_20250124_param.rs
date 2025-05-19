@@ -8,15 +8,15 @@ use crate::types::CacheControlEphemeral;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolTextEditor20250124Param {
     /// Name of the tool. This is how the tool will be called by the model and in `tool_use` blocks.
-    /// 
+    ///
     /// Always set to "str_replace_editor".
     #[serde(default = "default_name")]
     pub name: String,
-    
+
     /// The type of the tool, which is always "text_editor_20250124".
     #[serde(default = "default_type")]
     pub r#type: String,
-    
+
     /// Create a cache control breakpoint at this content block.
     /// If provided, this instructs the API to not cache this tool or its results.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -40,7 +40,7 @@ impl ToolTextEditor20250124Param {
             cache_control: None,
         }
     }
-    
+
     /// Sets the cache control to ephemeral for this tool.
     pub fn with_ephemeral_cache_control(mut self) -> Self {
         self.cache_control = Some(CacheControlEphemeral::new());
@@ -58,12 +58,12 @@ impl Default for ToolTextEditor20250124Param {
 mod tests {
     use super::*;
     use serde_json::{json, to_value};
-    
+
     #[test]
     fn test_tool_text_editor_param_minimal() {
         let param = ToolTextEditor20250124Param::new();
         let json = to_value(&param).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -72,12 +72,11 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_tool_text_editor_param_with_cache_control() {
-        let param = ToolTextEditor20250124Param::new()
-            .with_ephemeral_cache_control();
-        
+        let param = ToolTextEditor20250124Param::new().with_ephemeral_cache_control();
+
         let json = to_value(&param).unwrap();
         assert_eq!(
             json,
@@ -90,7 +89,7 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_tool_text_editor_param_deserialization() {
         let json = json!({
@@ -100,7 +99,7 @@ mod tests {
                 "type": "ephemeral"
             }
         });
-        
+
         let param: ToolTextEditor20250124Param = serde_json::from_value(json).unwrap();
         assert_eq!(param.name, "str_replace_editor");
         assert_eq!(param.r#type, "text_editor_20250124");

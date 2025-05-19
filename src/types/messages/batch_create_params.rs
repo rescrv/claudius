@@ -64,22 +64,23 @@ mod tests {
                             "content": "Hello, world"
                         }
                     ]
-                })).unwrap(),
+                }))
+                .unwrap(),
                 stream: false,
             },
         );
-        
+
         let batch_params = BatchCreateParams::new(vec![request]);
-        
+
         let json = to_value(&batch_params).unwrap();
-        
+
         // Assert the structure matches what we expect
         assert!(json["requests"].is_array());
         assert_eq!(json["requests"].as_array().unwrap().len(), 1);
         assert_eq!(json["requests"][0]["custom_id"], "request-123");
         assert_eq!(json["requests"][0]["params"]["stream"], false);
     }
-    
+
     #[test]
     fn test_batch_create_params_deserialization() {
         let json = json!({
@@ -105,9 +106,9 @@ mod tests {
                 }
             ]
         });
-        
+
         let batch_params: BatchCreateParams = serde_json::from_value(json).unwrap();
-        
+
         assert_eq!(batch_params.requests.len(), 1);
         assert_eq!(batch_params.requests[0].custom_id, "request-123");
         assert!(!batch_params.requests[0].params.stream);

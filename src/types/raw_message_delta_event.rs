@@ -8,8 +8,8 @@ pub struct MessageDelta {
     /// The reason the model stopped generating text, if it has stopped.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<StopReason>,
-    
-    /// If the model stopped because it encountered a stop sequence, this field 
+
+    /// If the model stopped because it encountered a stop sequence, this field
     /// contains the specific stop sequence that was encountered.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_sequence: Option<String>,
@@ -23,13 +23,13 @@ impl MessageDelta {
             stop_sequence: None,
         }
     }
-    
+
     /// Set the stop reason.
     pub fn with_stop_reason(mut self, stop_reason: StopReason) -> Self {
         self.stop_reason = Some(stop_reason);
         self
     }
-    
+
     /// Set the stop sequence.
     pub fn with_stop_sequence(mut self, stop_sequence: String) -> Self {
         self.stop_sequence = Some(stop_sequence);
@@ -48,10 +48,10 @@ impl Default for MessageDelta {
 pub struct RawMessageDeltaEvent {
     /// The delta information for the message.
     pub delta: MessageDelta,
-    
+
     /// The type, which is always "message_delta".
     pub r#type: String,
-    
+
     /// The usage information for the message.
     pub usage: MessageDeltaUsage,
 }
@@ -76,18 +76,18 @@ mod tests {
     fn test_message_delta_empty() {
         let delta = MessageDelta::new();
         let json = to_value(&delta).unwrap();
-        
+
         assert_eq!(json, json!({}));
     }
-    
+
     #[test]
     fn test_message_delta_with_values() {
         let delta = MessageDelta::new()
             .with_stop_reason(StopReason::EndTurn)
             .with_stop_sequence("###".to_string());
-            
+
         let json = to_value(&delta).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -96,18 +96,16 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_raw_message_delta_event_serialization() {
-        let delta = MessageDelta::new()
-            .with_stop_reason(StopReason::EndTurn);
-            
-        let usage = MessageDeltaUsage::new(100)
-            .with_input_tokens(50);
-            
+        let delta = MessageDelta::new().with_stop_reason(StopReason::EndTurn);
+
+        let usage = MessageDeltaUsage::new(100).with_input_tokens(50);
+
         let event = RawMessageDeltaEvent::new(delta, usage);
         let json = to_value(&event).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -122,7 +120,7 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_raw_message_delta_event_deserialization() {
         let json = json!({
@@ -136,7 +134,7 @@ mod tests {
                 "output_tokens": 100
             }
         });
-        
+
         let event: RawMessageDeltaEvent = serde_json::from_value(json).unwrap();
         assert_eq!(event.r#type, "message_delta");
         assert_eq!(event.delta.stop_reason, Some(StopReason::EndTurn));

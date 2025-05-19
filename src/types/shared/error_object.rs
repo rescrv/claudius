@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use super::api_error_object::ApiErrorObject;
 use super::authentication_error::AuthenticationError;
@@ -109,12 +109,12 @@ mod tests {
     fn test_error_object_deserialization() {
         let json = r#"{"message":"Invalid API key","type":"authentication_error"}"#;
         let error: ErrorObject = serde_json::from_str(json).unwrap();
-        
+
         match error {
             ErrorObject::Authentication(auth_error) => {
                 assert_eq!(auth_error.message, "Invalid API key");
                 assert_eq!(auth_error.error_type, "authentication_error");
-            },
+            }
             _ => panic!("Expected an authentication error"),
         }
     }

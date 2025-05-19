@@ -1,7 +1,7 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Represents a gateway timeout error returned by the Anthropic API.
-/// 
+///
 /// This error occurs when the API request times out at the gateway level.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayTimeoutError {
@@ -31,7 +31,10 @@ mod tests {
     fn test_gateway_timeout_error_serialization() {
         let error = GatewayTimeoutError::new("Request timed out");
         let json = serde_json::to_string(&error).unwrap();
-        assert_eq!(json, r#"{"message":"Request timed out","type":"timeout_error"}"#);
+        assert_eq!(
+            json,
+            r#"{"message":"Request timed out","type":"timeout_error"}"#
+        );
     }
 
     #[test]

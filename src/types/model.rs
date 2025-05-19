@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
-use serde::{Serialize, Deserialize, Serializer};
 
 /// Represents an Anthropic model identifier.
 ///
@@ -9,7 +9,7 @@ use serde::{Serialize, Deserialize, Serializer};
 pub enum Model {
     /// Known model versions
     Known(KnownModel),
-    
+
     /// Custom model identifier (for future models or private models)
     Custom(String),
 }
@@ -19,40 +19,37 @@ pub enum Model {
 pub enum KnownModel {
     /// Claude 3.7 Sonnet (latest version)
     Claude37SonnetLatest,
-    
+
     /// Claude 3.7 Sonnet (2025-02-19 version)
     Claude37Sonnet20250219,
-    
+
     /// Claude 3.5 Haiku (latest version)
     Claude35HaikuLatest,
-    
+
     /// Claude 3.5 Haiku (2024-10-22 version)
     Claude35Haiku20241022,
-    
+
     /// Claude 3.5 Sonnet (latest version)
     Claude35SonnetLatest,
-    
+
     /// Claude 3.5 Sonnet (2024-10-22 version)
     Claude35Sonnet20241022,
-    
+
     /// Claude 3.5 Sonnet (2024-06-20 version)
     Claude35Sonnet20240620,
-    
+
     /// Claude 3 Opus (latest version)
     Claude3OpusLatest,
-    
+
     /// Claude 3 Opus (2024-02-29 version)
     Claude3Opus20240229,
-    
-    /// Claude 3 Sonnet (2024-02-29 version)
-    Claude3Sonnet20240229,
-    
+
     /// Claude 3 Haiku (2024-03-07 version)
     Claude3Haiku20240307,
-    
+
     /// Claude 2.1
     Claude21,
-    
+
     /// Claude 2.0
     Claude20,
 }
@@ -78,7 +75,6 @@ impl fmt::Display for KnownModel {
             KnownModel::Claude35Sonnet20240620 => write!(f, "claude-3-5-sonnet-20240620"),
             KnownModel::Claude3OpusLatest => write!(f, "claude-3-opus-latest"),
             KnownModel::Claude3Opus20240229 => write!(f, "claude-3-opus-20240229"),
-            KnownModel::Claude3Sonnet20240229 => write!(f, "claude-3-sonnet-20240229"),
             KnownModel::Claude3Haiku20240307 => write!(f, "claude-3-haiku-20240307"),
             KnownModel::Claude21 => write!(f, "claude-2.1"),
             KnownModel::Claude20 => write!(f, "claude-2.0"),
@@ -102,7 +98,7 @@ impl<'de> Deserialize<'de> for Model {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        
+
         // Check if it matches any known model
         match s.as_str() {
             "claude-3-7-sonnet-latest" => Ok(Model::Known(KnownModel::Claude37SonnetLatest)),
@@ -114,7 +110,6 @@ impl<'de> Deserialize<'de> for Model {
             "claude-3-5-sonnet-20240620" => Ok(Model::Known(KnownModel::Claude35Sonnet20240620)),
             "claude-3-opus-latest" => Ok(Model::Known(KnownModel::Claude3OpusLatest)),
             "claude-3-opus-20240229" => Ok(Model::Known(KnownModel::Claude3Opus20240229)),
-            "claude-3-sonnet-20240229" => Ok(Model::Known(KnownModel::Claude3Sonnet20240229)),
             "claude-3-haiku-20240307" => Ok(Model::Known(KnownModel::Claude3Haiku20240307)),
             "claude-2.1" => Ok(Model::Known(KnownModel::Claude21)),
             "claude-2.0" => Ok(Model::Known(KnownModel::Claude20)),
@@ -145,41 +140,41 @@ impl From<&str> for Model {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_known_model_serialization() {
         let model = Model::Known(KnownModel::Claude37SonnetLatest);
         let json = serde_json::to_string(&model).unwrap();
         assert_eq!(json, r#""claude-3-7-sonnet-latest""#);
-        
+
         let model = Model::Known(KnownModel::Claude35Sonnet20240620);
         let json = serde_json::to_string(&model).unwrap();
         assert_eq!(json, r#""claude-3-5-sonnet-20240620""#);
     }
-    
+
     #[test]
     fn test_custom_model_serialization() {
         let model = Model::Custom("claude-4-custom".to_string());
         let json = serde_json::to_string(&model).unwrap();
         assert_eq!(json, r#""claude-4-custom""#);
     }
-    
+
     #[test]
     fn test_model_deserialization() {
         let json = r#""claude-3-7-sonnet-latest""#;
         let model: Model = serde_json::from_str(json).unwrap();
         assert_eq!(model, Model::Known(KnownModel::Claude37SonnetLatest));
-        
+
         let json = r#""claude-4-custom""#;
         let model: Model = serde_json::from_str(json).unwrap();
         assert_eq!(model, Model::Custom("claude-4-custom".to_string()));
     }
-    
+
     #[test]
     fn test_display() {
         let model = Model::Known(KnownModel::Claude37SonnetLatest);
         assert_eq!(model.to_string(), "claude-3-7-sonnet-latest");
-        
+
         let model = Model::Custom("claude-4-custom".to_string());
         assert_eq!(model.to_string(), "claude-4-custom");
     }

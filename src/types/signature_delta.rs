@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct SignatureDelta {
     /// The signature content.
     pub signature: String,
-    
+
     /// The type, which is always "signature_delta".
     pub r#type: String,
 }
@@ -18,7 +18,7 @@ impl SignatureDelta {
             r#type: "signature_delta".to_string(),
         }
     }
-    
+
     /// Create a new `SignatureDelta` from a string reference.
     pub fn from_string_ref(signature: &str) -> Self {
         Self::new(signature.to_string())
@@ -42,7 +42,7 @@ mod tests {
     fn test_signature_delta_serialization() {
         let delta = SignatureDelta::new("Robert Paulson".to_string());
         let json = to_value(&delta).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -58,12 +58,12 @@ mod tests {
             "signature": "Robert Paulson",
             "type": "signature_delta"
         });
-        
+
         let delta: SignatureDelta = serde_json::from_value(json).unwrap();
         assert_eq!(delta.signature, "Robert Paulson");
         assert_eq!(delta.r#type, "signature_delta");
     }
-    
+
     #[test]
     fn test_from_str() {
         let delta = "Robert Paulson".parse::<SignatureDelta>().unwrap();

@@ -1,12 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    RawMessageStartEvent,
-    RawMessageDeltaEvent,
-    RawMessageStopEvent,
-    RawContentBlockStartEvent,
-    RawContentBlockDeltaEvent,
-    RawContentBlockStopEvent,
+    RawContentBlockDeltaEvent, RawContentBlockStartEvent, RawContentBlockStopEvent,
+    RawMessageDeltaEvent, RawMessageStartEvent, RawMessageStopEvent,
 };
 
 /// An event in a message stream.
@@ -16,23 +12,23 @@ pub enum RawMessageStreamEvent {
     /// Message start event.
     #[serde(rename = "message_start")]
     MessageStart(RawMessageStartEvent),
-    
+
     /// Message delta event.
     #[serde(rename = "message_delta")]
     MessageDelta(RawMessageDeltaEvent),
-    
+
     /// Message stop event.
     #[serde(rename = "message_stop")]
     MessageStop(RawMessageStopEvent),
-    
+
     /// Content block start event.
     #[serde(rename = "content_block_start")]
     ContentBlockStart(RawContentBlockStartEvent),
-    
+
     /// Content block delta event.
     #[serde(rename = "content_block_delta")]
     ContentBlockDelta(RawContentBlockDeltaEvent),
-    
+
     /// Content block stop event.
     #[serde(rename = "content_block_stop")]
     ContentBlockStop(RawContentBlockStopEvent),
@@ -41,7 +37,7 @@ pub enum RawMessageStreamEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, from_value};
+    use serde_json::{from_value, json};
 
     #[test]
     fn test_raw_message_stream_event_deserialization_message_start() {
@@ -59,14 +55,14 @@ mod tests {
             },
             "type": "message_start"
         });
-        
+
         let event: RawMessageStreamEvent = from_value(json).unwrap();
         match event {
-            RawMessageStreamEvent::MessageStart(_) => {},
+            RawMessageStreamEvent::MessageStart(_) => {}
             _ => panic!("Expected MessageStart variant"),
         }
     }
-    
+
     #[test]
     fn test_raw_message_stream_event_deserialization_message_delta() {
         let json = json!({
@@ -79,27 +75,27 @@ mod tests {
                 "output_tokens": 100
             }
         });
-        
+
         let event: RawMessageStreamEvent = from_value(json).unwrap();
         match event {
-            RawMessageStreamEvent::MessageDelta(_) => {},
+            RawMessageStreamEvent::MessageDelta(_) => {}
             _ => panic!("Expected MessageDelta variant"),
         }
     }
-    
+
     #[test]
     fn test_raw_message_stream_event_deserialization_message_stop() {
         let json = json!({
             "type": "message_stop"
         });
-        
+
         let event: RawMessageStreamEvent = from_value(json).unwrap();
         match event {
-            RawMessageStreamEvent::MessageStop(_) => {},
+            RawMessageStreamEvent::MessageStop(_) => {}
             _ => panic!("Expected MessageStop variant"),
         }
     }
-    
+
     #[test]
     fn test_raw_message_stream_event_deserialization_content_block_start() {
         let json = json!({
@@ -110,14 +106,14 @@ mod tests {
             "index": 0,
             "type": "content_block_start"
         });
-        
+
         let event: RawMessageStreamEvent = from_value(json).unwrap();
         match event {
-            RawMessageStreamEvent::ContentBlockStart(_) => {},
+            RawMessageStreamEvent::ContentBlockStart(_) => {}
             _ => panic!("Expected ContentBlockStart variant"),
         }
     }
-    
+
     #[test]
     fn test_raw_message_stream_event_deserialization_content_block_delta() {
         let json = json!({
@@ -128,24 +124,24 @@ mod tests {
             "index": 0,
             "type": "content_block_delta"
         });
-        
+
         let event: RawMessageStreamEvent = from_value(json).unwrap();
         match event {
-            RawMessageStreamEvent::ContentBlockDelta(_) => {},
+            RawMessageStreamEvent::ContentBlockDelta(_) => {}
             _ => panic!("Expected ContentBlockDelta variant"),
         }
     }
-    
+
     #[test]
     fn test_raw_message_stream_event_deserialization_content_block_stop() {
         let json = json!({
             "index": 0,
             "type": "content_block_stop"
         });
-        
+
         let event: RawMessageStreamEvent = from_value(json).unwrap();
         match event {
-            RawMessageStreamEvent::ContentBlockStop(_) => {},
+            RawMessageStreamEvent::ContentBlockStop(_) => {}
             _ => panic!("Expected ContentBlockStop variant"),
         }
     }

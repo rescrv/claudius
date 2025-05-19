@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{
-    WebSearchResultBlockParam,
-    WebSearchToolRequestErrorParam,
-};
+use crate::types::{WebSearchResultBlockParam, WebSearchToolRequestErrorParam};
 
 /// Content for a web search tool result block, which can be either an array of
 /// web search result blocks or a web search tool request error.
@@ -12,7 +9,7 @@ use crate::types::{
 pub enum WebSearchToolResultBlockParamContent {
     /// An array of web search result blocks.
     Results(Vec<WebSearchResultBlockParam>),
-    
+
     /// A web search tool request error.
     Error(WebSearchToolRequestErrorParam),
 }
@@ -22,7 +19,7 @@ impl WebSearchToolResultBlockParamContent {
     pub fn new_with_results(results: Vec<WebSearchResultBlockParam>) -> Self {
         Self::Results(results)
     }
-    
+
     /// Create a new `WebSearchToolResultBlockParamContent` with the given error.
     pub fn new_with_error(error: WebSearchToolRequestErrorParam) -> Self {
         Self::Error(error)
@@ -41,10 +38,10 @@ mod tests {
             "Example Title".to_string(),
             "https://example.com".to_string(),
         );
-        
+
         let content = WebSearchToolResultBlockParamContent::new_with_results(vec![result]);
         let json = to_value(&content).unwrap();
-        
+
         assert_eq!(
             json,
             json!([
@@ -57,16 +54,16 @@ mod tests {
             ])
         );
     }
-    
+
     #[test]
     fn test_web_search_tool_result_block_param_content_error() {
         let error = WebSearchToolRequestErrorParam::new(
-            crate::types::WebSearchToolRequestErrorCode::InvalidToolInput
+            crate::types::WebSearchToolRequestErrorCode::InvalidToolInput,
         );
-        
+
         let content = WebSearchToolResultBlockParamContent::new_with_error(error);
         let json = to_value(&content).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -75,7 +72,7 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_web_search_tool_result_block_param_content_deserialization_results() {
         let json = json!([
@@ -86,29 +83,32 @@ mod tests {
                 "url": "https://example.com"
             }
         ]);
-        
+
         let content: WebSearchToolResultBlockParamContent = serde_json::from_value(json).unwrap();
         match content {
             WebSearchToolResultBlockParamContent::Results(results) => {
                 assert_eq!(results.len(), 1);
                 assert_eq!(results[0].title, "Example Title");
-            },
+            }
             _ => panic!("Expected Results variant"),
         }
     }
-    
+
     #[test]
     fn test_web_search_tool_result_block_param_content_deserialization_error() {
         let json = json!({
             "error_code": "invalid_tool_input",
             "type": "web_search_tool_result_error"
         });
-        
+
         let content: WebSearchToolResultBlockParamContent = serde_json::from_value(json).unwrap();
         match content {
             WebSearchToolResultBlockParamContent::Error(error) => {
-                assert_eq!(error.error_code, crate::types::WebSearchToolRequestErrorCode::InvalidToolInput);
-            },
+                assert_eq!(
+                    error.error_code,
+                    crate::types::WebSearchToolRequestErrorCode::InvalidToolInput
+                );
+            }
             _ => panic!("Expected Error variant"),
         }
     }

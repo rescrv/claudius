@@ -1,22 +1,22 @@
-use std::path::Path;
+use base64::Engine;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
-use serde::{Serialize, Deserialize};
-use base64::Engine;
+use std::path::Path;
 
 /// Represents a base64-encoded PDF source.
-/// 
+///
 /// This can be created from either a base64-encoded string or from a file path.
 /// The media_type is always "application/pdf".
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Base64PdfSource {
     /// The base64-encoded data of the PDF
     pub data: String,
-    
+
     /// The media type of the file (always "application/pdf")
     #[serde(default = "default_media_type")]
     pub media_type: String,
-    
+
     /// The source type (always "base64" for this struct)
     #[serde(default = "default_type")]
     pub r#type: String,
@@ -39,31 +39,33 @@ impl Base64PdfSource {
             r#type: default_type(),
         }
     }
-    
+
     /// Create a Base64PdfSource from a file path
-    /// 
+    ///
     /// This will read the file and encode it as base64.
     /// The file extension should be ".pdf".
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, std::io::Error> {
         let path = path.as_ref();
-        
+
         // Verify file extension is .pdf
         match path.extension().and_then(|ext| ext.to_str()) {
-            Some("pdf") => {},
-            _ => return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "File extension must be .pdf",
-            )),
+            Some("pdf") => {}
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "File extension must be .pdf",
+                ));
+            }
         };
-        
+
         // Read the file
         let mut file = File::open(path)?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
-        
+
         // Encode as base64
         let data = base64::engine::general_purpose::STANDARD.encode(&buffer);
-        
+
         Ok(Self {
             data,
             media_type: default_media_type(),
@@ -75,7 +77,7 @@ impl Base64PdfSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_serialization() {
         let source = Base64PdfSource {
@@ -83,18 +85,19 @@ mod tests {
             media_type: "application/pdf".to_string(),
             r#type: "base64".to_string(),
         };
-        
+
         let json = serde_json::to_string(&source).unwrap();
-        let expected = r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"application/pdf","type":"base64"}"#;
-        
+        let expected =
+            r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"application/pdf","type":"base64"}"#;
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_deserialization() {
         let json = r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"application/pdf","type":"base64"}"#;
         let source: Base64PdfSource = serde_json::from_str(json).unwrap();
-        
+
         assert_eq!(source.data, "SGVsbG8gV29ybGQ=");
         assert_eq!(source.media_type, "application/pdf");
         assert_eq!(source.r#type, "base64");

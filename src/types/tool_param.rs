@@ -15,9 +15,9 @@ pub use crate::types::message_count_tokens_tool_param::InputSchema;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::CacheControlEphemeral;
     use serde_json::{json, to_value};
     use std::collections::HashMap;
-    use crate::types::CacheControlEphemeral;
 
     #[test]
     fn test_tool_param_complete() {
@@ -31,17 +31,14 @@ mod tests {
             })),
             additional: HashMap::new(),
         };
-        
+
         let cache_control = CacheControlEphemeral::new();
-        
-        let tool = ToolParam::new(
-            "search".to_string(),
-            input_schema
-        )
-        .with_description("Search for information".to_string())
-        .with_cache_control(cache_control)
-        .with_custom_type();
-        
+
+        let tool = ToolParam::new("search".to_string(), input_schema)
+            .with_description("Search for information".to_string())
+            .with_cache_control(cache_control)
+            .with_custom_type();
+
         let json = to_value(&tool).unwrap();
         assert_eq!(
             json,

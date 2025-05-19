@@ -1,7 +1,7 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Represents a billing error returned by the Anthropic API.
-/// 
+///
 /// This error occurs when there are issues with the account's billing status,
 /// such as exceeding the quota or having payment problems.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,7 +32,10 @@ mod tests {
     fn test_billing_error_serialization() {
         let error = BillingError::new("You have exceeded your quota");
         let json = serde_json::to_string(&error).unwrap();
-        assert_eq!(json, r#"{"message":"You have exceeded your quota","type":"billing_error"}"#);
+        assert_eq!(
+            json,
+            r#"{"message":"You have exceeded your quota","type":"billing_error"}"#
+        );
     }
 
     #[test]

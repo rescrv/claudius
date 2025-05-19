@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 pub struct RedactedThinkingBlockParam {
     /// The redacted thinking data.
     pub data: String,
-    
+
     /// The type, which is always "redacted_thinking".
     pub r#type: String,
 }
@@ -20,7 +20,7 @@ impl RedactedThinkingBlockParam {
             r#type: "redacted_thinking".to_string(),
         }
     }
-    
+
     /// Create a new `RedactedThinkingBlockParam` from a string reference.
     pub fn from_string_ref(data: &str) -> Self {
         Self::new(data.to_string())
@@ -44,7 +44,7 @@ mod tests {
     fn test_redacted_thinking_block_param_serialization() {
         let block = RedactedThinkingBlockParam::new("Redacted thinking content".to_string());
         let json = to_value(&block).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -60,15 +60,17 @@ mod tests {
             "data": "Redacted thinking content",
             "type": "redacted_thinking"
         });
-        
+
         let block: RedactedThinkingBlockParam = serde_json::from_value(json).unwrap();
         assert_eq!(block.data, "Redacted thinking content");
         assert_eq!(block.r#type, "redacted_thinking");
     }
-    
+
     #[test]
     fn test_from_str() {
-        let block = "Redacted thinking content".parse::<RedactedThinkingBlockParam>().unwrap();
+        let block = "Redacted thinking content"
+            .parse::<RedactedThinkingBlockParam>()
+            .unwrap();
         assert_eq!(block.data, "Redacted thinking content");
         assert_eq!(block.r#type, "redacted_thinking");
     }

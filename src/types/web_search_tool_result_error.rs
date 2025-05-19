@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
-use serde::{Serialize, Deserialize};
 
 /// Error codes that can be returned when a web search tool operation fails.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -7,16 +7,16 @@ use serde::{Serialize, Deserialize};
 pub enum WebSearchErrorCode {
     /// The input provided to the web search tool is invalid.
     InvalidToolInput,
-    
+
     /// The web search service is currently unavailable.
     Unavailable,
-    
+
     /// The maximum number of uses for the web search tool has been exceeded.
     MaxUsesExceeded,
-    
+
     /// Too many requests have been made to the web search service.
     TooManyRequests,
-    
+
     /// The query provided to the web search tool is too long.
     QueryTooLong,
 }
@@ -38,7 +38,7 @@ impl fmt::Display for WebSearchErrorCode {
 pub struct WebSearchToolResultError {
     /// The specific error code.
     pub error_code: WebSearchErrorCode,
-    
+
     /// The type of the error, always "web_search_tool_result_error" for this struct.
     #[serde(default = "default_type")]
     pub r#type: String,
@@ -56,27 +56,27 @@ impl WebSearchToolResultError {
             r#type: default_type(),
         }
     }
-    
+
     /// Returns true if the error is due to an invalid tool input.
     pub fn is_invalid_input(&self) -> bool {
         matches!(self.error_code, WebSearchErrorCode::InvalidToolInput)
     }
-    
+
     /// Returns true if the error is due to the service being unavailable.
     pub fn is_unavailable(&self) -> bool {
         matches!(self.error_code, WebSearchErrorCode::Unavailable)
     }
-    
+
     /// Returns true if the error is due to exceeding the maximum number of uses.
     pub fn is_max_uses_exceeded(&self) -> bool {
         matches!(self.error_code, WebSearchErrorCode::MaxUsesExceeded)
     }
-    
+
     /// Returns true if the error is due to too many requests.
     pub fn is_too_many_requests(&self) -> bool {
         matches!(self.error_code, WebSearchErrorCode::TooManyRequests)
     }
-    
+
     /// Returns true if the error is due to a query that is too long.
     pub fn is_query_too_long(&self) -> bool {
         matches!(self.error_code, WebSearchErrorCode::QueryTooLong)
@@ -86,29 +86,30 @@ impl WebSearchToolResultError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_serialization() {
         let error = WebSearchToolResultError {
             error_code: WebSearchErrorCode::InvalidToolInput,
             r#type: "web_search_tool_result_error".to_string(),
         };
-        
+
         let json = serde_json::to_string(&error).unwrap();
-        let expected = r#"{"error_code":"invalid_tool_input","type":"web_search_tool_result_error"}"#;
-        
+        let expected =
+            r#"{"error_code":"invalid_tool_input","type":"web_search_tool_result_error"}"#;
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_deserialization() {
         let json = r#"{"error_code":"max_uses_exceeded","type":"web_search_tool_result_error"}"#;
         let error: WebSearchToolResultError = serde_json::from_str(json).unwrap();
-        
+
         assert_eq!(error.error_code, WebSearchErrorCode::MaxUsesExceeded);
         assert_eq!(error.r#type, "web_search_tool_result_error");
     }
-    
+
     #[test]
     fn test_error_code_helpers() {
         let error = WebSearchToolResultError::new(WebSearchErrorCode::InvalidToolInput);
@@ -117,7 +118,7 @@ mod tests {
         assert!(!error.is_max_uses_exceeded());
         assert!(!error.is_too_many_requests());
         assert!(!error.is_query_too_long());
-        
+
         let error = WebSearchToolResultError::new(WebSearchErrorCode::Unavailable);
         assert!(!error.is_invalid_input());
         assert!(error.is_unavailable());

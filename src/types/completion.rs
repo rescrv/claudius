@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::types::Model;
 
@@ -11,20 +11,20 @@ pub struct Completion {
     ///
     /// The format and length of IDs may change over time.
     pub id: String,
-    
+
     /// The resulting completion up to and excluding the stop sequences.
     pub completion: String,
-    
+
     /// The model that generated the completion.
     pub model: Model,
-    
+
     /// The reason that the model stopped generating.
     ///
     /// This may be one the following values:
     /// - "stop_sequence": reached a stop sequence — either provided by you via the `stop_sequences` parameter, or a stop sequence built into the model
     /// - "max_tokens": exceeded `max_tokens_to_sample` or the model's maximum
     pub stop_reason: Option<String>,
-    
+
     /// Object type identifier, always "completion" for this type.
     #[serde(default = "default_type")]
     pub r#type: String,
@@ -36,12 +36,7 @@ fn default_type() -> String {
 
 impl Completion {
     /// Creates a new Completion instance.
-    pub fn new(
-        id: String,
-        completion: String,
-        model: Model,
-        stop_reason: Option<String>,
-    ) -> Self {
+    pub fn new(id: String, completion: String, model: Model, stop_reason: Option<String>) -> Self {
         Self {
             id,
             completion,
@@ -50,12 +45,12 @@ impl Completion {
             r#type: default_type(),
         }
     }
-    
+
     /// Returns true if the model stopped because it reached a stop sequence.
     pub fn stopped_at_stop_sequence(&self) -> bool {
         self.stop_reason.as_deref() == Some("stop_sequence")
     }
-    
+
     /// Returns true if the model stopped because it reached the maximum number of tokens.
     pub fn stopped_at_max_tokens(&self) -> bool {
         self.stop_reason.as_deref() == Some("max_tokens")
@@ -69,27 +64,27 @@ pub struct CompletionCreateParams {
     ///
     /// Note that the model may stop before reaching this maximum.
     pub max_tokens_to_sample: u32,
-    
+
     /// The model to use for completion.
     pub model: Model,
-    
+
     /// The prompt that you want Claude to complete.
     ///
     /// For proper response generation you will need to format your prompt using
     /// alternating "\n\nHuman:" and "\n\nAssistant:" conversational turns.
     pub prompt: String,
-    
+
     /// Optional metadata about the request.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<super::Metadata>,
-    
+
     /// Optional sequences that will cause the model to stop generating.
     ///
     /// Models automatically stop on "\n\nHuman:" and may include other built-in
     /// stop sequences.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_sequences: Option<Vec<String>>,
-    
+
     /// Amount of randomness injected into the response.
     ///
     /// Defaults to 1.0. Ranges from 0.0 to 1.0. Use values closer to 0.0
@@ -97,13 +92,13 @@ pub struct CompletionCreateParams {
     /// and generative tasks.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
-    
+
     /// Only sample from the top K options for each subsequent token.
     ///
     /// Used to remove "long tail" low probability responses.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_k: Option<u32>,
-    
+
     /// Use nucleus sampling.
     ///
     /// In nucleus sampling, we compute the cumulative distribution over all the options
@@ -111,11 +106,11 @@ pub struct CompletionCreateParams {
     /// reaches a particular probability specified by `top_p`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
-    
+
     /// Optional beta features to enable.
     #[serde(rename = "anthropic-beta", skip_serializing_if = "Option::is_none")]
     pub betas: Option<Vec<String>>,
-    
+
     /// Whether to stream the response. If set to true, tokens will be streamed
     /// as they are generated.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -124,11 +119,7 @@ pub struct CompletionCreateParams {
 
 impl CompletionCreateParams {
     /// Creates a new set of completion parameters with the required fields.
-    pub fn new<S: Into<String>>(
-        prompt: S,
-        model: Model,
-        max_tokens_to_sample: u32,
-    ) -> Self {
+    pub fn new<S: Into<String>>(prompt: S, model: Model, max_tokens_to_sample: u32) -> Self {
         Self {
             prompt: prompt.into(),
             model,
@@ -142,54 +133,54 @@ impl CompletionCreateParams {
             stream: None,
         }
     }
-    
+
     /// Sets the metadata field.
     pub fn with_metadata(mut self, metadata: super::Metadata) -> Self {
         self.metadata = Some(metadata);
         self
     }
-    
+
     /// Sets the stop_sequences field.
     pub fn with_stop_sequences(mut self, stop_sequences: Vec<String>) -> Self {
         self.stop_sequences = Some(stop_sequences);
         self
     }
-    
+
     /// Sets the temperature field.
     pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = Some(temperature);
         self
     }
-    
+
     /// Sets the top_k field.
     pub fn with_top_k(mut self, top_k: u32) -> Self {
         self.top_k = Some(top_k);
         self
     }
-    
+
     /// Sets the top_p field.
     pub fn with_top_p(mut self, top_p: f32) -> Self {
         self.top_p = Some(top_p);
         self
     }
-    
+
     /// Sets the betas field.
     pub fn with_betas(mut self, betas: Vec<String>) -> Self {
         self.betas = Some(betas);
         self
     }
-    
+
     /// Sets the stream field to true, enabling streaming for this request.
     pub fn with_streaming(mut self) -> Self {
         self.stream = Some(true);
         self
     }
-    
+
     /// Enables streaming for this request.
     pub fn enable_streaming(&mut self) {
         self.stream = Some(true);
     }
-    
+
     /// Disables streaming for this request.
     pub fn disable_streaming(&mut self) {
         self.stream = Some(false);
@@ -200,7 +191,7 @@ impl CompletionCreateParams {
 mod tests {
     use super::*;
     use crate::types::KnownModel;
-    
+
     #[test]
     fn test_completion_serialization() {
         let completion = Completion {
@@ -210,25 +201,28 @@ mod tests {
             stop_reason: Some("stop_sequence".to_string()),
             r#type: "completion".to_string(),
         };
-        
+
         let json = serde_json::to_string(&completion).unwrap();
         let expected = r#"{"id":"cmpl_123456","completion":"This is the completion text.","model":"claude-3-5-sonnet-latest","stop_reason":"stop_sequence","type":"completion"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_completion_deserialization() {
         let json = r#"{"id":"cmpl_123456","completion":"This is the completion text.","model":"claude-3-5-sonnet-latest","stop_reason":"stop_sequence","type":"completion"}"#;
         let completion: Completion = serde_json::from_str(json).unwrap();
-        
+
         assert_eq!(completion.id, "cmpl_123456");
         assert_eq!(completion.completion, "This is the completion text.");
-        assert_eq!(completion.model, Model::Known(KnownModel::Claude35SonnetLatest));
+        assert_eq!(
+            completion.model,
+            Model::Known(KnownModel::Claude35SonnetLatest)
+        );
         assert_eq!(completion.stop_reason, Some("stop_sequence".to_string()));
         assert_eq!(completion.r#type, "completion");
     }
-    
+
     #[test]
     fn test_stopped_at_methods() {
         let completion = Completion {
@@ -238,10 +232,10 @@ mod tests {
             stop_reason: Some("stop_sequence".to_string()),
             r#type: "completion".to_string(),
         };
-        
+
         assert!(completion.stopped_at_stop_sequence());
         assert!(!completion.stopped_at_max_tokens());
-        
+
         let completion = Completion {
             id: "cmpl_123456".to_string(),
             completion: "This is the completion text.".to_string(),
@@ -249,11 +243,11 @@ mod tests {
             stop_reason: Some("max_tokens".to_string()),
             r#type: "completion".to_string(),
         };
-        
+
         assert!(!completion.stopped_at_stop_sequence());
         assert!(completion.stopped_at_max_tokens());
     }
-    
+
     #[test]
     fn test_completion_create_params_serialization() {
         let params = CompletionCreateParams::new(
@@ -263,13 +257,13 @@ mod tests {
         )
         .with_temperature(0.7)
         .with_stop_sequences(vec!["\n\nHuman:".to_string()]);
-        
+
         let json = serde_json::to_string(&params).unwrap();
         let expected = r#"{"max_tokens_to_sample":1000,"model":"claude-3-5-sonnet-latest","prompt":"Hello, world!","stop_sequences":["\n\nHuman:"],"temperature":0.7}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_completion_create_params_with_streaming() {
         let params = CompletionCreateParams::new(
@@ -278,10 +272,10 @@ mod tests {
             1000,
         )
         .with_streaming();
-        
+
         let json = serde_json::to_string(&params).unwrap();
         let expected = r#"{"max_tokens_to_sample":1000,"model":"claude-3-5-sonnet-latest","prompt":"Hello, world!","stream":true}"#;
-        
+
         assert_eq!(json, expected);
     }
 }

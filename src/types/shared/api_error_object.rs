@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Represents an API error object returned by the Anthropic API.
 ///
@@ -31,7 +31,10 @@ mod tests {
     fn test_api_error_object_serialization() {
         let error = ApiErrorObject::new("An error occurred");
         let json = serde_json::to_string(&error).unwrap();
-        assert_eq!(json, r#"{"message":"An error occurred","type":"api_error"}"#);
+        assert_eq!(
+            json,
+            r#"{"message":"An error occurred","type":"api_error"}"#
+        );
     }
 
     #[test]

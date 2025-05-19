@@ -1,7 +1,7 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Represents an invalid request error returned by the Anthropic API.
-/// 
+///
 /// This error occurs when the request is malformed or contains invalid parameters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvalidRequestError {
@@ -31,7 +31,10 @@ mod tests {
     fn test_invalid_request_error_serialization() {
         let error = InvalidRequestError::new("Invalid parameter: max_tokens");
         let json = serde_json::to_string(&error).unwrap();
-        assert_eq!(json, r#"{"message":"Invalid parameter: max_tokens","type":"invalid_request_error"}"#);
+        assert_eq!(
+            json,
+            r#"{"message":"Invalid parameter: max_tokens","type":"invalid_request_error"}"#
+        );
     }
 
     #[test]

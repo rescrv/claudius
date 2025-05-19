@@ -1,12 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    MessageParam,
-    TextBlockParam,
-    ThinkingConfigParam,
+    MessageCountTokensToolParam, MessageParam, Model, TextBlockParam, ThinkingConfigParam,
     ToolChoiceParam,
-    MessageCountTokensToolParam,
-    Model,
 };
 
 /// Parameters for counting tokens in messages.
@@ -78,7 +74,7 @@ pub struct MessageCountTokensParams {
 pub enum SystemPrompt {
     /// A simple string system prompt.
     String(String),
-    
+
     /// An array of text block parameters.
     Blocks(Vec<TextBlockParam>),
 }
@@ -130,21 +126,18 @@ impl MessageCountTokensParams {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, to_value};
     use crate::types::{KnownModel, MessageRole};
+    use serde_json::{json, to_value};
 
     #[test]
     fn test_message_count_tokens_params_serialization() {
-        let message = MessageParam::new_with_string(
-            "Hello, Claude".to_string(),
-            MessageRole::User
-        );
-        
+        let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
+
         let params = MessageCountTokensParams::new(
             vec![message],
-            Model::Known(KnownModel::Claude3Sonnet20240229)
+            Model::Known(KnownModel::Claude3Sonnet20240229),
         );
-        
+
         let json = to_value(&params).unwrap();
         assert_eq!(
             json,
@@ -159,19 +152,17 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_message_count_tokens_params_with_system() {
-        let message = MessageParam::new_with_string(
-            "Hello, Claude".to_string(),
-            MessageRole::User
-        );
-        
+        let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
+
         let params = MessageCountTokensParams::new(
             vec![message],
-            Model::Known(KnownModel::Claude3Sonnet20240229)
-        ).with_system_string("You are a helpful assistant.".to_string());
-        
+            Model::Known(KnownModel::Claude3Sonnet20240229),
+        )
+        .with_system_string("You are a helpful assistant.".to_string());
+
         let json = to_value(&params).unwrap();
         assert_eq!(
             json,

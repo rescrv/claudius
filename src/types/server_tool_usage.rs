@@ -25,7 +25,7 @@ mod tests {
     fn test_server_tool_usage_serialization() {
         let usage = ServerToolUsage::new(5);
         let json = to_value(&usage).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -39,7 +39,7 @@ mod tests {
         let json = json!({
             "web_search_requests": 5
         });
-        
+
         let usage: ServerToolUsage = serde_json::from_value(json).unwrap();
         assert_eq!(usage.web_search_requests, 5);
     }

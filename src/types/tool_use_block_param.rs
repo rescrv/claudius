@@ -10,16 +10,16 @@ use crate::types::CacheControlEphemeral;
 pub struct ToolUseBlockParam {
     /// The ID of the tool use.
     pub id: String,
-    
+
     /// The input to the tool, which can be any JSON value.
     pub input: Value,
-    
+
     /// The name of the tool.
     pub name: String,
-    
+
     /// The type, which is always "tool_use".
     pub r#type: String,
-    
+
     /// Create a cache control breakpoint at this content block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControlEphemeral>,
@@ -36,7 +36,7 @@ impl ToolUseBlockParam {
             cache_control: None,
         }
     }
-    
+
     /// Add a cache control to this tool use block.
     pub fn with_cache_control(mut self, cache_control: CacheControlEphemeral) -> Self {
         self.cache_control = Some(cache_control);
@@ -54,13 +54,9 @@ mod tests {
         let input = json!({
             "query": "weather in San Francisco"
         });
-        
-        let block = ToolUseBlockParam::new(
-            "tool_1".to_string(),
-            input,
-            "web_search".to_string()
-        );
-        
+
+        let block = ToolUseBlockParam::new("tool_1".to_string(), input, "web_search".to_string());
+
         let json = to_value(&block).unwrap();
         assert_eq!(
             json,
@@ -74,20 +70,17 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_tool_use_block_param_with_cache_control() {
         let input = json!({
             "query": "weather in San Francisco"
         });
-        
+
         let cache_control = CacheControlEphemeral::new();
-        let block = ToolUseBlockParam::new(
-            "tool_1".to_string(),
-            input,
-            "web_search".to_string()
-        ).with_cache_control(cache_control);
-        
+        let block = ToolUseBlockParam::new("tool_1".to_string(), input, "web_search".to_string())
+            .with_cache_control(cache_control);
+
         let json = to_value(&block).unwrap();
         assert_eq!(
             json,
@@ -104,7 +97,7 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_tool_use_block_param_deserialization() {
         let json = json!({
@@ -115,7 +108,7 @@ mod tests {
             "name": "web_search",
             "type": "tool_use"
         });
-        
+
         let block: ToolUseBlockParam = serde_json::from_value(json).unwrap();
         assert_eq!(block.id, "tool_1");
         assert_eq!(block.input, json!({ "query": "weather in San Francisco" }));

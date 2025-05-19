@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// A block containing model thinking details.
 ///
@@ -7,10 +7,10 @@ use serde::{Serialize, Deserialize};
 pub struct ThinkingBlock {
     /// A signature for the thinking (typically a hash).
     pub signature: String,
-    
+
     /// The thinking content.
     pub thinking: String,
-    
+
     /// The type of content block, always "thinking" for this struct.
     #[serde(default = "default_type")]
     pub r#type: String,
@@ -34,27 +34,30 @@ impl ThinkingBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_thinking_block_serialization() {
         let thinking_block = ThinkingBlock::new(
             "Let me think through this problem step by step...",
             "abc123signature",
         );
-        
+
         let json = serde_json::to_string(&thinking_block).unwrap();
         let expected = r#"{"signature":"abc123signature","thinking":"Let me think through this problem step by step...","type":"thinking"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_deserialization() {
         let json = r#"{"signature":"abc123signature","thinking":"Let me think through this problem step by step...","type":"thinking"}"#;
         let thinking_block: ThinkingBlock = serde_json::from_str(json).unwrap();
-        
+
         assert_eq!(thinking_block.signature, "abc123signature");
-        assert_eq!(thinking_block.thinking, "Let me think through this problem step by step...");
+        assert_eq!(
+            thinking_block.thinking,
+            "Let me think through this problem step by step..."
+        );
         assert_eq!(thinking_block.r#type, "thinking");
     }
 }

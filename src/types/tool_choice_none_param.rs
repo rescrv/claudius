@@ -31,7 +31,7 @@ mod tests {
     fn test_tool_choice_none_param_serialization() {
         let param = ToolChoiceNoneParam::new();
         let json = to_value(&param).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -39,13 +39,13 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_tool_choice_none_param_deserialization() {
         let json = json!({
             "type": "none"
         });
-        
+
         let param: ToolChoiceNoneParam = serde_json::from_value(json).unwrap();
         assert_eq!(param.r#type, "none");
     }

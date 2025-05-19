@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::types::{WebSearchResultBlock, WebSearchToolResultError};
 
@@ -10,7 +10,7 @@ use crate::types::{WebSearchResultBlock, WebSearchToolResultError};
 pub enum WebSearchToolResultBlockContent {
     /// A list of web search results.
     Results(Vec<WebSearchResultBlock>),
-    
+
     /// An error that occurred during the web search.
     Error(WebSearchToolResultError),
 }
@@ -20,22 +20,22 @@ impl WebSearchToolResultBlockContent {
     pub fn with_results(results: Vec<WebSearchResultBlock>) -> Self {
         Self::Results(results)
     }
-    
+
     /// Creates a new WebSearchToolResultBlockContent with the specified error.
     pub fn with_error(error: WebSearchToolResultError) -> Self {
         Self::Error(error)
     }
-    
+
     /// Returns true if the content is a list of results.
     pub fn is_results(&self) -> bool {
         matches!(self, WebSearchToolResultBlockContent::Results(_))
     }
-    
+
     /// Returns true if the content is an error.
     pub fn is_error(&self) -> bool {
         matches!(self, WebSearchToolResultBlockContent::Error(_))
     }
-    
+
     /// Returns a reference to the results if this is a Results variant,
     /// or None otherwise.
     pub fn as_results(&self) -> Option<&Vec<WebSearchResultBlock>> {
@@ -44,7 +44,7 @@ impl WebSearchToolResultBlockContent {
             _ => None,
         }
     }
-    
+
     /// Returns a reference to the error if this is an Error variant,
     /// or None otherwise.
     pub fn as_error(&self) -> Option<&WebSearchToolResultError> {
@@ -53,7 +53,7 @@ impl WebSearchToolResultBlockContent {
             _ => None,
         }
     }
-    
+
     /// Returns the number of results if this is a Results variant,
     /// or 0 if this is an Error variant.
     pub fn result_count(&self) -> usize {
@@ -68,7 +68,7 @@ impl WebSearchToolResultBlockContent {
 mod tests {
     use super::*;
     use crate::types::WebSearchErrorCode;
-    
+
     #[test]
     fn test_results_serialization() {
         let results = vec![
@@ -87,38 +87,39 @@ mod tests {
                 url: "https://example.com/page2".to_string(),
             },
         ];
-        
+
         let content = WebSearchToolResultBlockContent::with_results(results);
-        
+
         let json = serde_json::to_string(&content).unwrap();
         let expected = r#"[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","type":"web_search_result","url":"https://example.com/page1"},{"encrypted_content":"encrypted-data-2","title":"Example Page 2","type":"web_search_result","url":"https://example.com/page2"}]"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_error_serialization() {
         let error = WebSearchToolResultError {
             error_code: WebSearchErrorCode::InvalidToolInput,
             r#type: "web_search_tool_result_error".to_string(),
         };
-        
+
         let content = WebSearchToolResultBlockContent::with_error(error);
-        
+
         let json = serde_json::to_string(&content).unwrap();
-        let expected = r#"{"error_code":"invalid_tool_input","type":"web_search_tool_result_error"}"#;
-        
+        let expected =
+            r#"{"error_code":"invalid_tool_input","type":"web_search_tool_result_error"}"#;
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_results_deserialization() {
         let json = r#"[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","type":"web_search_result","url":"https://example.com/page1"},{"encrypted_content":"encrypted-data-2","title":"Example Page 2","type":"web_search_result","url":"https://example.com/page2"}]"#;
         let content: WebSearchToolResultBlockContent = serde_json::from_str(json).unwrap();
-        
+
         assert!(content.is_results());
         assert!(!content.is_error());
-        
+
         let results = content.as_results().unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].encrypted_content, "encrypted-data-1");
@@ -126,19 +127,19 @@ mod tests {
         assert_eq!(results[1].encrypted_content, "encrypted-data-2");
         assert_eq!(results[1].title, "Example Page 2");
     }
-    
+
     #[test]
     fn test_error_deserialization() {
         let json = r#"{"error_code":"invalid_tool_input","type":"web_search_tool_result_error"}"#;
         let content: WebSearchToolResultBlockContent = serde_json::from_str(json).unwrap();
-        
+
         assert!(!content.is_results());
         assert!(content.is_error());
-        
+
         let error = content.as_error().unwrap();
         assert_eq!(error.error_code, WebSearchErrorCode::InvalidToolInput);
     }
-    
+
     #[test]
     fn test_result_count() {
         let results = vec![
@@ -157,15 +158,15 @@ mod tests {
                 url: "https://example.com/page2".to_string(),
             },
         ];
-        
+
         let content = WebSearchToolResultBlockContent::with_results(results);
         assert_eq!(content.result_count(), 2);
-        
+
         let error = WebSearchToolResultError {
             error_code: WebSearchErrorCode::InvalidToolInput,
             r#type: "web_search_tool_result_error".to_string(),
         };
-        
+
         let content = WebSearchToolResultBlockContent::with_error(error);
         assert_eq!(content.result_count(), 0);
     }

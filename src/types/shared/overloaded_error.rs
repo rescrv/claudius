@@ -1,7 +1,7 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Represents an overloaded error returned by the Anthropic API.
-/// 
+///
 /// This error occurs when the API is experiencing high traffic and cannot process the request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OverloadedError {
@@ -31,7 +31,10 @@ mod tests {
     fn test_overloaded_error_serialization() {
         let error = OverloadedError::new("Server is overloaded");
         let json = serde_json::to_string(&error).unwrap();
-        assert_eq!(json, r#"{"message":"Server is overloaded","type":"overloaded_error"}"#);
+        assert_eq!(
+            json,
+            r#"{"message":"Server is overloaded","type":"overloaded_error"}"#
+        );
     }
 
     #[test]

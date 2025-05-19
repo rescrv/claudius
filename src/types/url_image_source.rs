@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// A source for an image from a URL.
 ///
@@ -8,7 +8,7 @@ pub struct UrlImageSource {
     /// The type of source, always "url" for this struct.
     #[serde(default = "default_type")]
     pub r#type: String,
-    
+
     /// The URL of the image.
     pub url: String,
 }
@@ -30,25 +30,25 @@ impl UrlImageSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_serialization() {
         let source = UrlImageSource {
             r#type: "url".to_string(),
             url: "https://example.com/image.jpg".to_string(),
         };
-        
+
         let json = serde_json::to_string(&source).unwrap();
         let expected = r#"{"type":"url","url":"https://example.com/image.jpg"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_deserialization() {
         let json = r#"{"type":"url","url":"https://example.com/image.jpg"}"#;
         let source: UrlImageSource = serde_json::from_str(json).unwrap();
-        
+
         assert_eq!(source.r#type, "url");
         assert_eq!(source.url, "https://example.com/image.jpg");
     }

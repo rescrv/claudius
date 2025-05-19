@@ -1,16 +1,12 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    TextBlock,
-    ToolUseBlock,
-    ThinkingBlock,
-    ServerToolUseBlock,
-    RedactedThinkingBlock,
+    RedactedThinkingBlock, ServerToolUseBlock, TextBlock, ThinkingBlock, ToolUseBlock,
 };
 
 /// A block of content in a message.
 ///
-/// This enum represents the different types of content blocks that can be included 
+/// This enum represents the different types of content blocks that can be included
 /// in a message's content.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
@@ -18,19 +14,19 @@ pub enum ContentBlock {
     /// A block of text content
     #[serde(rename = "text")]
     Text(TextBlock),
-    
+
     /// A block representing a tool use request
     #[serde(rename = "tool_use")]
     ToolUse(ToolUseBlock),
-    
+
     /// A block representing a server-side tool use request
     #[serde(rename = "server_tool_use")]
     ServerToolUse(ServerToolUseBlock),
-    
+
     /// A block containing model thinking
     #[serde(rename = "thinking")]
     Thinking(ThinkingBlock),
-    
+
     /// A block containing redacted thinking data
     #[serde(rename = "redacted_thinking")]
     RedactedThinking(RedactedThinkingBlock),
@@ -41,27 +37,27 @@ impl ContentBlock {
     pub fn is_text(&self) -> bool {
         matches!(self, ContentBlock::Text(_))
     }
-    
+
     /// Returns true if this block is a tool use block
     pub fn is_tool_use(&self) -> bool {
         matches!(self, ContentBlock::ToolUse(_))
     }
-    
+
     /// Returns true if this block is a server tool use block
     pub fn is_server_tool_use(&self) -> bool {
         matches!(self, ContentBlock::ServerToolUse(_))
     }
-    
+
     /// Returns true if this block is a thinking block
     pub fn is_thinking(&self) -> bool {
         matches!(self, ContentBlock::Thinking(_))
     }
-    
+
     /// Returns true if this block is a redacted thinking block
     pub fn is_redacted_thinking(&self) -> bool {
         matches!(self, ContentBlock::RedactedThinking(_))
     }
-    
+
     /// Returns a reference to the inner TextBlock if this is a Text variant,
     /// or None otherwise.
     pub fn as_text(&self) -> Option<&TextBlock> {
@@ -70,7 +66,7 @@ impl ContentBlock {
             _ => None,
         }
     }
-    
+
     /// Returns a reference to the inner ToolUseBlock if this is a ToolUse variant,
     /// or None otherwise.
     pub fn as_tool_use(&self) -> Option<&ToolUseBlock> {
@@ -79,7 +75,7 @@ impl ContentBlock {
             _ => None,
         }
     }
-    
+
     /// Returns a reference to the inner ServerToolUseBlock if this is a ServerToolUse variant,
     /// or None otherwise.
     pub fn as_server_tool_use(&self) -> Option<&ServerToolUseBlock> {
@@ -88,7 +84,7 @@ impl ContentBlock {
             _ => None,
         }
     }
-    
+
     /// Returns a reference to the inner ThinkingBlock if this is a Thinking variant,
     /// or None otherwise.
     pub fn as_thinking(&self) -> Option<&ThinkingBlock> {
@@ -97,7 +93,7 @@ impl ContentBlock {
             _ => None,
         }
     }
-    
+
     /// Returns a reference to the inner RedactedThinkingBlock if this is a RedactedThinking variant,
     /// or None otherwise.
     pub fn as_redacted_thinking(&self) -> Option<&RedactedThinkingBlock> {
@@ -142,45 +138,46 @@ impl From<RedactedThinkingBlock> for ContentBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_text_block_serialization() {
         let text_block = TextBlock::new("This is some text content.");
         let content_block = ContentBlock::from(text_block);
-        
+
         let json = serde_json::to_string(&content_block).unwrap();
         let expected = r#"{"text":"This is some text content.","type":"text"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_tool_use_block_serialization() {
         let input_json = serde_json::json!({
             "query": "weather in San Francisco",
             "limit": 5
         });
-        
+
         let tool_block = ToolUseBlock::new("tool_123", "search", input_json);
         let content_block = ContentBlock::from(tool_block);
-        
+
         let json = serde_json::to_string(&content_block).unwrap();
         let expected = r#"{"id":"tool_123","input":{"limit":5,"query":"weather in San Francisco"},"name":"search","type":"tool_use"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_server_tool_use_block_serialization() {
-        let server_block = ServerToolUseBlock::new_web_search("tool_123", "weather in San Francisco");
+        let server_block =
+            ServerToolUseBlock::new_web_search("tool_123", "weather in San Francisco");
         let content_block = ContentBlock::from(server_block);
-        
+
         let json = serde_json::to_string(&content_block).unwrap();
         let expected = r#"{"id":"tool_123","input":{"query":"weather in San Francisco"},"name":"web_search","type":"server_tool_use"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_thinking_block_serialization() {
         let thinking_block = ThinkingBlock::new(
@@ -188,44 +185,44 @@ mod tests {
             "abc123signature",
         );
         let content_block = ContentBlock::from(thinking_block);
-        
+
         let json = serde_json::to_string(&content_block).unwrap();
         let expected = r#"{"signature":"abc123signature","thinking":"Let me think through this problem step by step...","type":"thinking"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_redacted_thinking_block_serialization() {
         let redacted_block = RedactedThinkingBlock::new("encoded-thinking-data-123");
         let content_block = ContentBlock::from(redacted_block);
-        
+
         let json = serde_json::to_string(&content_block).unwrap();
         let expected = r#"{"data":"encoded-thinking-data-123","type":"redacted_thinking"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_deserialization() {
         let json = r#"{"text":"This is some text content.","type":"text"}"#;
         let content_block: ContentBlock = serde_json::from_str(json).unwrap();
-        
+
         assert!(content_block.is_text());
         assert!(!content_block.is_tool_use());
-        
+
         if let ContentBlock::Text(block) = content_block {
             assert_eq!(block.text, "This is some text content.");
         } else {
             panic!("Expected TextBlock");
         }
-        
+
         let json = r#"{"id":"tool_123","input":{"query":"weather in San Francisco"},"name":"web_search","type":"server_tool_use"}"#;
         let content_block: ContentBlock = serde_json::from_str(json).unwrap();
-        
+
         assert!(content_block.is_server_tool_use());
         assert!(!content_block.is_text());
-        
+
         if let ContentBlock::ServerToolUse(block) = content_block {
             assert_eq!(block.id, "tool_123");
             assert_eq!(block.name, "web_search");
@@ -233,18 +230,18 @@ mod tests {
             panic!("Expected ServerToolUseBlock");
         }
     }
-    
+
     #[test]
     fn test_as_methods() {
         let text_block = TextBlock::new("This is some text content.");
         let content_block = ContentBlock::from(text_block);
-        
+
         assert!(content_block.as_text().is_some());
         assert!(content_block.as_tool_use().is_none());
         assert!(content_block.as_server_tool_use().is_none());
         assert!(content_block.as_thinking().is_none());
         assert!(content_block.as_redacted_thinking().is_none());
-        
+
         let text_ref = content_block.as_text().unwrap();
         assert_eq!(text_ref.text, "This is some text content.");
     }

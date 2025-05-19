@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    CacheControlEphemeral,
-    WebSearchResultBlockParam,
-    WebSearchToolRequestErrorParam,
+    CacheControlEphemeral, WebSearchResultBlockParam, WebSearchToolRequestErrorParam,
     WebSearchToolResultBlockParamContent,
 };
 
@@ -12,14 +10,14 @@ use crate::types::{
 pub struct WebSearchToolResultBlockParam {
     /// The content of the web search tool result.
     pub content: WebSearchToolResultBlockParamContent,
-    
+
     /// The ID of the tool use that this result is for.
     #[serde(rename = "tool_use_id")]
     pub tool_use_id: String,
-    
+
     /// The type, which is always "web_search_tool_result".
     pub r#type: String,
-    
+
     /// Create a cache control breakpoint at this content block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControlEphemeral>,
@@ -35,7 +33,7 @@ impl WebSearchToolResultBlockParam {
             cache_control: None,
         }
     }
-    
+
     /// Create a new `WebSearchToolResultBlockParam` with the given results and tool use ID.
     pub fn new_with_results(results: Vec<WebSearchResultBlockParam>, tool_use_id: String) -> Self {
         Self::new(
@@ -43,18 +41,15 @@ impl WebSearchToolResultBlockParam {
             tool_use_id,
         )
     }
-    
+
     /// Create a new `WebSearchToolResultBlockParam` with the given error and tool use ID.
-    pub fn new_with_error(
-        error: WebSearchToolRequestErrorParam,
-        tool_use_id: String,
-    ) -> Self {
+    pub fn new_with_error(error: WebSearchToolRequestErrorParam, tool_use_id: String) -> Self {
         Self::new(
             WebSearchToolResultBlockParamContent::new_with_error(error),
             tool_use_id,
         )
     }
-    
+
     /// Add a cache control to this web search tool result block.
     pub fn with_cache_control(mut self, cache_control: CacheControlEphemeral) -> Self {
         self.cache_control = Some(cache_control);
@@ -74,12 +69,10 @@ mod tests {
             "Example Title".to_string(),
             "https://example.com".to_string(),
         );
-        
-        let block = WebSearchToolResultBlockParam::new_with_results(
-            vec![result],
-            "tool_1".to_string(),
-        );
-        
+
+        let block =
+            WebSearchToolResultBlockParam::new_with_results(vec![result], "tool_1".to_string());
+
         let json = to_value(&block).unwrap();
         assert_eq!(
             json,
@@ -97,18 +90,15 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_web_search_tool_result_block_param_with_error() {
         let error = WebSearchToolRequestErrorParam::new(
-            crate::types::WebSearchToolRequestErrorCode::InvalidToolInput
+            crate::types::WebSearchToolRequestErrorCode::InvalidToolInput,
         );
-        
-        let block = WebSearchToolResultBlockParam::new_with_error(
-            error,
-            "tool_1".to_string(),
-        );
-        
+
+        let block = WebSearchToolResultBlockParam::new_with_error(error, "tool_1".to_string());
+
         let json = to_value(&block).unwrap();
         assert_eq!(
             json,
@@ -122,7 +112,7 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_web_search_tool_result_block_param_with_cache_control() {
         let result = WebSearchResultBlockParam::new(
@@ -130,13 +120,12 @@ mod tests {
             "Example Title".to_string(),
             "https://example.com".to_string(),
         );
-        
+
         let cache_control = CacheControlEphemeral::new();
-        let block = WebSearchToolResultBlockParam::new_with_results(
-            vec![result],
-            "tool_1".to_string(),
-        ).with_cache_control(cache_control);
-        
+        let block =
+            WebSearchToolResultBlockParam::new_with_results(vec![result], "tool_1".to_string())
+                .with_cache_control(cache_control);
+
         let json = to_value(&block).unwrap();
         assert_eq!(
             json,
@@ -157,7 +146,7 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_web_search_tool_result_block_param_deserialization() {
         let json = json!({
@@ -175,17 +164,17 @@ mod tests {
                 "type": "ephemeral"
             }
         });
-        
+
         let block: WebSearchToolResultBlockParam = serde_json::from_value(json).unwrap();
         assert_eq!(block.tool_use_id, "tool_1");
         assert_eq!(block.r#type, "web_search_tool_result");
         assert!(block.cache_control.is_some());
-        
+
         match &block.content {
             WebSearchToolResultBlockParamContent::Results(results) => {
                 assert_eq!(results.len(), 1);
                 assert_eq!(results[0].title, "Example Title");
-            },
+            }
             _ => panic!("Expected Results variant"),
         }
     }

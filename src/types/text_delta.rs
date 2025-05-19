@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct TextDelta {
     /// The text content.
     pub text: String,
-    
+
     /// The type, which is always "text_delta".
     pub r#type: String,
 }
@@ -18,7 +18,7 @@ impl TextDelta {
             r#type: "text_delta".to_string(),
         }
     }
-    
+
     /// Create a new `TextDelta` from a string reference.
     pub fn from_string_ref(text: &str) -> Self {
         Self::new(text.to_string())
@@ -42,7 +42,7 @@ mod tests {
     fn test_text_delta_serialization() {
         let delta = TextDelta::new("Hello world".to_string());
         let json = to_value(&delta).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -58,12 +58,12 @@ mod tests {
             "text": "Hello world",
             "type": "text_delta"
         });
-        
+
         let delta: TextDelta = serde_json::from_value(json).unwrap();
         assert_eq!(delta.text, "Hello world");
         assert_eq!(delta.r#type, "text_delta");
     }
-    
+
     #[test]
     fn test_from_str() {
         let delta = "Hello world".parse::<TextDelta>().unwrap();

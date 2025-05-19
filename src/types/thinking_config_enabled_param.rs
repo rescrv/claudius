@@ -11,7 +11,7 @@ pub struct ThinkingConfigEnabledParam {
     /// Must be ≥1024 and less than `max_tokens`.
     #[serde(rename = "budget_tokens")]
     pub budget_tokens: i32,
-    
+
     /// The type, which is always "enabled".
     pub r#type: String,
 }
@@ -37,7 +37,7 @@ mod tests {
     fn test_thinking_config_enabled_param_serialization() {
         let param = ThinkingConfigEnabledParam::new(2048);
         let json = to_value(&param).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -53,7 +53,7 @@ mod tests {
             "budget_tokens": 2048,
             "type": "enabled"
         });
-        
+
         let param: ThinkingConfigEnabledParam = serde_json::from_value(json).unwrap();
         assert_eq!(param.budget_tokens, 2048);
         assert_eq!(param.r#type, "enabled");

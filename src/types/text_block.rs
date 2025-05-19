@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::types::TextCitation;
 
@@ -14,10 +14,10 @@ pub struct TextBlock {
     /// and content document results in `content_block_location`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub citations: Option<Vec<TextCitation>>,
-    
+
     /// The text content.
     pub text: String,
-    
+
     /// The type of content block, always "text" for this struct.
     #[serde(default = "default_type")]
     pub r#type: String,
@@ -36,7 +36,7 @@ impl TextBlock {
             r#type: default_type(),
         }
     }
-    
+
     /// Creates a new TextBlock with the specified text and citations.
     pub fn with_citations<S: Into<String>>(text: S, citations: Vec<TextCitation>) -> Self {
         Self {
@@ -45,12 +45,12 @@ impl TextBlock {
             r#type: default_type(),
         }
     }
-    
+
     /// Returns the number of citations if any, or 0 if there are none.
     pub fn citation_count(&self) -> usize {
         self.citations.as_ref().map_or(0, |c| c.len())
     }
-    
+
     /// Returns true if this text block has citations.
     pub fn has_citations(&self) -> bool {
         self.citation_count() > 0
@@ -61,17 +61,17 @@ impl TextBlock {
 mod tests {
     use super::*;
     use crate::types::CitationCharLocation;
-    
+
     #[test]
     fn test_text_block_serialization() {
         let text_block = TextBlock::new("This is some text content.");
-        
+
         let json = serde_json::to_string(&text_block).unwrap();
         let expected = r#"{"text":"This is some text content.","type":"text"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_text_block_with_citations_serialization() {
         let char_location = CitationCharLocation {
@@ -82,36 +82,34 @@ mod tests {
             start_char_index: 0,
             r#type: "char_location".to_string(),
         };
-        
+
         let citation = TextCitation::CharLocation(char_location);
-        
-        let text_block = TextBlock::with_citations(
-            "This is some text content with a citation.",
-            vec![citation],
-        );
-        
+
+        let text_block =
+            TextBlock::with_citations("This is some text content with a citation.", vec![citation]);
+
         let json = serde_json::to_string(&text_block).unwrap();
         let expected = r#"{"citations":[{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0,"type":"char_location"}],"text":"This is some text content with a citation.","type":"text"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_deserialization() {
         let json = r#"{"text":"This is some text content.","type":"text"}"#;
         let text_block: TextBlock = serde_json::from_str(json).unwrap();
-        
+
         assert_eq!(text_block.text, "This is some text content.");
         assert_eq!(text_block.r#type, "text");
         assert!(text_block.citations.is_none());
     }
-    
+
     #[test]
     fn test_helper_methods() {
         let text_block = TextBlock::new("Simple text");
         assert_eq!(text_block.citation_count(), 0);
         assert!(!text_block.has_citations());
-        
+
         let char_location = CitationCharLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -120,14 +118,11 @@ mod tests {
             start_char_index: 0,
             r#type: "char_location".to_string(),
         };
-        
+
         let citation = TextCitation::CharLocation(char_location);
-        
-        let text_block = TextBlock::with_citations(
-            "Text with citation",
-            vec![citation],
-        );
-        
+
+        let text_block = TextBlock::with_citations("Text with citation", vec![citation]);
+
         assert_eq!(text_block.citation_count(), 1);
         assert!(text_block.has_citations());
     }

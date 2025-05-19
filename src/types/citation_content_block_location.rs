@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Represents a content block-based location citation.
 ///
@@ -7,20 +7,20 @@ use serde::{Serialize, Deserialize};
 pub struct CitationContentBlockLocation {
     /// The text that was cited
     pub cited_text: String,
-    
+
     /// The index of the document in the input context
     pub document_index: i32,
-    
+
     /// Optional title of the document
     #[serde(skip_serializing_if = "Option::is_none")]
     pub document_title: Option<String>,
-    
+
     /// The end content block index (exclusive) of the citation in the document
     pub end_block_index: i32,
-    
+
     /// The start content block index (inclusive) of the citation in the document
     pub start_block_index: i32,
-    
+
     /// The type of citation, always "content_block_location" for this struct
     #[serde(default = "default_type")]
     pub r#type: String,
@@ -48,7 +48,7 @@ impl CitationContentBlockLocation {
             r#type: default_type(),
         }
     }
-    
+
     /// Returns the number of content blocks in the citation span
     pub fn block_count(&self) -> i32 {
         self.end_block_index - self.start_block_index
@@ -58,7 +58,7 @@ impl CitationContentBlockLocation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_serialization() {
         let location = CitationContentBlockLocation {
@@ -69,13 +69,13 @@ mod tests {
             start_block_index: 1,
             r#type: "content_block_location".to_string(),
         };
-        
+
         let json = serde_json::to_string(&location).unwrap();
         let expected = r#"{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_block_index":3,"start_block_index":1,"type":"content_block_location"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_serialization_without_title() {
         let location = CitationContentBlockLocation {
@@ -86,18 +86,18 @@ mod tests {
             start_block_index: 1,
             r#type: "content_block_location".to_string(),
         };
-        
+
         let json = serde_json::to_string(&location).unwrap();
         let expected = r#"{"cited_text":"example text","document_index":0,"end_block_index":3,"start_block_index":1,"type":"content_block_location"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_deserialization() {
         let json = r#"{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_block_index":3,"start_block_index":1,"type":"content_block_location"}"#;
         let location: CitationContentBlockLocation = serde_json::from_str(json).unwrap();
-        
+
         assert_eq!(location.cited_text, "example text");
         assert_eq!(location.document_index, 0);
         assert_eq!(location.document_title, Some("Document Title".to_string()));
@@ -105,7 +105,7 @@ mod tests {
         assert_eq!(location.start_block_index, 1);
         assert_eq!(location.r#type, "content_block_location");
     }
-    
+
     #[test]
     fn test_block_count() {
         let location = CitationContentBlockLocation {
@@ -116,7 +116,7 @@ mod tests {
             start_block_index: 1,
             r#type: "content_block_location".to_string(),
         };
-        
+
         assert_eq!(location.block_count(), 2);
     }
 }

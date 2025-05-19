@@ -1,16 +1,14 @@
-use reqwest::{Client as ReqwestClient, header, Response};
+use bytes::Bytes;
+use futures::Stream;
+use futures::stream::{self, StreamExt};
 use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::{Client as ReqwestClient, Response, header};
 use serde::Deserialize;
 use std::env;
 use std::time::Duration;
-use futures::Stream;
-use futures::stream::{self, StreamExt};
-use bytes::Bytes;
 
 use crate::error::{Error, Result};
-use crate::types::{
-    Message, MessageCreateParams, MessageStreamEvent,
-};
+use crate::types::{Message, MessageCreateParams, MessageStreamEvent};
 
 const DEFAULT_API_URL: &str = "https://api.anthropic.com/v1/";
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
@@ -34,7 +32,9 @@ impl Anthropic {
         let api_key = match api_key {
             Some(key) => key,
             None => env::var("CLAUDIUS_API_KEY").map_err(|_| {
-                Error::authentication("API key not provided and CLAUDIUS_API_KEY environment variable not set")
+                Error::authentication(
+                    "API key not provided and CLAUDIUS_API_KEY environment variable not set",
+                )
             })?,
         };
 
@@ -66,7 +66,9 @@ impl Anthropic {
         let api_key = match api_key {
             Some(key) => key,
             None => env::var("CLAUDIUS_API_KEY").map_err(|_| {
-                Error::authentication("API key not provided and CLAUDIUS_API_KEY environment variable not set")
+                Error::authentication(
+                    "API key not provided and CLAUDIUS_API_KEY environment variable not set",
+                )
             })?,
         };
 
@@ -96,16 +98,13 @@ impl Anthropic {
             header::CONTENT_TYPE,
             HeaderValue::from_static("application/json"),
         );
-        headers.insert(
-            header::ACCEPT,
-            HeaderValue::from_static("application/json"),
-        );
+        headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
         headers.insert(
             "x-api-key",
             HeaderValue::from_str(&self.api_key).expect("API key should be valid"),
         );
         headers.insert(
-            "anthropic-version", 
+            "anthropic-version",
             HeaderValue::from_static(ANTHROPIC_API_VERSION),
         );
         headers
@@ -115,14 +114,16 @@ impl Anthropic {
     async fn process_error_response(response: Response) -> Error {
         let status = response.status();
         let status_code = status.as_u16();
-        
+
         // Get headers we might need for error processing
-        let request_id = response.headers()
+        let request_id = response
+            .headers()
             .get("x-request-id")
             .and_then(|val| val.to_str().ok())
             .map(String::from);
-            
-        let retry_after = response.headers()
+
+        let retry_after = response
+            .headers()
             .get("retry-after")
             .and_then(|val| val.to_str().ok())
             .and_then(|val| val.parse::<u64>().ok());
@@ -143,22 +144,27 @@ impl Anthropic {
 
         let error_body = match response.text().await {
             Ok(body) => body,
-            Err(e) => return Error::http_client(
-                format!("Failed to read error response: {}", e),
-                Some(Box::new(e))
-            ),
+            Err(e) => {
+                return Error::http_client(
+                    format!("Failed to read error response: {}", e),
+                    Some(Box::new(e)),
+                );
+            }
         };
 
         // Try to parse as JSON first
         let parsed_error = serde_json::from_str::<ErrorResponse>(&error_body).ok();
-        let error_type = parsed_error.as_ref()
+        let error_type = parsed_error
+            .as_ref()
             .and_then(|e| e.error.as_ref())
             .and_then(|e| e.error_type.clone());
-        let error_message = parsed_error.as_ref()
+        let error_message = parsed_error
+            .as_ref()
             .and_then(|e| e.error.as_ref())
             .and_then(|e| e.message.clone())
             .unwrap_or_else(|| error_body.clone());
-        let error_param = parsed_error.as_ref()
+        let error_param = parsed_error
+            .as_ref()
             .and_then(|e| e.error.as_ref())
             .and_then(|e| e.param.clone());
 
@@ -179,8 +185,9 @@ impl Anthropic {
     /// Send a message to the API and get a non-streaming response.
     pub async fn send(&self, params: MessageCreateParams) -> Result<Message> {
         let url = format!("{}messages", self.base_url);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .post(&url)
             .headers(self.default_headers())
             .json(&params)
@@ -193,15 +200,9 @@ impl Anthropic {
                         Some(self.timeout.as_secs_f64()),
                     )
                 } else if e.is_connect() {
-                    Error::connection(
-                        format!("Connection error: {}", e),
-                        Some(Box::new(e)),
-                    )
+                    Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
                 } else {
-                    Error::http_client(
-                        format!("Request failed: {}", e),
-                        Some(Box::new(e)),
-                    )
+                    Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
                 }
             })?;
 
@@ -209,35 +210,37 @@ impl Anthropic {
             return Err(Self::process_error_response(response).await);
         }
 
-        response.json::<Message>()
-            .await
-            .map_err(|e| {
-                Error::serialization(
-                    format!("Failed to parse response: {}", e),
-                    Some(Box::new(e)),
-                )
-            })
+        response.json::<Message>().await.map_err(|e| {
+            Error::serialization(
+                format!("Failed to parse response: {}", e),
+                Some(Box::new(e)),
+            )
+        })
     }
 
     /// Send a message to the API and get a streaming response.
     ///
     /// Returns a stream of MessageStreamEvent objects that can be processed incrementally.
-    pub async fn stream(&self, mut params: MessageCreateParams) -> Result<impl Stream<Item = Result<MessageStreamEvent>>> {
+    pub async fn stream(
+        &self,
+        mut params: MessageCreateParams,
+    ) -> Result<impl Stream<Item = Result<MessageStreamEvent>>> {
         // Ensure stream is enabled based on the variant
         match &mut params {
             MessageCreateParams::NonStreaming(p) => p.stream = true,
             MessageCreateParams::Streaming(p) => p.stream = true,
         }
-        
+
         let url = format!("{}messages", self.base_url);
-        
+
         let mut headers = self.default_headers();
         headers.insert(
             header::ACCEPT,
             HeaderValue::from_static("text/event-stream"),
         );
 
-        let response = self.client
+        let response = self
+            .client
             .post(&url)
             .headers(headers)
             .json(&params)
@@ -250,15 +253,9 @@ impl Anthropic {
                         Some(self.timeout.as_secs_f64()),
                     )
                 } else if e.is_connect() {
-                    Error::connection(
-                        format!("Connection error: {}", e),
-                        Some(Box::new(e)),
-                    )
+                    Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
                 } else {
-                    Error::http_client(
-                        format!("Request failed: {}", e),
-                        Some(Box::new(e)),
-                    )
+                    Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
                 }
             })?;
 
@@ -268,7 +265,7 @@ impl Anthropic {
 
         // Get the byte stream from the response
         let stream = response.bytes_stream();
-        
+
         // Create an SSE processor
         let event_stream = process_sse(stream);
 
@@ -287,10 +284,10 @@ where
             Error::streaming(format!("Error in HTTP stream: {}", e), Some(Box::new(e)))
         })
     });
-    
+
     // Use a state machine to process the SSE stream
     let buffer = String::new();
-    
+
     stream::unfold(
         (stream, buffer),
         move |(mut stream, mut buffer)| async move {
@@ -300,26 +297,24 @@ where
                     buffer = remaining;
                     return Some((event, (stream, buffer)));
                 }
-                
+
                 // Read more data
                 match stream.next().await {
-                    Some(Ok(bytes)) => {
-                        match String::from_utf8(bytes.to_vec()) {
-                            Ok(text) => buffer.push_str(&text),
-                            Err(e) => {
-                                return Some((
-                                    Err(Error::encoding(
-                                        format!("Invalid UTF-8 in stream: {}", e),
-                                        Some(Box::new(e)),
-                                    )),
-                                    (stream, buffer),
-                                ));
-                            }
+                    Some(Ok(bytes)) => match String::from_utf8(bytes.to_vec()) {
+                        Ok(text) => buffer.push_str(&text),
+                        Err(e) => {
+                            return Some((
+                                Err(Error::encoding(
+                                    format!("Invalid UTF-8 in stream: {}", e),
+                                    Some(Box::new(e)),
+                                )),
+                                (stream, buffer),
+                            ));
                         }
                     },
                     Some(Err(e)) => {
                         return Some((Err(e), (stream, buffer)));
-                    },
+                    }
                     None => {
                         // End of stream
                         if !buffer.is_empty() {
@@ -358,26 +353,30 @@ fn extract_event(buffer: &str) -> Option<(Result<MessageStreamEvent>, String)> {
     match data {
         Some("[DONE]") => {
             // End of stream marker
-            Some((Ok(MessageStreamEvent::MessageStop(Default::default())), rest))
+            Some((
+                Ok(MessageStreamEvent::MessageStop(Default::default())),
+                rest,
+            ))
         }
         Some(json_str) => {
             // Parse the JSON
             match serde_json::from_str::<MessageStreamEvent>(json_str) {
                 Ok(event) => Some((Ok(event), rest)),
-                Err(e) => {
-                    Some((
-                        Err(Error::serialization(
-                            format!("Failed to parse event JSON: {}", e),
-                            Some(Box::new(e)),
-                        )),
-                        rest,
-                    ))
-                }
+                Err(e) => Some((
+                    Err(Error::serialization(
+                        format!("Failed to parse event JSON: {}", e),
+                        Some(Box::new(e)),
+                    )),
+                    rest,
+                )),
             }
         }
         None => {
             // Skip empty events
-            Some((Ok(MessageStreamEvent::MessageStop(Default::default())), rest))
+            Some((
+                Ok(MessageStreamEvent::MessageStop(Default::default())),
+                rest,
+            ))
         }
     }
 }
@@ -399,7 +398,8 @@ mod tests {
             Some("test-key".to_string()),
             Some("https://custom-api.example.com/".to_string()),
             Some(30_000),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(client.api_key, "test-key");
         assert_eq!(client.base_url, "https://custom-api.example.com/");
         assert_eq!(client.timeout, Duration::from_millis(30_000));

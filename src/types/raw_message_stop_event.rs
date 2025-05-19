@@ -30,7 +30,7 @@ mod tests {
     #[test]
     fn test_raw_message_stop_event_serialization() {
         let event = RawMessageStopEvent::new();
-        
+
         let json = to_value(&event).unwrap();
         assert_eq!(
             json,
@@ -39,13 +39,13 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_raw_message_stop_event_deserialization() {
         let json = json!({
             "type": "message_stop"
         });
-        
+
         let event: RawMessageStopEvent = serde_json::from_value(json).unwrap();
         assert_eq!(event.r#type, "message_stop");
     }

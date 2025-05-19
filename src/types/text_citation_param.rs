@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// A type that represents a citation in a text block or document.
 ///
@@ -12,74 +12,74 @@ pub enum TextCitationParam {
     CharLocation {
         /// The text that was cited
         cited_text: String,
-        
+
         /// The index of the document in the input context
         document_index: i32,
-        
+
         /// Optional title of the document
         #[serde(skip_serializing_if = "Option::is_none")]
         document_title: Option<String>,
-        
+
         /// The end character index (exclusive) of the citation in the document
         end_char_index: i32,
-        
+
         /// The start character index (inclusive) of the citation in the document
         start_char_index: i32,
     },
-    
+
     /// A page-based location citation
     #[serde(rename = "page_location")]
     PageLocation {
         /// The text that was cited
         cited_text: String,
-        
+
         /// The index of the document in the input context
         document_index: i32,
-        
+
         /// Optional title of the document
         #[serde(skip_serializing_if = "Option::is_none")]
         document_title: Option<String>,
-        
+
         /// The end page number (inclusive) of the citation in the document
         end_page_number: i32,
-        
+
         /// The start page number (inclusive) of the citation in the document
         start_page_number: i32,
     },
-    
+
     /// A content block-based location citation
     #[serde(rename = "content_block_location")]
     ContentBlockLocation {
         /// The text that was cited
         cited_text: String,
-        
+
         /// The index of the document in the input context
         document_index: i32,
-        
+
         /// Optional title of the document
         #[serde(skip_serializing_if = "Option::is_none")]
         document_title: Option<String>,
-        
+
         /// The end block index (exclusive) of the citation in the document
         end_block_index: i32,
-        
+
         /// The start block index (inclusive) of the citation in the document
         start_block_index: i32,
     },
-    
+
     /// A web search result location citation
     #[serde(rename = "web_search_result_location")]
     WebSearchResultLocation {
         /// The text that was cited
         cited_text: String,
-        
+
         /// The encrypted index of the web search result
         encrypted_index: String,
-        
+
         /// Optional title of the web page
         #[serde(skip_serializing_if = "Option::is_none")]
         title: Option<String>,
-        
+
         /// The URL of the web page
         url: String,
     },
@@ -102,7 +102,7 @@ impl TextCitationParam {
             start_char_index,
         }
     }
-    
+
     /// Creates a new page-based location citation parameter
     pub fn page_location(
         cited_text: String,
@@ -119,7 +119,7 @@ impl TextCitationParam {
             start_page_number,
         }
     }
-    
+
     /// Creates a new content block-based location citation parameter
     pub fn content_block_location(
         cited_text: String,
@@ -136,7 +136,7 @@ impl TextCitationParam {
             start_block_index,
         }
     }
-    
+
     /// Creates a new web search result location citation parameter
     pub fn web_search_result_location(
         cited_text: String,
@@ -157,7 +157,7 @@ impl TextCitationParam {
 mod tests {
     use super::*;
     use serde_json::json;
-    
+
     #[test]
     fn test_char_location_serialization() {
         let citation = TextCitationParam::char_location(
@@ -167,7 +167,7 @@ mod tests {
             12,
             Some("Document Title".to_string()),
         );
-        
+
         let json_value = serde_json::to_value(&citation).unwrap();
         let expected = json!({
             "cited_text": "example text",
@@ -177,10 +177,10 @@ mod tests {
             "start_char_index": 0,
             "type": "char_location"
         });
-        
+
         assert_eq!(json_value, expected);
     }
-    
+
     #[test]
     fn test_page_location_serialization() {
         let citation = TextCitationParam::page_location(
@@ -190,7 +190,7 @@ mod tests {
             5,
             Some("Document Title".to_string()),
         );
-        
+
         let json_value = serde_json::to_value(&citation).unwrap();
         let expected = json!({
             "cited_text": "example text",
@@ -200,10 +200,10 @@ mod tests {
             "start_page_number": 3,
             "type": "page_location"
         });
-        
+
         assert_eq!(json_value, expected);
     }
-    
+
     #[test]
     fn test_content_block_location_serialization() {
         let citation = TextCitationParam::content_block_location(
@@ -213,7 +213,7 @@ mod tests {
             4,
             Some("Document Title".to_string()),
         );
-        
+
         let json_value = serde_json::to_value(&citation).unwrap();
         let expected = json!({
             "cited_text": "example text",
@@ -223,10 +223,10 @@ mod tests {
             "start_block_index": 2,
             "type": "content_block_location"
         });
-        
+
         assert_eq!(json_value, expected);
     }
-    
+
     #[test]
     fn test_web_search_result_location_serialization() {
         let citation = TextCitationParam::web_search_result_location(
@@ -235,7 +235,7 @@ mod tests {
             "https://example.com".to_string(),
             Some("Example Website".to_string()),
         );
-        
+
         let json_value = serde_json::to_value(&citation).unwrap();
         let expected = json!({
             "cited_text": "example text",
@@ -244,20 +244,14 @@ mod tests {
             "url": "https://example.com",
             "type": "web_search_result_location"
         });
-        
+
         assert_eq!(json_value, expected);
     }
-    
+
     #[test]
     fn test_optional_fields_are_omitted() {
-        let citation = TextCitationParam::char_location(
-            "example text".to_string(),
-            0,
-            0,
-            12,
-            None,
-        );
-        
+        let citation = TextCitationParam::char_location("example text".to_string(), 0, 0, 12, None);
+
         let json_value = serde_json::to_value(&citation).unwrap();
         let expected = json!({
             "cited_text": "example text",
@@ -266,10 +260,10 @@ mod tests {
             "start_char_index": 0,
             "type": "char_location"
         });
-        
+
         assert_eq!(json_value, expected);
     }
-    
+
     #[test]
     fn test_deserialization() {
         let json_str = r#"{
@@ -280,9 +274,9 @@ mod tests {
             "start_char_index": 0,
             "type": "char_location"
         }"#;
-        
+
         let citation: TextCitationParam = serde_json::from_str(json_str).unwrap();
-        
+
         match citation {
             TextCitationParam::CharLocation {
                 cited_text,
@@ -296,7 +290,7 @@ mod tests {
                 assert_eq!(document_title, Some("Document Title".to_string()));
                 assert_eq!(end_char_index, 12);
                 assert_eq!(start_char_index, 0);
-            },
+            }
             _ => panic!("Incorrect variant deserialized"),
         }
     }

@@ -11,17 +11,17 @@ pub struct Usage {
     /// The number of input tokens used to create the cache entry.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_creation_input_tokens: Option<i32>,
-    
+
     /// The number of input tokens read from the cache.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_read_input_tokens: Option<i32>,
-    
+
     /// The number of input tokens which were used.
     pub input_tokens: i32,
-    
+
     /// The number of output tokens which were used.
     pub output_tokens: i32,
-    
+
     /// The number of server tool requests.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server_tool_use: Option<ServerToolUsage>,
@@ -38,19 +38,19 @@ impl Usage {
             server_tool_use: None,
         }
     }
-    
+
     /// Set the cache creation input tokens.
     pub fn with_cache_creation_input_tokens(mut self, tokens: i32) -> Self {
         self.cache_creation_input_tokens = Some(tokens);
         self
     }
-    
+
     /// Set the cache read input tokens.
     pub fn with_cache_read_input_tokens(mut self, tokens: i32) -> Self {
         self.cache_read_input_tokens = Some(tokens);
         self
     }
-    
+
     /// Set the server tool usage.
     pub fn with_server_tool_use(mut self, server_tool_use: ServerToolUsage) -> Self {
         self.server_tool_use = Some(server_tool_use);
@@ -67,7 +67,7 @@ mod tests {
     fn test_usage_minimal() {
         let usage = Usage::new(50, 100);
         let json = to_value(&usage).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -76,7 +76,7 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_usage_complete() {
         let server_tool_use = ServerToolUsage::new(5);
@@ -84,9 +84,9 @@ mod tests {
             .with_cache_creation_input_tokens(20)
             .with_cache_read_input_tokens(30)
             .with_server_tool_use(server_tool_use);
-            
+
         let json = to_value(&usage).unwrap();
-        
+
         assert_eq!(
             json,
             json!({
@@ -100,7 +100,7 @@ mod tests {
             })
         );
     }
-    
+
     #[test]
     fn test_usage_deserialization() {
         let json = json!({
@@ -112,7 +112,7 @@ mod tests {
                 "web_search_requests": 5
             }
         });
-        
+
         let usage: Usage = serde_json::from_value(json).unwrap();
         assert_eq!(usage.cache_creation_input_tokens, Some(20));
         assert_eq!(usage.cache_read_input_tokens, Some(30));

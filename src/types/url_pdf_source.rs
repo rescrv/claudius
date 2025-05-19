@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// A source for a PDF from a URL.
 ///
@@ -8,7 +8,7 @@ pub struct UrlPdfSource {
     /// The type of source, always "url" for this struct.
     #[serde(default = "default_type")]
     pub r#type: String,
-    
+
     /// The URL of the PDF.
     pub url: String,
 }
@@ -25,7 +25,7 @@ impl UrlPdfSource {
             r#type: default_type(),
         }
     }
-    
+
     /// Checks if the URL has a PDF file extension.
     pub fn has_pdf_extension(&self) -> bool {
         self.url.to_lowercase().ends_with(".pdf")
@@ -35,37 +35,37 @@ impl UrlPdfSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_serialization() {
         let source = UrlPdfSource {
             r#type: "url".to_string(),
             url: "https://example.com/document.pdf".to_string(),
         };
-        
+
         let json = serde_json::to_string(&source).unwrap();
         let expected = r#"{"type":"url","url":"https://example.com/document.pdf"}"#;
-        
+
         assert_eq!(json, expected);
     }
-    
+
     #[test]
     fn test_deserialization() {
         let json = r#"{"type":"url","url":"https://example.com/document.pdf"}"#;
         let source: UrlPdfSource = serde_json::from_str(json).unwrap();
-        
+
         assert_eq!(source.r#type, "url");
         assert_eq!(source.url, "https://example.com/document.pdf");
     }
-    
+
     #[test]
     fn test_has_pdf_extension() {
         let source = UrlPdfSource::new("https://example.com/document.pdf");
         assert!(source.has_pdf_extension());
-        
+
         let source = UrlPdfSource::new("https://example.com/document.PDF");
         assert!(source.has_pdf_extension());
-        
+
         let source = UrlPdfSource::new("https://example.com/document.docx");
         assert!(!source.has_pdf_extension());
     }
