@@ -9,3 +9,11 @@ serde_json = "1.0"
 base64 = "0.21.5"
 url = "2.5.0"
 time = { version = "0.3", features = ["serde", "macros"] }
+reqwest = { version = "0.11", features = ["json", "stream"] }
+bytes = "1.5"
+futures = "0.3"
+tokio = { version = "1.36", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+
+[dev-dependencies]
+tokio = { version = "1.36", features = ["full", "test-util", "macros"] }
