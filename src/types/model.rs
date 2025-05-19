@@ -1,15 +1,13 @@
 use std::fmt;
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, Serializer};
 
 /// Represents an Anthropic model identifier.
 ///
 /// This can be a predefined model version or a custom string value
 /// for models that may be added in the future.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Model {
     /// Known model versions
-    #[serde(rename_all = "kebab-case")]
     Known(KnownModel),
     
     /// Custom model identifier (for future models or private models)
@@ -17,8 +15,7 @@ pub enum Model {
 }
 
 /// Known Anthropic model versions
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum KnownModel {
     /// Claude 3.7 Sonnet (latest version)
     Claude37SonnetLatest,
@@ -85,6 +82,44 @@ impl fmt::Display for KnownModel {
             KnownModel::Claude3Haiku20240307 => write!(f, "claude-3-haiku-20240307"),
             KnownModel::Claude21 => write!(f, "claude-2.1"),
             KnownModel::Claude20 => write!(f, "claude-2.0"),
+        }
+    }
+}
+
+impl Serialize for Model {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Serialize the model as a string using Display implementation
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for Model {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        
+        // Check if it matches any known model
+        match s.as_str() {
+            "claude-3-7-sonnet-latest" => Ok(Model::Known(KnownModel::Claude37SonnetLatest)),
+            "claude-3-7-sonnet-20250219" => Ok(Model::Known(KnownModel::Claude37Sonnet20250219)),
+            "claude-3-5-haiku-latest" => Ok(Model::Known(KnownModel::Claude35HaikuLatest)),
+            "claude-3-5-haiku-20241022" => Ok(Model::Known(KnownModel::Claude35Haiku20241022)),
+            "claude-3-5-sonnet-latest" => Ok(Model::Known(KnownModel::Claude35SonnetLatest)),
+            "claude-3-5-sonnet-20241022" => Ok(Model::Known(KnownModel::Claude35Sonnet20241022)),
+            "claude-3-5-sonnet-20240620" => Ok(Model::Known(KnownModel::Claude35Sonnet20240620)),
+            "claude-3-opus-latest" => Ok(Model::Known(KnownModel::Claude3OpusLatest)),
+            "claude-3-opus-20240229" => Ok(Model::Known(KnownModel::Claude3Opus20240229)),
+            "claude-3-sonnet-20240229" => Ok(Model::Known(KnownModel::Claude3Sonnet20240229)),
+            "claude-3-haiku-20240307" => Ok(Model::Known(KnownModel::Claude3Haiku20240307)),
+            "claude-2.1" => Ok(Model::Known(KnownModel::Claude21)),
+            "claude-2.0" => Ok(Model::Known(KnownModel::Claude20)),
+            // If it doesn't match any known model, treat it as a custom model
+            _ => Ok(Model::Custom(s)),
         }
     }
 }
