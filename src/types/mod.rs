@@ -1,5 +1,4 @@
 // Public modules
-pub mod anthropic_beta;
 pub mod base64_image_source;
 pub mod base64_pdf_source;
 pub mod cache_control_ephemeral;
@@ -89,7 +88,6 @@ pub mod web_search_tool_result_block_param_content;
 pub mod web_search_tool_result_error;
 
 // Re-exports
-pub use anthropic_beta::{AnthropicBeta, KnownBeta};
 pub use base64_image_source::Base64ImageSource;
 pub use base64_pdf_source::Base64PdfSource;
 pub use cache_control_ephemeral::CacheControlEphemeral;

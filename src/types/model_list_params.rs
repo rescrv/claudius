@@ -1,5 +1,4 @@
 use serde::{Serialize, Deserialize};
-use crate::types::AnthropicBeta;
 
 /// Parameters for listing models.
 ///
@@ -30,7 +29,7 @@ pub struct ModelListParams {
     /// Optional header to specify the beta version(s) you want to use.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "anthropic-beta")]
-    pub betas: Option<Vec<AnthropicBeta>>,
+    pub betas: Option<Vec<String>>,
 }
 
 impl ModelListParams {
@@ -64,13 +63,13 @@ impl ModelListParams {
     }
 
     /// Set the beta versions to use for this request.
-    pub fn with_betas(mut self, betas: Vec<AnthropicBeta>) -> Self {
+    pub fn with_betas(mut self, betas: Vec<String>) -> Self {
         self.betas = Some(betas);
         self
     }
 
     /// Add a single beta version to use for this request.
-    pub fn with_beta(mut self, beta: AnthropicBeta) -> Self {
+    pub fn with_beta(mut self, beta: String) -> Self {
         match &mut self.betas {
             Some(betas) => betas.push(beta),
             None => self.betas = Some(vec![beta]),
@@ -82,7 +81,6 @@ impl ModelListParams {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::KnownBeta;
 
     #[test]
     fn test_default_model_list_params() {
@@ -98,14 +96,14 @@ mod tests {
         let params = ModelListParams::new()
             .with_after_id("model_123")
             .with_limit(50)
-            .with_beta(AnthropicBeta::Known(KnownBeta::TokenCounting20241101));
+            .with_beta("token-counting-2024-11-01".to_string());
 
         assert_eq!(params.after_id, Some("model_123".to_string()));
         assert_eq!(params.before_id, None);
         assert_eq!(params.limit, Some(50));
         assert_eq!(
             params.betas, 
-            Some(vec![AnthropicBeta::Known(KnownBeta::TokenCounting20241101)])
+            Some(vec!["token-counting-2024-11-01".to_string()])
         );
     }
 
@@ -113,7 +111,7 @@ mod tests {
     fn test_model_list_params_serialization() {
         let params = ModelListParams::new()
             .with_limit(50)
-            .with_beta(AnthropicBeta::Known(KnownBeta::TokenCounting20241101));
+            .with_beta("token-counting-2024-11-01".to_string());
 
         let json = serde_json::to_string(&params).unwrap();
         let expected = r#"{"limit":50,"anthropic-beta":["token-counting-2024-11-01"]}"#;
@@ -129,7 +127,7 @@ mod tests {
         assert_eq!(params.limit, Some(50));
         assert_eq!(
             params.betas, 
-            Some(vec![AnthropicBeta::Known(KnownBeta::TokenCounting20241101)])
+            Some(vec!["token-counting-2024-11-01".to_string()])
         );
     }
 }

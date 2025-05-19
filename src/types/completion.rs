@@ -114,7 +114,7 @@ pub struct CompletionCreateParams {
     
     /// Optional beta features to enable.
     #[serde(rename = "anthropic-beta", skip_serializing_if = "Option::is_none")]
-    pub betas: Option<Vec<super::AnthropicBeta>>,
+    pub betas: Option<Vec<String>>,
     
     /// Whether to stream the response. If set to true, tokens will be streamed
     /// as they are generated.
@@ -174,7 +174,7 @@ impl CompletionCreateParams {
     }
     
     /// Sets the betas field.
-    pub fn with_betas(mut self, betas: Vec<super::AnthropicBeta>) -> Self {
+    pub fn with_betas(mut self, betas: Vec<String>) -> Self {
         self.betas = Some(betas);
         self
     }
