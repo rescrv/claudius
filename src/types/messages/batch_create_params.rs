@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::MessageCreateParamsNonStreaming;
+use crate::types::MessageCreateParams;
 
 /// Parameters for creating a batch of messages.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -33,12 +33,15 @@ pub struct Request {
     ///
     /// See the [Messages API reference](https://docs.anthropic.com/claude/reference/messages_post) for full documentation on
     /// available parameters.
-    pub params: MessageCreateParamsNonStreaming,
+    pub params: MessageCreateParams,
 }
 
 impl Request {
     /// Create a new `Request` with the given parameters.
-    pub fn new(custom_id: String, params: MessageCreateParamsNonStreaming) -> Self {
+    pub fn new(custom_id: String, params: MessageCreateParams) -> Self {
+        // Ensure streaming is disabled for batch requests
+        let mut params = params;
+        params.stream = false;
         Self { custom_id, params }
     }
 }
@@ -46,30 +49,20 @@ impl Request {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{KnownModel, MessageParam, MessageRole, Model};
     use serde_json::{json, to_value};
 
     #[test]
     fn test_batch_create_params_serialization() {
         // For this test, we'll just create a request directly
-        let request = Request::new(
-            "request-123".to_string(),
-            // Create a basic non-streaming params structure
-            MessageCreateParamsNonStreaming {
-                base: serde_json::from_value(json!({
-                    "model": "claude-3-sonnet-20240229",
-                    "max_tokens": 1000,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": "Hello, world"
-                        }
-                    ]
-                }))
-                .unwrap(),
-                stream: false,
-            },
+        let message = MessageParam::new_with_string("Hello, world".to_string(), MessageRole::User);
+        let params = MessageCreateParams::new(
+            1000,
+            vec![message],
+            Model::Known(KnownModel::Claude37Sonnet20250219),
         );
 
+        let request = Request::new("request-123".to_string(), params);
         let batch_params = BatchCreateParams::new(vec![request]);
 
         let json = to_value(&batch_params).unwrap();

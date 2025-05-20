@@ -5,9 +5,9 @@ use crate::types::{
     ToolUnionParam,
 };
 
-/// Base parameters for creating messages.
+/// Parameters for creating messages.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct MessageCreateParamsBase {
+pub struct MessageCreateParams {
     /// The maximum number of tokens to generate before stopping.
     ///
     /// Note that our models may stop _before_ reaching this maximum. This parameter
@@ -116,43 +116,12 @@ pub struct MessageCreateParamsBase {
     /// `temperature`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
-}
-
-/// Parameters for creating messages without streaming.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct MessageCreateParamsNonStreaming {
-    #[serde(flatten)]
-    pub base: MessageCreateParamsBase,
 
     /// Whether to incrementally stream the response using server-sent events.
     ///
     /// See [streaming](https://docs.anthropic.com/en/api/messages-streaming) for
     /// details.
     pub stream: bool,
-}
-
-/// Parameters for creating messages with streaming.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageCreateParamsStreaming {
-    #[serde(flatten)]
-    pub base: MessageCreateParamsBase,
-
-    /// Whether to incrementally stream the response using server-sent events.
-    ///
-    /// See [streaming](https://docs.anthropic.com/en/api/messages-streaming) for
-    /// details.
-    pub stream: bool,
-}
-
-/// Parameters for creating messages, with or without streaming.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum MessageCreateParams {
-    /// Non-streaming parameters.
-    NonStreaming(MessageCreateParamsNonStreaming),
-
-    /// Streaming parameters.
-    Streaming(MessageCreateParamsStreaming),
 }
 
 /// Represents either a string or an array of TextBlockParam for system prompts.
@@ -166,8 +135,8 @@ pub enum SystemPrompt {
     Blocks(Vec<TextBlockParam>),
 }
 
-impl MessageCreateParamsBase {
-    /// Create a new base message creation parameters.
+impl MessageCreateParams {
+    /// Create a new message creation parameters with streaming disabled.
     pub fn new(max_tokens: u32, messages: Vec<MessageParam>, model: Model) -> Self {
         Self {
             max_tokens,
@@ -182,6 +151,26 @@ impl MessageCreateParamsBase {
             tools: None,
             top_k: None,
             top_p: None,
+            stream: false,
+        }
+    }
+
+    /// Create new streaming message creation parameters.
+    pub fn new_streaming(max_tokens: u32, messages: Vec<MessageParam>, model: Model) -> Self {
+        Self {
+            max_tokens,
+            messages,
+            model,
+            metadata: None,
+            stop_sequences: None,
+            system: None,
+            temperature: None,
+            thinking: None,
+            tool_choice: None,
+            tools: None,
+            top_k: None,
+            top_p: None,
+            stream: true,
         }
     }
 
@@ -244,20 +233,11 @@ impl MessageCreateParamsBase {
         self.top_p = Some(top_p);
         self
     }
-}
 
-impl MessageCreateParams {
-    /// Create non-streaming message creation parameters.
-    pub fn new_non_streaming(base: MessageCreateParamsBase) -> Self {
-        Self::NonStreaming(MessageCreateParamsNonStreaming {
-            base,
-            stream: false,
-        })
-    }
-
-    /// Create streaming message creation parameters.
-    pub fn new_streaming(base: MessageCreateParamsBase) -> Self {
-        Self::Streaming(MessageCreateParamsStreaming { base, stream: true })
+    /// Sets the streaming option.
+    pub fn with_stream(mut self, stream: bool) -> Self {
+        self.stream = stream;
+        self
     }
 }
 
@@ -271,21 +251,16 @@ mod tests {
     fn test_message_create_params_non_streaming() {
         let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
 
-        let base = MessageCreateParamsBase::new(
+        let params = MessageCreateParams::new(
             1000,
             vec![message],
             Model::Known(KnownModel::Claude37Sonnet20250219),
         )
         .with_system_string("You are a helpful assistant.".to_string())
-        .with_temperature(0.7);
-
-        let params = MessageCreateParams::new_non_streaming(base);
+        .with_temperature(0.125);
 
         let json = to_value(&params).unwrap();
-        match params {
-            MessageCreateParams::NonStreaming(_) => {}
-            _ => panic!("Expected NonStreaming variant"),
-        }
+        assert!(!params.stream);
 
         assert_eq!(
             json,
@@ -299,7 +274,7 @@ mod tests {
                 ],
                 "model": "claude-3-7-sonnet-20250219",
                 "system": "You are a helpful assistant.",
-                "temperature": 0.7,
+                "temperature": 0.125,
                 "stream": false
             })
         );
@@ -309,19 +284,44 @@ mod tests {
     fn test_message_create_params_streaming() {
         let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
 
-        let base = MessageCreateParamsBase::new(
+        let params = MessageCreateParams::new_streaming(
             1000,
             vec![message],
             Model::Known(KnownModel::Claude37Sonnet20250219),
         );
 
-        let params = MessageCreateParams::new_streaming(base);
+        let json = to_value(&params).unwrap();
+        assert!(params.stream);
+
+        assert_eq!(
+            json,
+            json!({
+                "max_tokens": 1000,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Hello, Claude"
+                    }
+                ],
+                "model": "claude-3-7-sonnet-20250219",
+                "stream": true
+            })
+        );
+    }
+
+    #[test]
+    fn test_message_create_params_with_stream() {
+        let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
+
+        let params = MessageCreateParams::new(
+            1000,
+            vec![message],
+            Model::Known(KnownModel::Claude37Sonnet20250219),
+        )
+        .with_stream(true);
 
         let json = to_value(&params).unwrap();
-        match params {
-            MessageCreateParams::Streaming(_) => {}
-            _ => panic!("Expected Streaming variant"),
-        }
+        assert!(params.stream);
 
         assert_eq!(
             json,

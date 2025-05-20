@@ -48,7 +48,6 @@ pub mod redacted_thinking_block_param;
 pub mod server_tool_usage;
 pub mod server_tool_use_block;
 pub mod server_tool_use_block_param;
-pub mod shared;
 pub mod signature_delta;
 pub mod stop_reason;
 pub mod text_block;
@@ -112,10 +111,7 @@ pub use message_count_tokens_params::{
     MessageCountTokensParams, SystemPrompt as MessageCountTokensSystemPrompt,
 };
 pub use message_count_tokens_tool_param::{InputSchema, MessageCountTokensToolParam, ToolParam};
-pub use message_create_params::{
-    MessageCreateParams, MessageCreateParamsBase, MessageCreateParamsNonStreaming,
-    MessageCreateParamsStreaming, SystemPrompt as MessageCreateSystemPrompt,
-};
+pub use message_create_params::{MessageCreateParams, SystemPrompt as MessageCreateSystemPrompt};
 pub use message_delta_event::MessageDeltaEvent;
 pub use message_delta_usage::MessageDeltaUsage;
 pub use message_param::{MessageContentBlock, MessageParam, MessageParamContent, MessageRole};
@@ -142,11 +138,6 @@ pub use redacted_thinking_block_param::RedactedThinkingBlockParam;
 pub use server_tool_usage::ServerToolUsage;
 pub use server_tool_use_block::ServerToolUseBlock;
 pub use server_tool_use_block_param::ServerToolUseBlockParam;
-pub use shared::{
-    ApiErrorObject, AuthenticationError, BillingError, ErrorObject, ErrorResponse,
-    GatewayTimeoutError, InvalidRequestError, NotFoundError, OverloadedError, PermissionError,
-    RateLimitError,
-};
 pub use signature_delta::SignatureDelta;
 pub use stop_reason::StopReason;
 pub use text_block::TextBlock;

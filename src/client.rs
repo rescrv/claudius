@@ -229,11 +229,8 @@ impl Anthropic {
         &self,
         mut params: MessageCreateParams,
     ) -> Result<impl Stream<Item = Result<MessageStreamEvent>>> {
-        // Ensure stream is enabled based on the variant
-        match &mut params {
-            MessageCreateParams::NonStreaming(p) => p.stream = true,
-            MessageCreateParams::Streaming(p) => p.stream = true,
-        }
+        // Ensure stream is enabled
+        params.stream = true;
 
         let url = format!("{}messages", self.base_url);
 
@@ -329,11 +326,8 @@ impl Anthropic {
         &self,
         mut params: MessageCreateParams,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<RawMessageStreamEvent>> + Send>>> {
-        // Ensure stream is enabled based on the variant
-        match &mut params {
-            MessageCreateParams::NonStreaming(p) => p.stream = true,
-            MessageCreateParams::Streaming(p) => p.stream = true,
-        }
+        // Ensure stream is enabled
+        params.stream = true;
 
         let url = format!("{}messages", self.base_url);
 
@@ -596,7 +590,7 @@ fn extract_raw_event(buffer: &str) -> Option<(Result<RawMessageStreamEvent>, Str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{KnownModel, MessageCreateParamsBase, MessageParam, MessageRole, Model};
+    use crate::types::{KnownModel, MessageParam, MessageRole, Model};
     use std::env;
 
     #[test]
@@ -654,13 +648,12 @@ mod tests {
         );
 
         // Set up the message parameters
-        let base_params = MessageCreateParamsBase::new(
+        let params = MessageCreateParams::new_streaming(
             100, // max tokens
             vec![message],
             Model::Known(KnownModel::Claude37SonnetLatest),
         );
 
-        let params = MessageCreateParams::new_streaming(base_params);
         let stream = client.stream_raw(params).await.unwrap();
 
         // Pin the stream and iterate through events

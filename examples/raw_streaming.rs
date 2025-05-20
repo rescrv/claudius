@@ -1,6 +1,6 @@
 use claudius::{
-    Anthropic, KnownModel, MessageCreateParams, MessageCreateParamsBase, MessageParam, MessageRole,
-    Model, RawContentBlockDelta, RawMessageStreamEvent, Result,
+    Anthropic, KnownModel, MessageCreateParams, MessageParam, MessageRole, Model,
+    RawContentBlockDelta, RawMessageStreamEvent, Result,
 };
 use futures::StreamExt;
 use tokio::pin;
@@ -16,16 +16,13 @@ async fn main() -> Result<()> {
         MessageRole::User,
     );
 
-    // Set up the message parameters
-    let base_params = MessageCreateParamsBase::new(
+    // Create a streaming request
+    let params = MessageCreateParams::new_streaming(
         1000, // max tokens
         vec![message],
         Model::Known(KnownModel::Claude37SonnetLatest),
     )
     .with_system_string("You are Claude, an AI assistant made by Anthropic.".to_string());
-
-    // Create a streaming request
-    let params = MessageCreateParams::new_streaming(base_params);
 
     // Use raw streaming to get direct access to the server-sent events
     let stream = client.stream_raw(params).await?;

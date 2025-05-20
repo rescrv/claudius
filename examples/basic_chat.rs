@@ -1,6 +1,6 @@
 use claudius::{
-    Anthropic, ContentBlock, KnownModel, MessageCreateParams, MessageCreateParamsBase,
-    MessageParam, MessageRole, Model, Result, TextBlock,
+    Anthropic, ContentBlock, KnownModel, MessageCreateParams, MessageParam, MessageRole, Model,
+    Result, TextBlock,
 };
 use futures::StreamExt;
 use tokio::pin;
@@ -16,19 +16,20 @@ async fn main() -> Result<()> {
         MessageRole::User,
     );
 
-    // Set up the message parameters
-    let base_params = MessageCreateParamsBase::new(
-        1000, // max tokens
-        vec![message],
-        Model::Known(KnownModel::Claude37SonnetLatest),
-    )
-    .with_system_string("You are Claude, an AI assistant made by Anthropic.".to_string());
+    // Set up common message parameters
+    let system_prompt = "You are Claude, an AI assistant made by Anthropic.".to_string();
 
     // Example 1: Non-streaming request
     println!("EXAMPLE 1: Non-streaming request");
     println!("---------------------------------");
 
-    let params = MessageCreateParams::new_non_streaming(base_params.clone());
+    let params = MessageCreateParams::new(
+        1000, // max tokens
+        vec![message.clone()],
+        Model::Known(KnownModel::Claude37SonnetLatest),
+    )
+    .with_system_string(system_prompt.clone());
+
     let response = client.send(params).await?;
 
     println!("Response ID: {}", response.id);
@@ -46,7 +47,13 @@ async fn main() -> Result<()> {
     println!("EXAMPLE 2: Streaming request");
     println!("----------------------------");
 
-    let params = MessageCreateParams::new_streaming(base_params);
+    let params = MessageCreateParams::new_streaming(
+        1000, // max tokens
+        vec![message],
+        Model::Known(KnownModel::Claude37SonnetLatest),
+    )
+    .with_system_string(system_prompt);
+
     let stream = client.stream(params).await?;
 
     // Pin the stream so it can be polled
