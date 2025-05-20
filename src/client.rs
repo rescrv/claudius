@@ -9,7 +9,10 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use crate::error::{Error, Result};
-use crate::types::{Message, MessageCreateParams, MessageStreamEvent, RawMessageStreamEvent};
+use crate::types::{
+    Message, MessageCountTokensParams, MessageCreateParams, MessageStreamEvent, MessageTokensCount,
+    RawMessageStreamEvent,
+};
 
 const DEFAULT_API_URL: &str = "https://api.anthropic.com/v1/";
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
@@ -27,16 +30,19 @@ pub struct Anthropic {
 impl Anthropic {
     /// Create a new Anthropic client.
     ///
-    /// The API key can be provided directly or read from the CLAUDIUS_API_KEY
-    /// environment variable.
+    /// The API key can be provided directly or read from the CLAUDIUS_API_KEY or ANTHROPIC_API_KEY
+    /// environment variables.
     pub fn new(api_key: Option<String>) -> Result<Self> {
         let api_key = match api_key {
             Some(key) => key,
-            None => env::var("CLAUDIUS_API_KEY").map_err(|_| {
-                Error::authentication(
-                    "API key not provided and CLAUDIUS_API_KEY environment variable not set",
-                )
-            })?,
+            None => match env::var("CLAUDIUS_API_KEY").ok() {
+                Some(key) => key,
+                None => env::var("ANTHROPIC_API_KEY").map_err(|_| {
+                    Error::authentication(
+                        "API key not provided and CLAUDIUS_API_KEY environment variable not set",
+                    )
+                })?,
+            },
         };
 
         let timeout = DEFAULT_TIMEOUT;
@@ -58,38 +64,35 @@ impl Anthropic {
         })
     }
 
-    /// Create a new client with custom settings.
-    pub fn with_options(
-        api_key: Option<String>,
-        base_url: Option<String>,
-        timeout: Option<Duration>,
-    ) -> Result<Self> {
-        let api_key = match api_key {
-            Some(key) => key,
-            None => env::var("CLAUDIUS_API_KEY").map_err(|_| {
-                Error::authentication(
-                    "API key not provided and CLAUDIUS_API_KEY environment variable not set",
-                )
-            })?,
-        };
+    /// Set a custom base URL for this client.
+    ///
+    /// This method allows you to specify a different API endpoint for the client.
+    pub fn with_base_url(mut self, base_url: String) -> Self {
+        self.base_url = base_url;
+        self
+    }
 
-        let timeout = timeout.unwrap_or(DEFAULT_TIMEOUT);
+    /// Set a custom timeout for this client.
+    ///
+    /// This method allows you to specify a different timeout for API requests.
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+
+        // Recreate the client with the new timeout
         let client = ReqwestClient::builder()
             .timeout(timeout)
             .build()
-            .map_err(|e| {
-                Error::http_client(
-                    format!("Failed to build HTTP client: {}", e),
-                    Some(Box::new(e)),
-                )
-            })?;
+            .expect("Failed to build HTTP client with new timeout");
 
-        Ok(Self {
-            api_key,
-            client,
-            base_url: base_url.unwrap_or_else(|| DEFAULT_API_URL.to_string()),
-            timeout,
-        })
+        self.client = client;
+        self
+    }
+
+    /// Set both a custom base URL and timeout for this client.
+    ///
+    /// This is a convenience method that chains with_base_url and with_timeout.
+    pub fn with_base_url_and_timeout(self, base_url: String, timeout: Duration) -> Self {
+        self.with_base_url(base_url).with_timeout(timeout)
     }
 
     /// Create and return default headers for API requests.
@@ -271,6 +274,48 @@ impl Anthropic {
         let event_stream = process_sse(stream);
 
         Ok(event_stream)
+    }
+
+    /// Count tokens for a message.
+    ///
+    /// This method counts the number of tokens that would be used by a message with the given parameters.
+    /// It's useful for estimating costs or making sure your messages fit within the model's context window.
+    pub async fn count_tokens(
+        &self,
+        params: MessageCountTokensParams,
+    ) -> Result<MessageTokensCount> {
+        let url = format!("{}messages/count_tokens", self.base_url);
+
+        let response = self
+            .client
+            .post(&url)
+            .headers(self.default_headers())
+            .json(&params)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    Error::timeout(
+                        format!("Request timed out: {}", e),
+                        Some(self.timeout.as_secs_f64()),
+                    )
+                } else if e.is_connect() {
+                    Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
+                } else {
+                    Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
+                }
+            })?;
+
+        if !response.status().is_success() {
+            return Err(Self::process_error_response(response).await);
+        }
+
+        response.json::<MessageTokensCount>().await.map_err(|e| {
+            Error::serialization(
+                format!("Failed to parse response: {}", e),
+                Some(Box::new(e)),
+            )
+        })
     }
 
     /// Send a message to the API and get a raw streaming response.
@@ -562,13 +607,29 @@ mod tests {
         assert_eq!(client.base_url, DEFAULT_API_URL);
         assert_eq!(client.timeout, DEFAULT_TIMEOUT);
 
-        // Test with custom options
-        let client = Anthropic::with_options(
-            Some("test-key".to_string()),
-            Some("https://custom-api.example.com/".to_string()),
-            Some(Duration::from_secs(30)),
-        )
-        .unwrap();
+        // Test with custom base URL
+        let client = Anthropic::new(Some("test-key".to_string()))
+            .unwrap()
+            .with_base_url("https://custom-api.example.com/".to_string());
+        assert_eq!(client.api_key, "test-key");
+        assert_eq!(client.base_url, "https://custom-api.example.com/");
+        assert_eq!(client.timeout, DEFAULT_TIMEOUT);
+
+        // Test with custom timeout
+        let client = Anthropic::new(Some("test-key".to_string()))
+            .unwrap()
+            .with_timeout(Duration::from_secs(30));
+        assert_eq!(client.api_key, "test-key");
+        assert_eq!(client.base_url, DEFAULT_API_URL);
+        assert_eq!(client.timeout, Duration::from_secs(30));
+
+        // Test with both custom base URL and timeout
+        let client = Anthropic::new(Some("test-key".to_string()))
+            .unwrap()
+            .with_base_url_and_timeout(
+                "https://custom-api.example.com/".to_string(),
+                Duration::from_secs(30),
+            );
         assert_eq!(client.api_key, "test-key");
         assert_eq!(client.base_url, "https://custom-api.example.com/");
         assert_eq!(client.timeout, Duration::from_secs(30));
