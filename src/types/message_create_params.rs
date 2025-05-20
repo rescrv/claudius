@@ -274,7 +274,7 @@ mod tests {
         let base = MessageCreateParamsBase::new(
             1000,
             vec![message],
-            Model::Known(KnownModel::Claude3Sonnet20240229),
+            Model::Known(KnownModel::Claude37Sonnet20250219),
         )
         .with_system_string("You are a helpful assistant.".to_string())
         .with_temperature(0.7);
@@ -297,7 +297,7 @@ mod tests {
                         "content": "Hello, Claude"
                     }
                 ],
-                "model": "claude-3-sonnet-20240229",
+                "model": "claude-3-7-sonnet-20250219",
                 "system": "You are a helpful assistant.",
                 "temperature": 0.7,
                 "stream": false
@@ -312,7 +312,7 @@ mod tests {
         let base = MessageCreateParamsBase::new(
             1000,
             vec![message],
-            Model::Known(KnownModel::Claude3Sonnet20240229),
+            Model::Known(KnownModel::Claude37Sonnet20250219),
         );
 
         let params = MessageCreateParams::new_streaming(base);
@@ -333,7 +333,7 @@ mod tests {
                         "content": "Hello, Claude"
                     }
                 ],
-                "model": "claude-3-sonnet-20240229",
+                "model": "claude-3-7-sonnet-20250219",
                 "stream": true
             })
         );

@@ -2,6 +2,7 @@
 pub mod client;
 pub mod error;
 pub mod types;
+pub mod utils;
 
 // Re-exports
 pub use client::Anthropic;

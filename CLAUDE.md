@@ -36,3 +36,7 @@ This file contains persistent directives for Claude when working on the claudius
 - Don't use `unwrap()` or `expect()` in public APIs; instead, return `Result` to properly propagate errors
 - Re-export utility types/methods at the crate root with `pub use` to make them visible to users and silence unused method warnings
 - tests/*.rs do not require a `mod test` block
+
+## Development Workflow
+
+- Always make sure tests are passing before embarking on a new task.  Always make sure tests are passing before returning to the user.

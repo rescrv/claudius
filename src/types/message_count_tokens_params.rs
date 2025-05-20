@@ -135,7 +135,7 @@ mod tests {
 
         let params = MessageCountTokensParams::new(
             vec![message],
-            Model::Known(KnownModel::Claude3Sonnet20240229),
+            Model::Known(KnownModel::Claude37Sonnet20250219),
         );
 
         let json = to_value(&params).unwrap();
@@ -148,7 +148,7 @@ mod tests {
                         "content": "Hello, Claude"
                     }
                 ],
-                "model": "claude-3-sonnet-20240229"
+                "model": "claude-3-7-sonnet-20250219"
             })
         );
     }
@@ -159,7 +159,7 @@ mod tests {
 
         let params = MessageCountTokensParams::new(
             vec![message],
-            Model::Known(KnownModel::Claude3Sonnet20240229),
+            Model::Known(KnownModel::Claude37Sonnet20250219),
         )
         .with_system_string("You are a helpful assistant.".to_string());
 
@@ -173,7 +173,7 @@ mod tests {
                         "content": "Hello, Claude"
                     }
                 ],
-                "model": "claude-3-sonnet-20240229",
+                "model": "claude-3-7-sonnet-20250219",
                 "system": "You are a helpful assistant."
             })
         );

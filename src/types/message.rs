@@ -82,7 +82,7 @@ mod tests {
     fn test_message_serialization() {
         let text_block = TextBlock::new("Hello, I'm Claude.".to_string());
         let content = vec![ContentBlock::Text(text_block)];
-        let model = Model::Known(crate::types::KnownModel::Claude3Sonnet20240229);
+        let model = Model::Known(crate::types::KnownModel::Claude37Sonnet20250219);
         let usage = Usage::new(50, 100);
 
         let message = Message::new("msg_012345".to_string(), content, model, usage);
@@ -98,7 +98,7 @@ mod tests {
                         "type": "text"
                     }
                 ],
-                "model": "claude-3-sonnet-20240229",
+                "model": "claude-3-7-sonnet-20250219",
                 "role": "assistant",
                 "type": "message",
                 "usage": {
@@ -113,7 +113,7 @@ mod tests {
     fn test_message_with_stop_reason() {
         let text_block = TextBlock::new("Hello, I'm Claude.".to_string());
         let content = vec![ContentBlock::Text(text_block)];
-        let model = Model::Known(crate::types::KnownModel::Claude3Sonnet20240229);
+        let model = Model::Known(crate::types::KnownModel::Claude37Sonnet20250219);
         let usage = Usage::new(50, 100);
 
         let message = Message::new("msg_012345".to_string(), content, model, usage)
@@ -130,7 +130,7 @@ mod tests {
                         "type": "text"
                     }
                 ],
-                "model": "claude-3-sonnet-20240229",
+                "model": "claude-3-7-sonnet-20250219",
                 "role": "assistant",
                 "stop_reason": "end_turn",
                 "type": "message",
@@ -152,7 +152,7 @@ mod tests {
                     "type": "text"
                 }
             ],
-            "model": "claude-3-sonnet-20240229",
+            "model": "claude-3-7-sonnet-20250219",
             "role": "assistant",
             "stop_reason": "end_turn",
             "stop_sequence": "###",
@@ -183,7 +183,7 @@ mod tests {
 
         match message.model {
             Model::Known(model) => {
-                assert_eq!(model, crate::types::KnownModel::Claude3Sonnet20240229);
+                assert_eq!(model, crate::types::KnownModel::Claude37Sonnet20250219);
             }
             _ => panic!("Expected Known model variant"),
         }
