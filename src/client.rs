@@ -39,7 +39,7 @@ impl Anthropic {
                 Some(key) => key,
                 None => env::var("ANTHROPIC_API_KEY").map_err(|_| {
                     Error::authentication(
-                        "API key not provided and CLAUDIUS_API_KEY environment variable not set",
+                        "API key not provided and ANTHROPIC_API_KEY environment variable not set",
                     )
                 })?,
             },
