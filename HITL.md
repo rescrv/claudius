@@ -23,7 +23,7 @@
 [ ] src/types/input_json_delta.rs
 [ ] src/types/message_count_tokens_params.rs
 [ ] src/types/message_count_tokens_tool_param.rs
-[ ] src/types/message_create_params.rs
+[X] src/types/message_create_params.rs
 [ ] src/types/message_delta_event.rs
 [ ] src/types/message_delta_usage.rs
 [ ] src/types/message_param.rs

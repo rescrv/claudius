@@ -12,7 +12,7 @@ pub struct ThinkingBlock {
     pub thinking: String,
 
     /// The type of content block, always "thinking" for this struct.
-    #[serde(default = "default_type")]
+    #[serde(default = "default_type", rename = "type")]
     pub r#type: String,
 }
 
@@ -29,11 +29,17 @@ impl ThinkingBlock {
             r#type: default_type(),
         }
     }
+
+    /// Create a new `ThinkingBlock` from string references.
+    pub fn from_str(signature: &str, thinking: &str) -> Self {
+        Self::new(thinking, signature)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{json, to_value};
 
     #[test]
     fn test_thinking_block_serialization() {
@@ -59,5 +65,34 @@ mod tests {
             "Let me think through this problem step by step..."
         );
         assert_eq!(thinking_block.r#type, "thinking");
+    }
+
+    #[test]
+    fn test_thinking_block_param_serialization() {
+        let block = ThinkingBlockParam::new("Let me think about this...", "Signature");
+        let json = to_value(&block).unwrap();
+
+        assert_eq!(
+            json,
+            json!({
+                "signature": "Signature",
+                "thinking": "Let me think about this...",
+                "type": "thinking"
+            })
+        );
+    }
+
+    #[test]
+    fn test_thinking_block_param_deserialization() {
+        let json = json!({
+            "signature": "Signature",
+            "thinking": "Let me think about this...",
+            "type": "thinking"
+        });
+
+        let block: ThinkingBlockParam = serde_json::from_value(json).unwrap();
+        assert_eq!(block.signature, "Signature");
+        assert_eq!(block.thinking, "Let me think about this...");
+        assert_eq!(block.r#type, "thinking");
     }
 }

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{
     ContentBlock, DocumentBlockParam, ImageBlockParam, RedactedThinkingBlockParam,
-    ServerToolUseBlockParam, TextBlockParam, ThinkingBlockParam, ToolResultBlockParam,
+    ServerToolUseBlockParam, TextBlockParam, ThinkingBlock, ToolResultBlockParam,
     ToolUseBlockParam, WebSearchToolResultBlockParam,
 };
 
@@ -43,7 +43,7 @@ pub enum MessageContentBlock {
     Document(DocumentBlockParam),
 
     /// A thinking block parameter.
-    Thinking(ThinkingBlockParam),
+    Thinking(ThinkingBlock),
 
     /// A redacted thinking block parameter.
     RedactedThinking(RedactedThinkingBlockParam),
@@ -154,8 +154,8 @@ impl From<DocumentBlockParam> for MessageContentBlock {
     }
 }
 
-impl From<ThinkingBlockParam> for MessageContentBlock {
-    fn from(param: ThinkingBlockParam) -> Self {
+impl From<ThinkingBlock> for MessageContentBlock {
+    fn from(param: ThinkingBlock) -> Self {
         MessageContentBlock::Thinking(param)
     }
 }

@@ -40,3 +40,11 @@ This file contains persistent directives for Claude when working on the claudius
 ## Development Workflow
 
 - Always make sure tests are passing before embarking on a new task.  Always make sure tests are passing before returning to the user.
+
+## Sensitive Instructions
+
+- NEVER update HITL.md.  It's Human In The Loop.
+
+## Project Philosophy
+
+- This is a green-field project.  Don't do things for backwards compatibility.
