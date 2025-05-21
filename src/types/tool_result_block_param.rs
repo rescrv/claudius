@@ -1,20 +1,20 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{CacheControlEphemeral, ImageBlockParam, TextBlockParam};
+use crate::types::{CacheControlEphemeral, ImageBlockParam, TextBlock};
 
 /// Content type for tool result blocks, which can be either a text block or an image block.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum ToolResultContent {
     /// A text block content.
-    Text(TextBlockParam),
+    Text(TextBlock),
 
     /// An image block content.
     Image(ImageBlockParam),
 }
 
-impl From<TextBlockParam> for ToolResultContent {
-    fn from(param: TextBlockParam) -> Self {
+impl From<TextBlock> for ToolResultContent {
+    fn from(param: TextBlock) -> Self {
         ToolResultContent::Text(param)
     }
 }
@@ -90,7 +90,7 @@ impl ToolResultBlockParam {
     }
 
     /// Add a single text content item to this tool result block.
-    pub fn with_text_content(mut self, text: TextBlockParam) -> Self {
+    pub fn with_text_content(mut self, text: TextBlock) -> Self {
         let content = match self.content {
             Some(ToolResultBlockParamContent::Array(mut items)) => {
                 items.push(ToolResultContent::Text(text));
@@ -98,7 +98,7 @@ impl ToolResultBlockParam {
             }
             Some(ToolResultBlockParamContent::String(s)) => {
                 ToolResultBlockParamContent::Array(vec![
-                    ToolResultContent::Text(TextBlockParam::new(s)),
+                    ToolResultContent::Text(TextBlock::new(s)),
                     ToolResultContent::Text(text),
                 ])
             }
@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn test_tool_result_block_param_with_array_content() {
-        let text_param = TextBlockParam::new("Sample text content".to_string());
+        let text_param = TextBlock::new("Sample text content".to_string());
         let content = vec![ToolResultContent::Text(text_param)];
 
         let block = ToolResultBlockParam::new("tool_1".to_string()).with_array_content(content);

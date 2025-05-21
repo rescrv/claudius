@@ -56,8 +56,8 @@
 [ ] src/types/server_tool_use_block.rs
 [ ] src/types/signature_delta.rs
 [ ] src/types/stop_reason.rs
-[ ] src/types/text_block_param.rs
-[ ] src/types/text_block.rs
+[X] src/types/text_block_param.rs
+[X] src/types/text_block.rs
 [ ] src/types/text_citation_param.rs
 [ ] src/types/text_citation.rs
 [ ] src/types/text_delta.rs

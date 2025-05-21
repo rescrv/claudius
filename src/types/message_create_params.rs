@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    MessageParam, Metadata, Model, TextBlockParam, ThinkingConfigParam, ToolChoiceParam,
+    MessageParam, Metadata, Model, TextBlock, ThinkingConfigParam, ToolChoiceParam,
     ToolUnionParam,
 };
 
@@ -132,7 +132,7 @@ pub enum SystemPrompt {
     String(String),
 
     /// An array of text block parameters.
-    Blocks(Vec<TextBlockParam>),
+    Blocks(Vec<TextBlock>),
 }
 
 impl MessageCreateParams {
@@ -193,7 +193,7 @@ impl MessageCreateParams {
     }
 
     /// Add a system prompt as text blocks.
-    pub fn with_system_blocks(mut self, blocks: Vec<TextBlockParam>) -> Self {
+    pub fn with_system_blocks(mut self, blocks: Vec<TextBlock>) -> Self {
         self.system = Some(SystemPrompt::Blocks(blocks));
         self
     }

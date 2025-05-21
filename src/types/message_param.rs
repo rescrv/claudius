@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{
     ContentBlock, DocumentBlockParam, ImageBlockParam, RedactedThinkingBlock,
-    ServerToolUseBlockParam, TextBlockParam, ThinkingBlock, ToolResultBlockParam,
+    ServerToolUseBlockParam, TextBlock, ThinkingBlock, ToolResultBlockParam,
     ToolUseBlockParam, WebSearchToolResultBlockParam,
 };
 
@@ -22,7 +22,7 @@ pub enum MessageParamContent {
 #[serde(untagged)]
 pub enum MessageContentBlock {
     /// A text block parameter.
-    Text(TextBlockParam),
+    Text(TextBlock),
 
     /// An image block parameter.
     Image(ImageBlockParam),
@@ -112,8 +112,8 @@ impl MessageParam {
     }
 }
 
-impl From<TextBlockParam> for MessageContentBlock {
-    fn from(param: TextBlockParam) -> Self {
+impl From<TextBlock> for MessageContentBlock {
+    fn from(param: TextBlock) -> Self {
         MessageContentBlock::Text(param)
     }
 }
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn test_message_param_with_blocks() {
-        let text_block = TextBlockParam::new("Hello, Claude!".to_string());
+        let text_block = TextBlock::new("Hello, Claude!".to_string());
         let blocks = vec![MessageContentBlock::Text(text_block)];
 
         let message = MessageParam::new_with_blocks(blocks, MessageRole::User);
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_message_param_with_mixed_blocks() {
-        let text_block = TextBlockParam::new("Check out this image:".to_string());
+        let text_block = TextBlock::new("Check out this image:".to_string());
 
         let image_source =
             crate::types::UrlImageSource::new("https://example.com/image.jpg".to_string());

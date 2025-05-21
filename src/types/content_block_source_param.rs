@@ -63,7 +63,7 @@ impl std::str::FromStr for ContentBlockSourceParam {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ImageBlockParam, TextBlockParam, UrlImageSource};
+    use crate::types::{ImageBlockParam, TextBlock, UrlImageSource};
     use serde_json::{json, to_value};
 
     #[test]
@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn test_content_block_source_param_with_array() {
-        let text_param = TextBlockParam::new("Sample text content".to_string());
+        let text_param = TextBlock::new("Sample text content".to_string());
         let url_source = UrlImageSource::new("https://example.com/image.jpg".to_string());
         let image_param = ImageBlockParam::new_with_url(url_source);
 
@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn test_content_block_source_param_with_item() {
-        let text_param = TextBlockParam::new("Sample text content".to_string());
+        let text_param = TextBlock::new("Sample text content".to_string());
         let source = ContentBlockSourceParam::new_with_item(ContentBlockSourceContentParam::Text(
             text_param,
         ));
