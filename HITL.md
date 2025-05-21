@@ -35,7 +35,7 @@
 [ ] src/types/messages/batch_list_params.rs
 [ ] src/types/messages/mod.rs
 [ ] src/types/metadata.rs
-[X] src/types/mod.rs
+[ ] src/types/mod.rs
 [ ] src/types/model_info.rs
 [ ] src/types/model_list_params.rs
 [ ] src/types/model.rs

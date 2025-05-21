@@ -59,6 +59,7 @@ pub struct MessageParam {
     pub content: MessageParamContent,
 
     /// The role of the message, which is either "user" or "assistant".
+    // TODO(claude): Convert this to MessageRole.
     pub role: String,
 }
 

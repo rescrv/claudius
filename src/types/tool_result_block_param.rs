@@ -98,7 +98,7 @@ impl ToolResultBlockParam {
             }
             Some(ToolResultBlockParamContent::String(s)) => {
                 ToolResultBlockParamContent::Array(vec![
-                    ToolResultContent::Text(TextBlockParam::from_string_ref(&s)),
+                    ToolResultContent::Text(TextBlockParam::new(s)),
                     ToolResultContent::Text(text),
                 ])
             }

@@ -22,18 +22,13 @@ pub struct TextBlockParam {
 
 impl TextBlockParam {
     /// Create a new `TextBlockParam` with the given text.
-    pub fn new(text: String) -> Self {
+    pub fn new(text: impl Into<String>) -> Self {
         Self {
-            text,
+            text: text.into(),
             r#type: "text".to_string(),
             cache_control: None,
             citations: None,
         }
-    }
-
-    /// Create a new `TextBlockParam` from a string reference.
-    pub fn from_string_ref(text: &str) -> Self {
-        Self::new(text.to_string())
     }
 
     /// Add a cache control to this text block.
@@ -63,7 +58,7 @@ impl std::str::FromStr for TextBlockParam {
     type Err = std::convert::Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self::from_string_ref(s))
+        Ok(Self::new(s))
     }
 }
 
