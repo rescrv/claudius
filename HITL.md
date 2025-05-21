@@ -49,8 +49,8 @@
 [ ] src/types/raw_message_start_event.rs
 [ ] src/types/raw_message_stop_event.rs
 [ ] src/types/raw_message_stream_event.rs
-[ ] src/types/redacted_thinking_block_param.rs
-[ ] src/types/redacted_thinking_block.rs
+[X] src/types/redacted_thinking_block_param.rs
+[X] src/types/redacted_thinking_block.rs
 [ ] src/types/server_tool_usage.rs
 [ ] src/types/server_tool_use_block_param.rs
 [ ] src/types/server_tool_use_block.rs
@@ -61,8 +61,8 @@
 [ ] src/types/text_citation_param.rs
 [ ] src/types/text_citation.rs
 [ ] src/types/text_delta.rs
-[ ] src/types/thinking_block_param.rs
-[ ] src/types/thinking_block.rs
+[X] src/types/thinking_block_param.rs
+[X] src/types/thinking_block.rs
 [ ] src/types/thinking_config_disabled_param.rs
 [ ] src/types/thinking_config_enabled_param.rs
 [ ] src/types/thinking_config_param.rs
