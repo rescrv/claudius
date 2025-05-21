@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    RawContentBlockDeltaEvent, RawContentBlockStartEvent, RawContentBlockStopEvent,
-    RawMessageDeltaEvent, RawMessageStartEvent, RawMessageStopEvent,
+    ContentBlockDeltaEvent, ContentBlockStartEvent, ContentBlockStopEvent, RawMessageDeltaEvent,
+    RawMessageStartEvent, RawMessageStopEvent,
 };
 
 /// An event in a message stream.
@@ -23,15 +23,15 @@ pub enum RawMessageStreamEvent {
 
     /// Content block start event.
     #[serde(rename = "content_block_start")]
-    ContentBlockStart(RawContentBlockStartEvent),
+    ContentBlockStart(ContentBlockStartEvent),
 
     /// Content block delta event.
     #[serde(rename = "content_block_delta")]
-    ContentBlockDelta(RawContentBlockDeltaEvent),
+    ContentBlockDelta(ContentBlockDeltaEvent),
 
     /// Content block stop event.
     #[serde(rename = "content_block_stop")]
-    ContentBlockStop(RawContentBlockStopEvent),
+    ContentBlockStop(ContentBlockStopEvent),
 }
 
 #[cfg(test)]
@@ -40,7 +40,7 @@ mod tests {
     use serde_json::{from_value, json};
 
     #[test]
-    fn test_raw_message_stream_event_deserialization_message_start() {
+    fn test_message_stream_event_deserialization_message_start() {
         let json = json!({
             "message": {
                 "id": "msg_012345",
@@ -64,7 +64,7 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_message_stream_event_deserialization_message_delta() {
+    fn test_message_stream_event_deserialization_message_delta() {
         let json = json!({
             "delta": {
                 "stop_reason": "end_turn"
@@ -84,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_message_stream_event_deserialization_message_stop() {
+    fn test_message_stream_event_deserialization_message_stop() {
         let json = json!({
             "type": "message_stop"
         });
@@ -97,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_message_stream_event_deserialization_content_block_start() {
+    fn test_message_stream_event_deserialization_content_block_start() {
         let json = json!({
             "content_block": {
                 "text": "Hello, I'm Claude.",
@@ -115,7 +115,7 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_message_stream_event_deserialization_content_block_delta() {
+    fn test_message_stream_event_deserialization_content_block_delta() {
         let json = json!({
             "delta": {
                 "text": "Hello, I'm Claude.",
@@ -133,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_message_stream_event_deserialization_content_block_stop() {
+    fn test_message_stream_event_deserialization_content_block_stop() {
         let json = json!({
             "index": 0,
             "type": "content_block_stop"

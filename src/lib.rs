@@ -1,10 +1,9 @@
-// Public modules
-pub mod client;
-pub mod error;
-pub mod types;
-pub mod utils;
+mod client;
+mod error;
+mod types;
+mod utils;
 
-// Re-exports
+// Exports
 pub use client::Anthropic;
 pub use error::{Error, Result};
 pub use types::*;

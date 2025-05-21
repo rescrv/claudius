@@ -8,7 +8,7 @@ use crate::types::{CitationsDelta, InputJsonDelta, SignatureDelta, TextDelta, Th
 /// are updated incrementally.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
-pub enum RawContentBlockDelta {
+pub enum ContentBlockDelta {
     /// A text delta.
     #[serde(rename = "text_delta")]
     TextDelta(TextDelta),
@@ -30,30 +30,30 @@ pub enum RawContentBlockDelta {
     SignatureDelta(SignatureDelta),
 }
 
-impl RawContentBlockDelta {
-    /// Create a new `RawContentBlockDelta` from a text delta.
+impl ContentBlockDelta {
+    /// Create a new `ContentBlockDelta` from a text delta.
     pub fn from_text_delta(text_delta: TextDelta) -> Self {
-        RawContentBlockDelta::TextDelta(text_delta)
+        ContentBlockDelta::TextDelta(text_delta)
     }
 
-    /// Create a new `RawContentBlockDelta` from an input JSON delta.
+    /// Create a new `ContentBlockDelta` from an input JSON delta.
     pub fn from_input_json_delta(input_json_delta: InputJsonDelta) -> Self {
-        RawContentBlockDelta::InputJsonDelta(input_json_delta)
+        ContentBlockDelta::InputJsonDelta(input_json_delta)
     }
 
-    /// Create a new `RawContentBlockDelta` from a citations delta.
+    /// Create a new `ContentBlockDelta` from a citations delta.
     pub fn from_citations_delta(citations_delta: CitationsDelta) -> Self {
-        RawContentBlockDelta::CitationsDelta(citations_delta)
+        ContentBlockDelta::CitationsDelta(citations_delta)
     }
 
-    /// Create a new `RawContentBlockDelta` from a thinking delta.
+    /// Create a new `ContentBlockDelta` from a thinking delta.
     pub fn from_thinking_delta(thinking_delta: ThinkingDelta) -> Self {
-        RawContentBlockDelta::ThinkingDelta(thinking_delta)
+        ContentBlockDelta::ThinkingDelta(thinking_delta)
     }
 
-    /// Create a new `RawContentBlockDelta` from a signature delta.
+    /// Create a new `ContentBlockDelta` from a signature delta.
     pub fn from_signature_delta(signature_delta: SignatureDelta) -> Self {
-        RawContentBlockDelta::SignatureDelta(signature_delta)
+        ContentBlockDelta::SignatureDelta(signature_delta)
     }
 }
 
@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn test_text_delta_serialization() {
         let text_delta = TextDelta::new("Hello world".to_string());
-        let delta = RawContentBlockDelta::TextDelta(text_delta);
+        let delta = ContentBlockDelta::TextDelta(text_delta);
 
         let json = to_value(&delta).unwrap();
         assert_eq!(
@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn test_input_json_delta_serialization() {
         let input_json_delta = InputJsonDelta::new(r#"{"key":"#.to_string());
-        let delta = RawContentBlockDelta::InputJsonDelta(input_json_delta);
+        let delta = ContentBlockDelta::InputJsonDelta(input_json_delta);
 
         let json = to_value(&delta).unwrap();
         assert_eq!(
@@ -99,9 +99,9 @@ mod tests {
             "type": "text_delta"
         });
 
-        let delta: RawContentBlockDelta = from_value(json).unwrap();
+        let delta: ContentBlockDelta = from_value(json).unwrap();
         match delta {
-            RawContentBlockDelta::TextDelta(text_delta) => {
+            ContentBlockDelta::TextDelta(text_delta) => {
                 assert_eq!(text_delta.text, "Hello world");
             }
             _ => panic!("Expected TextDelta variant"),

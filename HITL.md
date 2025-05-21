@@ -10,13 +10,14 @@
 [ ] src/types/citation_web_search_result_location.rs
 [ ] src/types/citations_config.rs
 [ ] src/types/citations_delta.rs
-[ ] src/types/completion.rs
-[ ] src/types/content_block_delta_event.rs
-[ ] src/types/content_block_source_content_param.rs
-[ ] src/types/content_block_source_param.rs
-[ ] src/types/content_block_start_event.rs
-[ ] src/types/content_block_stop_event.rs
-[ ] src/types/content_block.rs
+[X] src/types/completion.rs
+[X] src/types/content_block.rs
+[X] src/types/content_block_delta.rs
+[X] src/types/content_block_delta_event.rs
+[X] src/types/content_block_source_content_param.rs
+[X] src/types/content_block_source_param.rs
+[X] src/types/content_block_start_event.rs
+[X] src/types/content_block_stop_event.rs
 [ ] src/types/document_block_param.rs
 [ ] src/types/image_block_param.rs
 [ ] src/types/input_json_delta.rs
@@ -40,10 +41,10 @@
 [ ] src/types/model_list_params.rs
 [ ] src/types/model.rs
 [ ] src/types/plain_text_source.rs
-[ ] src/types/raw_content_block_delta_event.rs
-[ ] src/types/raw_content_block_delta.rs
-[ ] src/types/raw_content_block_start_event.rs
-[ ] src/types/raw_content_block_stop_event.rs
+[X] src/types/raw_content_block_delta_event.rs
+[X] src/types/raw_content_block_delta.rs
+[X] src/types/raw_content_block_start_event.rs
+[X] src/types/raw_content_block_stop_event.rs
 [ ] src/types/raw_message_delta_event.rs
 [ ] src/types/raw_message_start_event.rs
 [ ] src/types/raw_message_stop_event.rs
@@ -90,5 +91,5 @@
 [ ] src/types/web_search_tool_result_block_param.rs
 [ ] src/types/web_search_tool_result_block.rs
 [ ] src/types/web_search_tool_result_error.rs
-[ ] src/utils/mod.rs
-[ ] src/utils/time.rs
+[X] src/utils/mod.rs
+[X] src/utils/time.rs

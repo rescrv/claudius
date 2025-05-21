@@ -17,7 +17,7 @@ pub struct Base64ImageSource {
     pub media_type: ImageMediaType,
 
     /// The source type (always "base64" for this struct)
-    #[serde(default = "default_type")]
+    #[serde(default = "default_type", rename = "type")]
     pub r#type: String,
 }
 

@@ -1,6 +1,6 @@
 use claudius::{
-    Anthropic, KnownModel, MessageCreateParams, MessageParam, MessageRole, Model,
-    RawContentBlockDelta, RawMessageStreamEvent, Result,
+    Anthropic, ContentBlockDelta, KnownModel, MessageCreateParams, MessageParam, MessageRole,
+    Model, RawMessageStreamEvent, Result,
 };
 use futures::StreamExt;
 use tokio::pin;
@@ -64,7 +64,7 @@ async fn main() -> Result<()> {
                     RawMessageStreamEvent::ContentBlockDelta(block_delta) => {
                         // Handle incremental content updates
                         match &block_delta.delta {
-                            RawContentBlockDelta::TextDelta(text_delta) => {
+                            ContentBlockDelta::TextDelta(text_delta) => {
                                 print!("{}", text_delta.text); // Print without newline for continuous output
 
                                 // Update our tracked text
