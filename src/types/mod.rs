@@ -103,7 +103,8 @@ pub use message::Message;
 pub use message_count_tokens_params::{
     MessageCountTokensParams, SystemPrompt as MessageCountTokensSystemPrompt,
 };
-pub use message_count_tokens_tool_param::{InputSchema, MessageCountTokensToolParam, ToolParam};
+pub use message_count_tokens_tool_param::MessageCountTokensToolParam;
+pub use tool_param::{InputSchema, ToolParam};
 pub use message_create_params::{MessageCreateParams, SystemPrompt as MessageCreateSystemPrompt};
 pub use message_delta_event::MessageDeltaEvent;
 pub use message_delta_usage::MessageDeltaUsage;

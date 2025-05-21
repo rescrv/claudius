@@ -60,8 +60,8 @@ mod tests {
     }
 
     #[test]
-    fn test_from_string_ref() {
-        let block = RedactedThinkingBlock::from_string_ref("Redacted thinking content");
+    fn test_new_with_str() {
+        let block = RedactedThinkingBlock::new("Redacted thinking content");
         let json = to_value(&block).unwrap();
 
         assert_eq!(

@@ -68,8 +68,8 @@ mod tests {
     }
 
     #[test]
-    fn test_thinking_block_param_serialization() {
-        let block = ThinkingBlockParam::new("Let me think about this...", "Signature");
+    fn test_thinking_block_with_string_references() {
+        let block = ThinkingBlock::new("Let me think about this...", "Signature");
         let json = to_value(&block).unwrap();
 
         assert_eq!(
@@ -83,16 +83,17 @@ mod tests {
     }
 
     #[test]
-    fn test_thinking_block_param_deserialization() {
-        let json = json!({
-            "signature": "Signature",
-            "thinking": "Let me think about this...",
-            "type": "thinking"
-        });
+    fn test_thinking_block_from_str() {
+        let block = ThinkingBlock::from_str("Signature", "Let me think about this...");
+        let json = to_value(&block).unwrap();
 
-        let block: ThinkingBlockParam = serde_json::from_value(json).unwrap();
-        assert_eq!(block.signature, "Signature");
-        assert_eq!(block.thinking, "Let me think about this...");
-        assert_eq!(block.r#type, "thinking");
+        assert_eq!(
+            json,
+            json!({
+                "signature": "Signature",
+                "thinking": "Let me think about this...",
+                "type": "thinking"
+            })
+        );
     }
 }

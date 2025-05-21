@@ -3,6 +3,7 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 /// Deserialize an RFC 3339 formatted string into an OffsetDateTime
+#[allow(dead_code)]
 pub fn deserialize<'de, D>(deserializer: D) -> Result<OffsetDateTime, D::Error>
 where
     D: Deserializer<'de>,
@@ -12,6 +13,7 @@ where
 }
 
 /// Serialize an OffsetDateTime into an RFC 3339 formatted string
+#[allow(dead_code)]
 pub fn serialize<S>(datetime: &OffsetDateTime, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
