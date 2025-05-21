@@ -1,6 +1,5 @@
 use claudius::{
-    Anthropic, ContentBlock, KnownModel, MessageCreateParams, MessageParam, MessageRole, Model,
-    Result, TextBlock,
+    Anthropic, KnownModel, MessageCreateParams, MessageParam, MessageRole, Model, Result,
 };
 use futures::StreamExt;
 use tokio::pin;

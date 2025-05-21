@@ -5,7 +5,6 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{header, Client as ReqwestClient, Response};
 use serde::Deserialize;
 use std::env;
-use std::pin::Pin;
 use std::time::Duration;
 
 use crate::error::{Error, Result};
