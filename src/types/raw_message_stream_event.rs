@@ -9,6 +9,10 @@ use crate::types::{
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum RawMessageStreamEvent {
+    /// Ping event.
+    #[serde(rename = "ping")]
+    Ping,
+
     /// Message start event.
     #[serde(rename = "message_start")]
     MessageStart(RawMessageStartEvent),

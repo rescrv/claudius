@@ -160,6 +160,12 @@ pub enum Error {
         /// Human-readable error message.
         message: String,
     },
+
+    /// Unimplemented functionality.
+    ToDo {
+        /// Human-readable error message.
+        message: String,
+    },
 }
 
 impl Error {
@@ -338,6 +344,13 @@ impl Error {
         }
     }
 
+    /// Creates a new ToDo error for unimplemented functionality.
+    pub fn todo(message: impl Into<String>) -> Self {
+        Error::ToDo {
+            message: message.into(),
+        }
+    }
+
     /// Returns true if this error is related to authentication.
     pub fn is_authentication(&self) -> bool {
         matches!(self, Error::Authentication { .. })
@@ -399,6 +412,11 @@ impl Error {
             Error::InternalServer { .. } => true,
             _ => false,
         }
+    }
+    
+    /// Returns true if this error is a ToDo error.
+    pub fn is_todo(&self) -> bool {
+        matches!(self, Error::ToDo { .. })
     }
 
     /// Returns the request ID associated with this error, if any.
@@ -558,6 +576,9 @@ impl fmt::Display for Error {
             }
             Error::Unknown { message } => {
                 write!(f, "Unknown error: {}", message)
+            }
+            Error::ToDo { message } => {
+                write!(f, "Unimplemented: {}", message)
             }
         }
     }

@@ -7,7 +7,7 @@ use crate::types::{CitationsDelta, InputJsonDelta, SignatureDelta, TextDelta, Th
 /// This type is used for streaming responses from the API, where content blocks
 /// are updated incrementally.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(untagged)]
 pub enum ContentBlockDelta {
     /// A text delta.
     #[serde(rename = "text_delta")]
