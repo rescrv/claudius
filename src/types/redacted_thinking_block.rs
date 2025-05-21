@@ -9,7 +9,7 @@ pub struct RedactedThinkingBlock {
     pub data: String,
 
     /// The type of content block, always "redacted_thinking" for this struct.
-    #[serde(default = "default_type")]
+    #[serde(default = "default_type", rename = "type")]
     pub r#type: String,
 }
 
@@ -27,9 +27,18 @@ impl RedactedThinkingBlock {
     }
 }
 
+impl std::str::FromStr for RedactedThinkingBlock {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::new(s))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{json, to_value};
 
     #[test]
     fn test_redacted_thinking_block_serialization() {
@@ -47,6 +56,29 @@ mod tests {
         let block: RedactedThinkingBlock = serde_json::from_str(json).unwrap();
 
         assert_eq!(block.data, "encoded-thinking-data-123");
+        assert_eq!(block.r#type, "redacted_thinking");
+    }
+
+    #[test]
+    fn test_from_string_ref() {
+        let block = RedactedThinkingBlock::from_string_ref("Redacted thinking content");
+        let json = to_value(&block).unwrap();
+
+        assert_eq!(
+            json,
+            json!({
+                "data": "Redacted thinking content",
+                "type": "redacted_thinking"
+            })
+        );
+    }
+
+    #[test]
+    fn test_from_str() {
+        let block = "Redacted thinking content"
+            .parse::<RedactedThinkingBlock>()
+            .unwrap();
+        assert_eq!(block.data, "Redacted thinking content");
         assert_eq!(block.r#type, "redacted_thinking");
     }
 }
