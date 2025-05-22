@@ -24,7 +24,7 @@ pub enum DocumentSource {
 
 /// Parameters for a document block.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DocumentBlockParam {
+pub struct DocumentBlock {
     /// The source of the document.
     pub source: DocumentSource,
 
@@ -45,8 +45,8 @@ pub struct DocumentBlockParam {
     pub title: Option<String>,
 }
 
-impl DocumentBlockParam {
-    /// Create a new `DocumentBlockParam` with the given source.
+impl DocumentBlock {
+    /// Create a new `DocumentBlock` with the given source.
     pub fn new(source: DocumentSource) -> Self {
         Self {
             source,
@@ -57,22 +57,22 @@ impl DocumentBlockParam {
         }
     }
 
-    /// Create a new `DocumentBlockParam` with a Base64 PDF source.
+    /// Create a new `DocumentBlock` with a Base64 PDF source.
     pub fn new_with_base64_pdf(source: Base64PdfSource) -> Self {
         Self::new(DocumentSource::Base64Pdf(source))
     }
 
-    /// Create a new `DocumentBlockParam` with a plain text source.
+    /// Create a new `DocumentBlock` with a plain text source.
     pub fn new_with_plain_text(source: PlainTextSource) -> Self {
         Self::new(DocumentSource::PlainText(source))
     }
 
-    /// Create a new `DocumentBlockParam` with a content block source.
+    /// Create a new `DocumentBlock` with a content block source.
     pub fn new_with_content_block(source: ContentBlockSourceParam) -> Self {
         Self::new(DocumentSource::ContentBlock(source))
     }
 
-    /// Create a new `DocumentBlockParam` with a URL PDF source.
+    /// Create a new `DocumentBlock` with a URL PDF source.
     pub fn new_with_url_pdf(source: UrlPdfSource) -> Self {
         Self::new(DocumentSource::UrlPdf(source))
     }
@@ -108,11 +108,11 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_document_block_param_with_base64_pdf() {
+    fn test_document_block_with_base64_pdf() {
         let base64_source =
             Base64PdfSource::new("data:application/pdf;base64,JVBERi0xLjcKJeLjz9MKN".to_string());
 
-        let document_block = DocumentBlockParam::new_with_base64_pdf(base64_source);
+        let document_block = DocumentBlock::new_with_base64_pdf(base64_source);
         let json = to_value(&document_block).unwrap();
 
         assert_eq!(
@@ -128,10 +128,10 @@ mod tests {
     }
 
     #[test]
-    fn test_document_block_param_with_plain_text() {
+    fn test_document_block_with_plain_text() {
         let text_source = PlainTextSource::new("Sample text content".to_string());
 
-        let document_block = DocumentBlockParam::new_with_plain_text(text_source);
+        let document_block = DocumentBlock::new_with_plain_text(text_source);
         let json = to_value(&document_block).unwrap();
 
         assert_eq!(
@@ -148,10 +148,10 @@ mod tests {
     }
 
     #[test]
-    fn test_document_block_param_with_content_block() {
+    fn test_document_block_with_content_block() {
         let content_source = ContentBlockSourceParam::from_string_ref("Sample content");
 
-        let document_block = DocumentBlockParam::new_with_content_block(content_source);
+        let document_block = DocumentBlock::new_with_content_block(content_source);
         let json = to_value(&document_block).unwrap();
 
         assert_eq!(
@@ -167,10 +167,10 @@ mod tests {
     }
 
     #[test]
-    fn test_document_block_param_with_url_pdf() {
+    fn test_document_block_with_url_pdf() {
         let url_source = UrlPdfSource::new("https://example.com/document.pdf".to_string());
 
-        let document_block = DocumentBlockParam::new_with_url_pdf(url_source);
+        let document_block = DocumentBlock::new_with_url_pdf(url_source);
         let json = to_value(&document_block).unwrap();
 
         assert_eq!(
@@ -186,12 +186,12 @@ mod tests {
     }
 
     #[test]
-    fn test_document_block_param_with_all_fields() {
+    fn test_document_block_with_all_fields() {
         let url_source = UrlPdfSource::new("https://example.com/document.pdf".to_string());
         let cache_control = CacheControlEphemeral::new();
         let citations = CitationsConfig::enabled();
 
-        let document_block = DocumentBlockParam::new_with_url_pdf(url_source)
+        let document_block = DocumentBlock::new_with_url_pdf(url_source)
             .with_cache_control(cache_control)
             .with_citations(citations)
             .with_context("Document context".to_string())

@@ -10,7 +10,7 @@
 [ ] src/types/citation_web_search_result_location.rs
 [ ] src/types/citations_config.rs
 [ ] src/types/citations_delta.rs
-[ ] src/types/document_block_param.rs
+[ ] src/types/document_block.rs
 [ ] src/types/image_block_param.rs
 [ ] src/types/message_count_tokens_params.rs
 [ ] src/types/message_count_tokens_tool_param.rs
