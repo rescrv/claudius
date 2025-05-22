@@ -4,7 +4,9 @@
 [ ] src/types/message_count_tokens_params.rs
 [ ] src/types/message_count_tokens_tool_param.rs
 [ ] src/types/message_delta_usage.rs
+[ ] src/types/message_param.rs
 [ ] src/types/message_tokens_count.rs
+[ ] src/types/message.rs
 [ ] src/types/model_info.rs
 [ ] src/types/model_list_params.rs
 [ ] src/types/model.rs
@@ -55,11 +57,9 @@
 [X] src/types/input_json_delta.rs
 [X] src/types/message_create_params.rs
 [X] src/types/message_delta_event.rs
-[X] src/types/message_param.rs
 [X] src/types/message_start_event.rs
 [X] src/types/message_stop_event.rs
 [X] src/types/message_stream_event.rs
-[X] src/types/message.rs
 [X] src/types/messages/batch_create_params.rs
 [X] src/types/messages/batch_list_params.rs
 [X] src/types/messages/mod.rs
