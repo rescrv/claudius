@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    CacheControlEphemeral, WebSearchResultBlockParam, WebSearchToolRequestErrorParam,
+    CacheControlEphemeral, WebSearchResultBlock, WebSearchToolRequestErrorParam,
     WebSearchToolResultBlockParamContent,
 };
 
@@ -31,7 +31,7 @@ impl WebSearchToolResultBlockParam {
     }
 
     /// Create a new `WebSearchToolResultBlockParam` with the given results and tool use ID.
-    pub fn new_with_results(results: Vec<WebSearchResultBlockParam>, tool_use_id: String) -> Self {
+    pub fn new_with_results(results: Vec<WebSearchResultBlock>, tool_use_id: String) -> Self {
         Self::new(
             WebSearchToolResultBlockParamContent::new_with_results(results),
             tool_use_id,
@@ -60,10 +60,10 @@ mod tests {
 
     #[test]
     fn test_web_search_tool_result_block_param_with_results() {
-        let result = WebSearchResultBlockParam::new(
-            "encrypted-content".to_string(),
-            "Example Title".to_string(),
-            "https://example.com".to_string(),
+        let result = WebSearchResultBlock::new(
+            "encrypted-content",
+            "Example Title",
+            "https://example.com",
         );
 
         let block =
@@ -109,10 +109,10 @@ mod tests {
 
     #[test]
     fn test_web_search_tool_result_block_param_with_cache_control() {
-        let result = WebSearchResultBlockParam::new(
-            "encrypted-content".to_string(),
-            "Example Title".to_string(),
-            "https://example.com".to_string(),
+        let result = WebSearchResultBlock::new(
+            "encrypted-content",
+            "Example Title",
+            "https://example.com",
         );
 
         let cache_control = CacheControlEphemeral::new();

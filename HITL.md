@@ -1,7 +1,6 @@
 [ ] src/client.rs
 [ ] src/error.rs
 [ ] src/lib.rs
-[ ] src/types/image_block.rs
 [ ] src/types/message_count_tokens_params.rs
 [ ] src/types/message_count_tokens_tool_param.rs
 [ ] src/types/message_delta_usage.rs
@@ -60,6 +59,7 @@
 [X] src/types/content_block_stop_event.rs
 [X] src/types/content_block.rs
 [X] src/types/document_block.rs
+[X] src/types/image_block.rs
 [X] src/types/input_json_delta.rs
 [X] src/types/message_create_params.rs
 [X] src/types/message_delta_event.rs

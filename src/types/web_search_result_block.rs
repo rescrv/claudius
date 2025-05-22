@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// A block containing a web search result.
 ///
 /// WebSearchResultBlock represents a single result from a web search operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WebSearchResultBlock {
     /// Encrypted content from the web search result.
     pub encrypted_content: String,
@@ -33,15 +33,20 @@ impl WebSearchResultBlock {
         encrypted_content: S1,
         title: S2,
         url: S3,
-        page_age: Option<String>,
     ) -> Self {
         Self {
             encrypted_content: encrypted_content.into(),
-            page_age,
+            page_age: None,
             title: title.into(),
             r#type: default_type(),
             url: url.into(),
         }
+    }
+    
+    /// Add page age to this web search result block.
+    pub fn with_page_age(mut self, page_age: String) -> Self {
+        self.page_age = Some(page_age);
+        self
     }
 
     /// Returns the domain (host) part of the URL if it can be parsed.
@@ -106,7 +111,6 @@ mod tests {
             "encrypted-data-123",
             "Example Page Title",
             "https://example.com/page",
-            None,
         );
 
         assert_eq!(block.domain(), Some("example.com".to_string()));

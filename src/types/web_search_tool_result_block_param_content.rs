@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{WebSearchResultBlockParam, WebSearchToolRequestErrorParam};
+use crate::types::{WebSearchResultBlock, WebSearchToolRequestErrorParam};
 
 /// Content for a web search tool result block, which can be either an array of
 /// web search result blocks or a web search tool request error.
@@ -8,7 +8,7 @@ use crate::types::{WebSearchResultBlockParam, WebSearchToolRequestErrorParam};
 #[serde(untagged)]
 pub enum WebSearchToolResultBlockParamContent {
     /// An array of web search result blocks.
-    Results(Vec<WebSearchResultBlockParam>),
+    Results(Vec<WebSearchResultBlock>),
 
     /// A web search tool request error.
     Error(WebSearchToolRequestErrorParam),
@@ -16,7 +16,7 @@ pub enum WebSearchToolResultBlockParamContent {
 
 impl WebSearchToolResultBlockParamContent {
     /// Create a new `WebSearchToolResultBlockParamContent` with the given results.
-    pub fn new_with_results(results: Vec<WebSearchResultBlockParam>) -> Self {
+    pub fn new_with_results(results: Vec<WebSearchResultBlock>) -> Self {
         Self::Results(results)
     }
 
@@ -33,10 +33,10 @@ mod tests {
 
     #[test]
     fn test_web_search_tool_result_block_param_content_results() {
-        let result = WebSearchResultBlockParam::new(
-            "encrypted-content".to_string(),
-            "Example Title".to_string(),
-            "https://example.com".to_string(),
+        let result = WebSearchResultBlock::new(
+            "encrypted-content",
+            "Example Title",
+            "https://example.com",
         );
 
         let content = WebSearchToolResultBlockParamContent::new_with_results(vec![result]);
