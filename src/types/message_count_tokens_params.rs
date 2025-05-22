@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    MessageCountTokensToolParam, MessageParam, Model, TextBlock, ThinkingConfigParam,
+    MessageCountTokensToolParam, MessageParam, Model, TextBlock, ThinkingConfig,
     ToolChoiceParam,
 };
 
@@ -49,7 +49,7 @@ pub struct MessageCountTokensParams {
     /// [extended thinking](https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking)
     /// for details.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thinking: Option<ThinkingConfigParam>,
+    pub thinking: Option<ThinkingConfig>,
 
     /// How the model should use the provided tools.
     ///
@@ -105,7 +105,7 @@ impl MessageCountTokensParams {
     }
 
     /// Add thinking configuration.
-    pub fn with_thinking(mut self, thinking: ThinkingConfigParam) -> Self {
+    pub fn with_thinking(mut self, thinking: ThinkingConfig) -> Self {
         self.thinking = Some(thinking);
         self
     }

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    MessageParam, Metadata, Model, TextBlock, ThinkingConfigParam, ToolChoiceParam, ToolUnionParam,
+    MessageParam, Metadata, Model, TextBlock, ThinkingConfig, ToolChoiceParam, ToolUnionParam,
 };
 
 /// Parameters for creating messages.
@@ -76,7 +76,7 @@ pub struct MessageCreateParams {
     /// [extended thinking](https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking)
     /// for details.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thinking: Option<ThinkingConfigParam>,
+    pub thinking: Option<ThinkingConfig>,
 
     /// How the model should use the provided tools.
     ///
@@ -204,7 +204,7 @@ impl MessageCreateParams {
     }
 
     /// Add thinking configuration to the parameters.
-    pub fn with_thinking(mut self, thinking: ThinkingConfigParam) -> Self {
+    pub fn with_thinking(mut self, thinking: ThinkingConfig) -> Self {
         self.thinking = Some(thinking);
         self
     }

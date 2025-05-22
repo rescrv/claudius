@@ -14,9 +14,6 @@
 [ ] src/types/server_tool_usage.rs
 [ ] src/types/server_tool_use_block_param.rs
 [ ] src/types/server_tool_use_block.rs
-[ ] src/types/thinking_config_disabled_param.rs
-[ ] src/types/thinking_config_enabled_param.rs
-[ ] src/types/thinking_config_param.rs
 [ ] src/types/tool_bash_20250124_param.rs
 [ ] src/types/tool_choice_any_param.rs
 [ ] src/types/tool_choice_auto_param.rs
@@ -90,6 +87,7 @@
 [X] src/types/text_delta.rs
 [X] src/types/thinking_block_param.rs
 [X] src/types/thinking_block.rs
+[X] src/types/thinking_config.rs
 [X] src/types/thinking_delta.rs
 [X] src/utils/mod.rs
 [X] src/utils/time.rs
