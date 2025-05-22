@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    ContentBlockDeltaEvent, ContentBlockStartEvent, ContentBlockStopEvent, RawMessageDeltaEvent,
+    ContentBlockDeltaEvent, ContentBlockStartEvent, ContentBlockStopEvent, MessageDeltaEvent,
     RawMessageStartEvent, RawMessageStopEvent,
 };
 
 /// An event in a message stream.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type")]
+#[serde(untagged)]
 pub enum RawMessageStreamEvent {
     /// Ping event.
     #[serde(rename = "ping")]
@@ -19,11 +19,7 @@ pub enum RawMessageStreamEvent {
 
     /// Message delta event.
     #[serde(rename = "message_delta")]
-    MessageDelta(RawMessageDeltaEvent),
-
-    /// Message stop event.
-    #[serde(rename = "message_stop")]
-    MessageStop(RawMessageStopEvent),
+    MessageDelta(MessageDeltaEvent),
 
     /// Content block start event.
     #[serde(rename = "content_block_start")]
@@ -36,6 +32,10 @@ pub enum RawMessageStreamEvent {
     /// Content block stop event.
     #[serde(rename = "content_block_stop")]
     ContentBlockStop(ContentBlockStopEvent),
+
+    /// Message stop event.
+    #[serde(rename = "message_stop")]
+    MessageStop(RawMessageStopEvent),
 }
 
 #[cfg(test)]

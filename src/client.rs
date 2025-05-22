@@ -10,8 +10,8 @@ use std::time::Duration;
 use crate::error::{Error, Result};
 use crate::types::{
     ContentBlockDeltaEvent, ContentBlockStartEvent, ContentBlockStopEvent, Message,
-    MessageCountTokensParams, MessageCreateParams, MessageStreamEvent, MessageTokensCount,
-    RawMessageDeltaEvent, RawMessageStartEvent, RawMessageStopEvent,
+    MessageCountTokensParams, MessageCreateParams, MessageDeltaEvent, MessageStreamEvent, 
+    MessageTokensCount, RawMessageStartEvent, RawMessageStopEvent,
 };
 
 const DEFAULT_API_URL: &str = "https://api.anthropic.com/v1/";
@@ -392,7 +392,7 @@ fn extract_event(buffer: &str) -> Option<(Result<MessageStreamEvent>, String)> {
             Ok(event) => Some((Ok(MessageStreamEvent::MessageStart(event)), rest)),
             Err(e) => Some((Err(e.into()), rest)),
         },
-        "event: message_delta" => match serde_json::from_str::<RawMessageDeltaEvent>(event_data) {
+        "event: message_delta" => match serde_json::from_str::<MessageDeltaEvent>(event_data) {
             Ok(event) => Some((Ok(MessageStreamEvent::MessageDelta(event)), rest)),
             Err(e) => Some((Err(e.into()), rest)),
         },
