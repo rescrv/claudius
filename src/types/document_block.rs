@@ -7,18 +7,22 @@ use crate::types::{
 
 /// The source type for a document block, which can be one of several types.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(untagged)]
+#[serde(tag = "type")]
 pub enum DocumentSource {
     /// A Base64 encoded PDF source.
+    #[serde(rename = "base64")]
     Base64Pdf(Base64PdfSource),
 
     /// A plain text source.
+    #[serde(rename = "text")]
     PlainText(PlainTextSource),
 
     /// A content block source.
+    #[serde(rename = "content")]
     ContentBlock(ContentBlockSourceParam),
 
     /// A URL PDF source.
+    #[serde(rename = "url")]
     UrlPdf(UrlPdfSource),
 }
 
@@ -27,6 +31,10 @@ pub enum DocumentSource {
 pub struct DocumentBlock {
     /// The source of the document.
     pub source: DocumentSource,
+
+    /// The type of the block, always "document".
+    #[serde(default = "default_type")]
+    pub r#type: String,
 
     /// Create a cache control breakpoint at this content block.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -45,11 +53,16 @@ pub struct DocumentBlock {
     pub title: Option<String>,
 }
 
+fn default_type() -> String {
+    "document".to_string()
+}
+
 impl DocumentBlock {
     /// Create a new `DocumentBlock` with the given source.
     pub fn new(source: DocumentSource) -> Self {
         Self {
             source,
+            r#type: default_type(),
             cache_control: None,
             citations: None,
             context: None,
@@ -119,8 +132,9 @@ mod tests {
             json,
             json!({
                 "source": {
+                    "type": "base64",
                     "data": "data:application/pdf;base64,JVBERi0xLjcKJeLjz9MKN",
-                    "type": "base64"
+                    "media_type": "application/pdf"
                 },
                 "type": "document"
             })
@@ -138,9 +152,9 @@ mod tests {
             json,
             json!({
                 "source": {
+                    "type": "text",
                     "data": "Sample text content",
-                    "media_type": "text/plain",
-                    "type": "text"
+                    "media_type": "text/plain"
                 },
                 "type": "document"
             })
@@ -158,8 +172,8 @@ mod tests {
             json,
             json!({
                 "source": {
-                    "content": "Sample content",
-                    "type": "content"
+                    "type": "content",
+                    "content": "Sample content"
                 },
                 "type": "document"
             })
@@ -177,8 +191,8 @@ mod tests {
             json,
             json!({
                 "source": {
-                    "url": "https://example.com/document.pdf",
-                    "type": "url"
+                    "type": "url",
+                    "url": "https://example.com/document.pdf"
                 },
                 "type": "document"
             })
@@ -203,8 +217,8 @@ mod tests {
             json,
             json!({
                 "source": {
-                    "url": "https://example.com/document.pdf",
-                    "type": "url"
+                    "type": "url",
+                    "url": "https://example.com/document.pdf"
                 },
                 "type": "document",
                 "cache_control": {

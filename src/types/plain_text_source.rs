@@ -11,9 +11,6 @@ pub struct PlainTextSource {
     /// The media type, which is always "text/plain".
     #[serde(rename = "media_type")]
     pub media_type: String,
-
-    /// The type, which is always "text".
-    pub r#type: String,
 }
 
 impl PlainTextSource {
@@ -22,7 +19,6 @@ impl PlainTextSource {
         Self {
             data,
             media_type: "text/plain".to_string(),
-            r#type: "text".to_string(),
         }
     }
 
@@ -54,8 +50,7 @@ mod tests {
             json,
             json!({
                 "data": "Sample text content",
-                "media_type": "text/plain",
-                "type": "text"
+                "media_type": "text/plain"
             })
         );
     }
@@ -65,7 +60,6 @@ mod tests {
         let source = PlainTextSource::from_string_ref("Sample text content");
         assert_eq!(source.data, "Sample text content");
         assert_eq!(source.media_type, "text/plain");
-        assert_eq!(source.r#type, "text");
     }
 
     #[test]
@@ -73,6 +67,5 @@ mod tests {
         let source = "Sample text content".parse::<PlainTextSource>().unwrap();
         assert_eq!(source.data, "Sample text content");
         assert_eq!(source.media_type, "text/plain");
-        assert_eq!(source.r#type, "text");
     }
 }

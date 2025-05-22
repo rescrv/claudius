@@ -16,18 +16,10 @@ pub struct Base64PdfSource {
     /// The media type of the file (always "application/pdf")
     #[serde(default = "default_media_type")]
     pub media_type: String,
-
-    /// The source type (always "base64" for this struct)
-    #[serde(default = "default_type")]
-    pub r#type: String,
 }
 
 fn default_media_type() -> String {
     "application/pdf".to_string()
-}
-
-fn default_type() -> String {
-    "base64".to_string()
 }
 
 impl Base64PdfSource {
@@ -36,7 +28,6 @@ impl Base64PdfSource {
         Self {
             data,
             media_type: default_media_type(),
-            r#type: default_type(),
         }
     }
 
@@ -69,7 +60,6 @@ impl Base64PdfSource {
         Ok(Self {
             data,
             media_type: default_media_type(),
-            r#type: default_type(),
         })
     }
 }
@@ -83,23 +73,21 @@ mod tests {
         let source = Base64PdfSource {
             data: "SGVsbG8gV29ybGQ=".to_string(), // "Hello World" in base64
             media_type: "application/pdf".to_string(),
-            r#type: "base64".to_string(),
         };
 
         let json = serde_json::to_string(&source).unwrap();
         let expected =
-            r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"application/pdf","type":"base64"}"#;
+            r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"application/pdf"}"#;
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"application/pdf","type":"base64"}"#;
+        let json = r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"application/pdf"}"#;
         let source: Base64PdfSource = serde_json::from_str(json).unwrap();
 
         assert_eq!(source.data, "SGVsbG8gV29ybGQ=");
         assert_eq!(source.media_type, "application/pdf");
-        assert_eq!(source.r#type, "base64");
     }
 }

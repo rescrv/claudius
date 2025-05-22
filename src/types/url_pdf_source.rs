@@ -5,16 +5,8 @@ use serde::{Deserialize, Serialize};
 /// This type is used to provide a PDF to the model from a URL.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UrlPdfSource {
-    /// The type of source, always "url" for this struct.
-    #[serde(default = "default_type")]
-    pub r#type: String,
-
     /// The URL of the PDF.
     pub url: String,
-}
-
-fn default_type() -> String {
-    "url".to_string()
 }
 
 impl UrlPdfSource {
@@ -22,7 +14,6 @@ impl UrlPdfSource {
     pub fn new<S: Into<String>>(url: S) -> Self {
         Self {
             url: url.into(),
-            r#type: default_type(),
         }
     }
 
@@ -39,22 +30,20 @@ mod tests {
     #[test]
     fn test_serialization() {
         let source = UrlPdfSource {
-            r#type: "url".to_string(),
             url: "https://example.com/document.pdf".to_string(),
         };
 
         let json = serde_json::to_string(&source).unwrap();
-        let expected = r#"{"type":"url","url":"https://example.com/document.pdf"}"#;
+        let expected = r#"{"url":"https://example.com/document.pdf"}"#;
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"type":"url","url":"https://example.com/document.pdf"}"#;
+        let json = r#"{"url":"https://example.com/document.pdf"}"#;
         let source: UrlPdfSource = serde_json::from_str(json).unwrap();
 
-        assert_eq!(source.r#type, "url");
         assert_eq!(source.url, "https://example.com/document.pdf");
     }
 

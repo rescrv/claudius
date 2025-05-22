@@ -6,11 +6,15 @@ use crate::types::ContentBlockSourceContentParam;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContentBlockSourceParam {
     /// The content of the source, which can be either a string or an array of content items.
-    #[serde(flatten)]
     pub content: ContentBlockSourceContent,
-
-    /// The type, which is always "content".
+    
+    /// The type of the source, always "content".
+    #[serde(default = "default_type")]
     pub r#type: String,
+}
+
+fn default_type() -> String {
+    "content".to_string()
 }
 
 /// The content of a content block source, which can be either a string or an array of content items.
@@ -29,7 +33,7 @@ impl ContentBlockSourceParam {
     pub fn new_with_string(content: String) -> Self {
         Self {
             content: ContentBlockSourceContent::String(content),
-            r#type: "content".to_string(),
+            r#type: default_type(),
         }
     }
 
@@ -42,7 +46,7 @@ impl ContentBlockSourceParam {
     pub fn new_with_array(content: Vec<ContentBlockSourceContentParam>) -> Self {
         Self {
             content: ContentBlockSourceContent::Array(content),
-            r#type: "content".to_string(),
+            r#type: default_type(),
         }
     }
 
@@ -74,8 +78,7 @@ mod tests {
         assert_eq!(
             json,
             json!({
-                "content": "Sample content",
-                "type": "content"
+                "content": "Sample content"
             })
         );
     }
@@ -109,8 +112,7 @@ mod tests {
                         },
                         "type": "image"
                     }
-                ],
-                "type": "content"
+                ]
             })
         );
     }
@@ -132,8 +134,7 @@ mod tests {
                         "text": "Sample text content",
                         "type": "text"
                     }
-                ],
-                "type": "content"
+                ]
             })
         );
     }
@@ -148,8 +149,6 @@ mod tests {
             }
             _ => panic!("Expected String variant"),
         }
-
-        assert_eq!(source.r#type, "content");
     }
 
     #[test]
@@ -162,7 +161,5 @@ mod tests {
             }
             _ => panic!("Expected String variant"),
         }
-
-        assert_eq!(source.r#type, "content");
     }
 }
