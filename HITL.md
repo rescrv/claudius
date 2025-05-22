@@ -18,9 +18,6 @@
 [ ] src/types/message_param.rs
 [ ] src/types/message_tokens_count.rs
 [ ] src/types/message.rs
-[ ] src/types/messages/batch_create_params.rs
-[ ] src/types/messages/batch_list_params.rs
-[ ] src/types/messages/mod.rs
 [ ] src/types/metadata.rs
 [ ] src/types/mod.rs
 [ ] src/types/model_info.rs
@@ -71,6 +68,9 @@
 [X] src/types/message_start_event.rs
 [X] src/types/message_stop_event.rs
 [X] src/types/message_stream_event.rs
+[X] src/types/messages/batch_create_params.rs
+[X] src/types/messages/batch_list_params.rs
+[X] src/types/messages/mod.rs
 [X] src/types/raw_content_block_delta_event.rs
 [X] src/types/raw_content_block_delta.rs
 [X] src/types/raw_content_block_start_event.rs
