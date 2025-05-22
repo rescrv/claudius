@@ -12,14 +12,10 @@
 [ ] src/types/citations_delta.rs
 [ ] src/types/document_block_param.rs
 [ ] src/types/image_block_param.rs
-[X] src/types/input_json_delta.rs
 [ ] src/types/message_count_tokens_params.rs
 [ ] src/types/message_count_tokens_tool_param.rs
 [ ] src/types/message_delta_usage.rs
 [ ] src/types/message_param.rs
-[ ] src/types/message_start_event.rs
-[ ] src/types/message_stop_event.rs
-[ ] src/types/message_stream_event.rs
 [ ] src/types/message_tokens_count.rs
 [ ] src/types/message.rs
 [ ] src/types/messages/batch_create_params.rs
@@ -31,15 +27,9 @@
 [ ] src/types/model_list_params.rs
 [ ] src/types/model.rs
 [ ] src/types/plain_text_source.rs
-[ ] src/types/raw_message_start_event.rs
-[ ] src/types/raw_message_stop_event.rs
-[ ] src/types/raw_message_stream_event.rs
 [ ] src/types/server_tool_usage.rs
 [ ] src/types/server_tool_use_block_param.rs
 [ ] src/types/server_tool_use_block.rs
-[X] src/types/signature_delta.rs
-[ ] src/types/text_citation_param.rs
-[ ] src/types/text_citation.rs
 [ ] src/types/thinking_config_disabled_param.rs
 [ ] src/types/thinking_config_enabled_param.rs
 [ ] src/types/thinking_config_param.rs
@@ -75,18 +65,28 @@
 [X] src/types/content_block_start_event.rs
 [X] src/types/content_block_stop_event.rs
 [X] src/types/content_block.rs
+[X] src/types/input_json_delta.rs
 [X] src/types/message_create_params.rs
 [X] src/types/message_delta_event.rs
+[X] src/types/message_start_event.rs
+[X] src/types/message_stop_event.rs
+[X] src/types/message_stream_event.rs
 [X] src/types/raw_content_block_delta_event.rs
 [X] src/types/raw_content_block_delta.rs
 [X] src/types/raw_content_block_start_event.rs
 [X] src/types/raw_content_block_stop_event.rs
 [X] src/types/raw_message_delta_event.rs
+[X] src/types/raw_message_start_event.rs
+[X] src/types/raw_message_stop_event.rs
+[X] src/types/raw_message_stream_event.rs
 [X] src/types/redacted_thinking_block_param.rs
 [X] src/types/redacted_thinking_block.rs
+[X] src/types/signature_delta.rs
 [X] src/types/stop_reason.rs
 [X] src/types/text_block_param.rs
 [X] src/types/text_block.rs
+[X] src/types/text_citation_param.rs
+[X] src/types/text_citation.rs
 [X] src/types/text_delta.rs
 [X] src/types/thinking_block_param.rs
 [X] src/types/thinking_block.rs

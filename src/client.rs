@@ -10,8 +10,8 @@ use std::time::Duration;
 use crate::error::{Error, Result};
 use crate::types::{
     ContentBlockDeltaEvent, ContentBlockStartEvent, ContentBlockStopEvent, Message,
-    MessageCountTokensParams, MessageCreateParams, MessageDeltaEvent, MessageStreamEvent, 
-    MessageTokensCount, RawMessageStartEvent, RawMessageStopEvent,
+    MessageCountTokensParams, MessageCreateParams, MessageDeltaEvent, MessageStartEvent,
+    MessageStreamEvent, MessageTokensCount, MessageStopEvent,
 };
 
 const DEFAULT_API_URL: &str = "https://api.anthropic.com/v1/";
@@ -388,7 +388,7 @@ fn extract_event(buffer: &str) -> Option<(Result<MessageStreamEvent>, String)> {
     };
     match event_type {
         "event: ping" => Some((Ok(MessageStreamEvent::Ping), rest)),
-        "event: message_start" => match serde_json::from_str::<RawMessageStartEvent>(event_data) {
+        "event: message_start" => match serde_json::from_str::<MessageStartEvent>(event_data) {
             Ok(event) => Some((Ok(MessageStreamEvent::MessageStart(event)), rest)),
             Err(e) => Some((Err(e.into()), rest)),
         },
@@ -396,7 +396,7 @@ fn extract_event(buffer: &str) -> Option<(Result<MessageStreamEvent>, String)> {
             Ok(event) => Some((Ok(MessageStreamEvent::MessageDelta(event)), rest)),
             Err(e) => Some((Err(e.into()), rest)),
         },
-        "event: message_stop" => match serde_json::from_str::<RawMessageStopEvent>(event_data) {
+        "event: message_stop" => match serde_json::from_str::<MessageStopEvent>(event_data) {
             Ok(event) => Some((Ok(MessageStreamEvent::MessageStop(event)), rest)),
             Err(e) => Some((Err(e.into()), rest)),
         },

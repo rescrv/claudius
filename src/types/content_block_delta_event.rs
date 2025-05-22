@@ -10,10 +10,6 @@ pub struct ContentBlockDeltaEvent {
 
     /// The index of the content block being updated.
     pub index: usize,
-
-    /// The type, which is always "content_block_delta".
-    #[serde(rename = "type")]
-    pub r#type: String,
 }
 
 impl ContentBlockDeltaEvent {
@@ -22,7 +18,6 @@ impl ContentBlockDeltaEvent {
         Self {
             delta,
             index,
-            r#type: "content_block_delta".to_string(),
         }
     }
 }
@@ -47,8 +42,7 @@ mod tests {
                     "text": "Hello world",
                     "type": "text_delta"
                 },
-                "index": 0,
-                "type": "content_block_delta"
+                "index": 0
             })
         );
     }
@@ -60,13 +54,11 @@ mod tests {
                 "text": "Hello world",
                 "type": "text_delta"
             },
-            "index": 0,
-            "type": "content_block_delta"
+            "index": 0
         });
 
         let event: ContentBlockDeltaEvent = serde_json::from_value(json).unwrap();
         assert_eq!(event.index, 0);
-        assert_eq!(event.r#type, "content_block_delta");
 
         match event.delta {
             ContentBlockDelta::TextDelta(text_delta) => {

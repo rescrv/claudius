@@ -5,19 +5,12 @@ use serde::{Deserialize, Serialize};
 pub struct ContentBlockStopEvent {
     /// The index of the content block that is ending.
     pub index: usize,
-
-    /// The type, which is always "content_block_stop".
-    #[serde(rename = "type")]
-    pub r#type: String,
 }
 
 impl ContentBlockStopEvent {
     /// Create a new `ContentBlockStopEvent` with the given index.
     pub fn new(index: usize) -> Self {
-        Self {
-            index,
-            r#type: "content_block_stop".to_string(),
-        }
+        Self { index }
     }
 }
 
@@ -34,8 +27,7 @@ mod tests {
         assert_eq!(
             json,
             json!({
-                "index": 0,
-                "type": "content_block_stop"
+                "index": 0
             })
         );
     }
@@ -43,12 +35,10 @@ mod tests {
     #[test]
     fn test_content_block_stop_event_deserialization() {
         let json = json!({
-            "index": 0,
-            "type": "content_block_stop"
+            "index": 0
         });
 
         let event: ContentBlockStopEvent = serde_json::from_value(json).unwrap();
         assert_eq!(event.index, 0);
-        assert_eq!(event.r#type, "content_block_stop");
     }
 }

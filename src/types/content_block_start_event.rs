@@ -10,10 +10,6 @@ pub struct ContentBlockStartEvent {
 
     /// The index of the content block.
     pub index: usize,
-
-    /// The type, which is always "content_block_start".
-    #[serde(rename = "type")]
-    pub r#type: String,
 }
 
 impl ContentBlockStartEvent {
@@ -22,7 +18,6 @@ impl ContentBlockStartEvent {
         Self {
             content_block,
             index,
-            r#type: "content_block_start".to_string(),
         }
     }
 }
@@ -47,8 +42,7 @@ mod tests {
                     "text": "Hello world",
                     "type": "text"
                 },
-                "index": 0,
-                "type": "content_block_start"
+                "index": 0
             })
         );
     }
@@ -60,13 +54,11 @@ mod tests {
                 "text": "Hello world",
                 "type": "text"
             },
-            "index": 0,
-            "type": "content_block_start"
+            "index": 0
         });
 
         let event: ContentBlockStartEvent = serde_json::from_value(json).unwrap();
         assert_eq!(event.index, 0);
-        assert_eq!(event.r#type, "content_block_start");
 
         match event.content_block {
             ContentBlock::Text(text_block) => {

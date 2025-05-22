@@ -49,9 +49,6 @@ pub struct MessageDeltaEvent {
     /// The delta information for the message.
     pub delta: MessageDelta,
 
-    /// The type, which is always "message_delta".
-    pub r#type: String,
-
     /// The usage information for the message.
     pub usage: MessageDeltaUsage,
 }
@@ -59,11 +56,7 @@ pub struct MessageDeltaEvent {
 impl MessageDeltaEvent {
     /// Create a new `MessageDeltaEvent` with the given delta and usage.
     pub fn new(delta: MessageDelta, usage: MessageDeltaUsage) -> Self {
-        Self {
-            delta,
-            r#type: "message_delta".to_string(),
-            usage,
-        }
+        Self { delta, usage }
     }
 }
 
@@ -112,7 +105,6 @@ mod tests {
                 "delta": {
                     "stop_reason": "end_turn"
                 },
-                "type": "message_delta",
                 "usage": {
                     "input_tokens": 50,
                     "output_tokens": 100
@@ -128,7 +120,6 @@ mod tests {
                 "stop_reason": "end_turn",
                 "stop_sequence": "###"
             },
-            "type": "message_delta",
             "usage": {
                 "input_tokens": 50,
                 "output_tokens": 100
@@ -136,7 +127,6 @@ mod tests {
         });
 
         let event: MessageDeltaEvent = serde_json::from_value(json).unwrap();
-        assert_eq!(event.r#type, "message_delta");
         assert_eq!(event.delta.stop_reason, Some(StopReason::EndTurn));
         assert_eq!(event.delta.stop_sequence, Some("###".to_string()));
         assert_eq!(event.usage.input_tokens, Some(50));
