@@ -4,13 +4,10 @@
 [ ] src/types/message_count_tokens_params.rs
 [ ] src/types/message_count_tokens_tool_param.rs
 [ ] src/types/message_delta_usage.rs
-[ ] src/types/message_param.rs
 [ ] src/types/message_tokens_count.rs
-[ ] src/types/metadata.rs
 [ ] src/types/model_info.rs
 [ ] src/types/model_list_params.rs
 [ ] src/types/model.rs
-[ ] src/types/plain_text_source.rs
 [ ] src/types/server_tool_usage.rs
 [ ] src/types/server_tool_use_block_param.rs
 [ ] src/types/server_tool_use_block.rs
@@ -26,8 +23,6 @@
 [ ] src/types/tool_union_param.rs
 [ ] src/types/tool_use_block_param.rs
 [ ] src/types/tool_use_block.rs
-[ ] src/types/url_image_source.rs
-[ ] src/types/url_pdf_source.rs
 [ ] src/types/usage.rs
 [ ] src/types/web_search_result_block_param.rs
 [ ] src/types/web_search_result_block.rs
@@ -60,6 +55,7 @@
 [X] src/types/input_json_delta.rs
 [X] src/types/message_create_params.rs
 [X] src/types/message_delta_event.rs
+[X] src/types/message_param.rs
 [X] src/types/message_start_event.rs
 [X] src/types/message_stop_event.rs
 [X] src/types/message_stream_event.rs
@@ -67,7 +63,9 @@
 [X] src/types/messages/batch_create_params.rs
 [X] src/types/messages/batch_list_params.rs
 [X] src/types/messages/mod.rs
+[X] src/types/metadata.rs
 [X] src/types/mod.rs
+[X] src/types/plain_text_source.rs
 [X] src/types/raw_content_block_delta_event.rs
 [X] src/types/raw_content_block_delta.rs
 [X] src/types/raw_content_block_start_event.rs
@@ -89,5 +87,7 @@
 [X] src/types/thinking_block.rs
 [X] src/types/thinking_config.rs
 [X] src/types/thinking_delta.rs
+[X] src/types/url_image_source.rs
+[X] src/types/url_pdf_source.rs
 [X] src/utils/mod.rs
 [X] src/utils/time.rs
