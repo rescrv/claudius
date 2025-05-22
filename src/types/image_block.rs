@@ -4,18 +4,20 @@ use crate::types::{Base64ImageSource, CacheControlEphemeral, UrlImageSource};
 
 /// The source type for an image block, which can be either Base64 encoded or a URL.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(untagged)]
+#[serde(tag = "type")]
 pub enum ImageSource {
     /// A Base64 encoded image source.
+    #[serde(rename = "base64")]
     Base64(Base64ImageSource),
 
     /// A URL image source.
+    #[serde(rename = "url")]
     Url(UrlImageSource),
 }
 
 /// Parameters for an image block.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ImageBlockParam {
+pub struct ImageBlock {
     /// The source of the image.
     pub source: ImageSource,
 
@@ -24,8 +26,8 @@ pub struct ImageBlockParam {
     pub cache_control: Option<CacheControlEphemeral>,
 }
 
-impl ImageBlockParam {
-    /// Create a new `ImageBlockParam` with the given source.
+impl ImageBlock {
+    /// Create a new `ImageBlock` with the given source.
     pub fn new(source: ImageSource) -> Self {
         Self {
             source,
@@ -33,12 +35,12 @@ impl ImageBlockParam {
         }
     }
 
-    /// Create a new `ImageBlockParam` with a Base64 image source.
+    /// Create a new `ImageBlock` with a Base64 image source.
     pub fn new_with_base64(source: Base64ImageSource) -> Self {
         Self::new(ImageSource::Base64(source))
     }
 
-    /// Create a new `ImageBlockParam` with a URL image source.
+    /// Create a new `ImageBlock` with a URL image source.
     pub fn new_with_url(source: UrlImageSource) -> Self {
         Self::new(ImageSource::Url(source))
     }
@@ -57,52 +59,52 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_image_block_param_with_base64() {
+    fn test_image_block_with_base64() {
         let base64_source = Base64ImageSource::new(
             "data:image/jpeg;base64,SGVsbG8gd29ybGQ=".to_string(),
             ImageMediaType::Jpeg,
         );
 
-        let image_block = ImageBlockParam::new_with_base64(base64_source);
+        let image_block = ImageBlock::new_with_base64(base64_source);
         let json = to_value(&image_block).unwrap();
 
         assert_eq!(
             json,
             json!({
                 "source": {
+                    "type": "base64",
                     "data": "data:image/jpeg;base64,SGVsbG8gd29ybGQ=",
-                    "media_type": "image/jpeg",
-                    "type": "base64"
+                    "media_type": "image/jpeg"
                 }
             })
         );
     }
 
     #[test]
-    fn test_image_block_param_with_url() {
+    fn test_image_block_with_url() {
         let url_source = UrlImageSource::new("https://example.com/image.jpg".to_string());
 
-        let image_block = ImageBlockParam::new_with_url(url_source);
+        let image_block = ImageBlock::new_with_url(url_source);
         let json = to_value(&image_block).unwrap();
 
         assert_eq!(
             json,
             json!({
                 "source": {
-                    "url": "https://example.com/image.jpg",
-                    "type": "url"
+                    "type": "url",
+                    "url": "https://example.com/image.jpg"
                 }
             })
         );
     }
 
     #[test]
-    fn test_image_block_param_with_cache_control() {
+    fn test_image_block_with_cache_control() {
         let url_source = UrlImageSource::new("https://example.com/image.jpg".to_string());
         let cache_control = CacheControlEphemeral::new();
 
         let image_block =
-            ImageBlockParam::new_with_url(url_source).with_cache_control(cache_control);
+            ImageBlock::new_with_url(url_source).with_cache_control(cache_control);
 
         let json = to_value(&image_block).unwrap();
 
@@ -110,8 +112,8 @@ mod tests {
             json,
             json!({
                 "source": {
-                    "url": "https://example.com/image.jpg",
-                    "type": "url"
+                    "type": "url",
+                    "url": "https://example.com/image.jpg"
                 },
                 "cache_control": {
                     "type": "ephemeral"

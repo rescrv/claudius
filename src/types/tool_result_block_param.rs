@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{CacheControlEphemeral, ImageBlockParam, TextBlock};
+use crate::types::{CacheControlEphemeral, ImageBlock, TextBlock};
 
 /// Content type for tool result blocks, which can be either a text block or an image block.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -10,7 +10,7 @@ pub enum ToolResultContent {
     Text(TextBlock),
 
     /// An image block content.
-    Image(ImageBlockParam),
+    Image(ImageBlock),
 }
 
 impl From<TextBlock> for ToolResultContent {
@@ -19,8 +19,8 @@ impl From<TextBlock> for ToolResultContent {
     }
 }
 
-impl From<ImageBlockParam> for ToolResultContent {
-    fn from(param: ImageBlockParam) -> Self {
+impl From<ImageBlock> for ToolResultContent {
+    fn from(param: ImageBlock) -> Self {
         ToolResultContent::Image(param)
     }
 }

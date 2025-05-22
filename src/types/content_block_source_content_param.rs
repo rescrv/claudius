@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{ImageBlockParam, TextBlock};
+use crate::types::{ImageBlock, TextBlock};
 
 /// Parameter for a content block source content, which can be either a text block or an image block.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -10,7 +10,7 @@ pub enum ContentBlockSourceContentParam {
     Text(TextBlock),
 
     /// An image block source content.
-    Image(ImageBlockParam),
+    Image(ImageBlock),
 }
 
 impl From<TextBlock> for ContentBlockSourceContentParam {
@@ -19,8 +19,8 @@ impl From<TextBlock> for ContentBlockSourceContentParam {
     }
 }
 
-impl From<ImageBlockParam> for ContentBlockSourceContentParam {
-    fn from(param: ImageBlockParam) -> Self {
+impl From<ImageBlock> for ContentBlockSourceContentParam {
+    fn from(param: ImageBlock) -> Self {
         ContentBlockSourceContentParam::Image(param)
     }
 }
@@ -51,7 +51,7 @@ mod tests {
     #[test]
     fn test_content_block_source_content_param_image() {
         let url_source = UrlImageSource::new("https://example.com/image.jpg".to_string());
-        let image_param = ImageBlockParam::new_with_url(url_source);
+        let image_param = ImageBlock::new_with_url(url_source);
         let content_param = ContentBlockSourceContentParam::Image(image_param);
 
         let json = to_value(&content_param).unwrap();
@@ -87,7 +87,7 @@ mod tests {
             "data:image/jpeg;base64,SGVsbG8gd29ybGQ=".to_string(),
             ImageMediaType::Jpeg,
         );
-        let image_param = ImageBlockParam::new_with_base64(base64_source);
+        let image_param = ImageBlock::new_with_base64(base64_source);
         let content_param: ContentBlockSourceContentParam = image_param.into();
 
         match content_param {

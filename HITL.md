@@ -1,25 +1,13 @@
 [ ] src/client.rs
 [ ] src/error.rs
 [ ] src/lib.rs
-[ ] src/types/base64_image_source.rs
-[ ] src/types/base64_pdf_source.rs
-[ ] src/types/cache_control_ephemeral.rs
-[ ] src/types/citation_char_location.rs
-[ ] src/types/citation_content_block_location.rs
-[ ] src/types/citation_page_location.rs
-[ ] src/types/citation_web_search_result_location.rs
-[ ] src/types/citations_config.rs
-[ ] src/types/citations_delta.rs
-[ ] src/types/document_block.rs
-[ ] src/types/image_block_param.rs
+[ ] src/types/image_block.rs
 [ ] src/types/message_count_tokens_params.rs
 [ ] src/types/message_count_tokens_tool_param.rs
 [ ] src/types/message_delta_usage.rs
 [ ] src/types/message_param.rs
 [ ] src/types/message_tokens_count.rs
-[ ] src/types/message.rs
 [ ] src/types/metadata.rs
-[ ] src/types/mod.rs
 [ ] src/types/model_info.rs
 [ ] src/types/model_list_params.rs
 [ ] src/types/model.rs
@@ -54,6 +42,15 @@
 [ ] src/types/web_search_tool_result_block_param.rs
 [ ] src/types/web_search_tool_result_block.rs
 [ ] src/types/web_search_tool_result_error.rs
+[X] src/types/base64_image_source.rs
+[X] src/types/base64_pdf_source.rs
+[X] src/types/cache_control_ephemeral.rs
+[X] src/types/citation_char_location.rs
+[X] src/types/citation_content_block_location.rs
+[X] src/types/citation_page_location.rs
+[X] src/types/citation_web_search_result_location.rs
+[X] src/types/citations_config.rs
+[X] src/types/citations_delta.rs
 [X] src/types/completion.rs
 [X] src/types/content_block_delta_event.rs
 [X] src/types/content_block_delta.rs
@@ -62,15 +59,18 @@
 [X] src/types/content_block_start_event.rs
 [X] src/types/content_block_stop_event.rs
 [X] src/types/content_block.rs
+[X] src/types/document_block.rs
 [X] src/types/input_json_delta.rs
 [X] src/types/message_create_params.rs
 [X] src/types/message_delta_event.rs
 [X] src/types/message_start_event.rs
 [X] src/types/message_stop_event.rs
 [X] src/types/message_stream_event.rs
+[X] src/types/message.rs
 [X] src/types/messages/batch_create_params.rs
 [X] src/types/messages/batch_list_params.rs
 [X] src/types/messages/mod.rs
+[X] src/types/mod.rs
 [X] src/types/raw_content_block_delta_event.rs
 [X] src/types/raw_content_block_delta.rs
 [X] src/types/raw_content_block_start_event.rs

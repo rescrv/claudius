@@ -15,7 +15,7 @@ mod content_block_source_param;
 mod content_block_start_event;
 mod content_block_stop_event;
 mod document_block;
-mod image_block_param;
+mod image_block;
 mod input_json_delta;
 mod message;
 mod message_count_tokens_params;
@@ -90,7 +90,7 @@ pub use content_block_source_param::{ContentBlockSourceContent, ContentBlockSour
 pub use content_block_start_event::ContentBlockStartEvent;
 pub use content_block_stop_event::ContentBlockStopEvent;
 pub use document_block::{DocumentBlock, DocumentSource};
-pub use image_block_param::{ImageBlockParam, ImageSource};
+pub use image_block::{ImageBlock, ImageSource};
 pub use input_json_delta::InputJsonDelta;
 pub use message::Message;
 pub use message_count_tokens_params::{

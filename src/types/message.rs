@@ -22,6 +22,7 @@ pub struct Message {
     /// Conversational role of the generated message.
     ///
     /// This will always be "assistant".
+    // TODO(claude): Use Role type instead of a string.
     pub role: String,
 
     /// The reason that generation stopped.

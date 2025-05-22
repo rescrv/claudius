@@ -15,10 +15,6 @@ pub struct Base64ImageSource {
 
     /// The media type of the image (jpeg, png, gif, or webp)
     pub media_type: ImageMediaType,
-
-    /// The source type (always "base64" for this struct)
-    #[serde(default = "default_type", rename = "type")]
-    pub r#type: String,
 }
 
 /// Supported image media types
@@ -38,17 +34,12 @@ pub enum ImageMediaType {
     Webp,
 }
 
-fn default_type() -> String {
-    "base64".to_string()
-}
-
 impl Base64ImageSource {
     /// Create a new Base64ImageSource from a base64-encoded string
     pub fn new(data: String, media_type: ImageMediaType) -> Self {
         Self {
             data,
             media_type,
-            r#type: "base64".to_string(),
         }
     }
 
@@ -84,7 +75,6 @@ impl Base64ImageSource {
         Ok(Self {
             data,
             media_type,
-            r#type: "base64".to_string(),
         })
     }
 }
@@ -98,22 +88,20 @@ mod tests {
         let source = Base64ImageSource {
             data: "SGVsbG8gV29ybGQ=".to_string(), // "Hello World" in base64
             media_type: ImageMediaType::Jpeg,
-            r#type: "base64".to_string(),
         };
 
         let json = serde_json::to_string(&source).unwrap();
-        let expected = r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"image/jpeg","type":"base64"}"#;
+        let expected = r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"image/jpeg"}"#;
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"image/png","type":"base64"}"#;
+        let json = r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"image/png"}"#;
         let source: Base64ImageSource = serde_json::from_str(json).unwrap();
 
         assert_eq!(source.data, "SGVsbG8gV29ybGQ=");
         matches!(source.media_type, ImageMediaType::Png);
-        assert_eq!(source.r#type, "base64");
     }
 }
