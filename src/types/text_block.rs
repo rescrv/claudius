@@ -103,7 +103,6 @@ mod tests {
             document_title: Some("Document Title".to_string()),
             end_char_index: 12,
             start_char_index: 0,
-            r#type: "char_location".to_string(),
         };
 
         let citation = TextCitation::CharLocation(char_location);
@@ -158,7 +157,6 @@ mod tests {
             document_title: Some("Document Title".to_string()),
             end_char_index: 12,
             start_char_index: 0,
-            r#type: "char_location".to_string(),
         };
 
         let citation = TextCitation::CharLocation(char_location);
@@ -196,7 +194,6 @@ mod tests {
             document_title: Some("Document Title".to_string()),
             end_char_index: 12,
             start_char_index: 0,
-            r#type: "char_location".to_string(),
         });
 
         let text_block = TextBlock::new("Sample text content").with_citation(citation);

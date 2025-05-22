@@ -20,14 +20,6 @@ pub struct CitationPageLocation {
 
     /// The start page number (inclusive) of the citation in the document
     pub start_page_number: i32,
-
-    /// The type of citation, always "page_location" for this struct
-    #[serde(default = "default_type")]
-    pub r#type: String,
-}
-
-fn default_type() -> String {
-    "page_location".to_string()
 }
 
 impl CitationPageLocation {
@@ -45,7 +37,6 @@ impl CitationPageLocation {
             document_title,
             end_page_number,
             start_page_number,
-            r#type: default_type(),
         }
     }
 
@@ -72,11 +63,10 @@ mod tests {
             document_title: Some("Document Title".to_string()),
             end_page_number: 5,
             start_page_number: 3,
-            r#type: "page_location".to_string(),
         };
 
         let json = serde_json::to_string(&location).unwrap();
-        let expected = r#"{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_page_number":5,"start_page_number":3,"type":"page_location"}"#;
+        let expected = r#"{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_page_number":5,"start_page_number":3}"#;
 
         assert_eq!(json, expected);
     }
@@ -89,11 +79,10 @@ mod tests {
             document_title: None,
             end_page_number: 5,
             start_page_number: 3,
-            r#type: "page_location".to_string(),
         };
 
         let json = serde_json::to_string(&location).unwrap();
-        let expected = r#"{"cited_text":"example text","document_index":0,"end_page_number":5,"start_page_number":3,"type":"page_location"}"#;
+        let expected = r#"{"cited_text":"example text","document_index":0,"end_page_number":5,"start_page_number":3}"#;
 
         assert_eq!(json, expected);
     }
@@ -108,7 +97,6 @@ mod tests {
         assert_eq!(location.document_title, Some("Document Title".to_string()));
         assert_eq!(location.end_page_number, 5);
         assert_eq!(location.start_page_number, 3);
-        assert_eq!(location.r#type, "page_location");
     }
 
     #[test]
@@ -119,7 +107,6 @@ mod tests {
             document_title: None,
             end_page_number: 5,
             start_page_number: 3,
-            r#type: "page_location".to_string(),
         };
 
         assert_eq!(location.page_count(), 3);
@@ -133,7 +120,6 @@ mod tests {
             document_title: None,
             end_page_number: 3,
             start_page_number: 3,
-            r#type: "page_location".to_string(),
         };
 
         let multi_page = CitationPageLocation {
@@ -142,7 +128,6 @@ mod tests {
             document_title: None,
             end_page_number: 5,
             start_page_number: 3,
-            r#type: "page_location".to_string(),
         };
 
         assert!(single_page.is_single_page());

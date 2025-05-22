@@ -41,13 +41,12 @@ mod tests {
             document_title: Some("Document Title".to_string()),
             end_char_index: 12,
             start_char_index: 0,
-            r#type: "char_location".to_string(),
         };
 
         let citation = TextCitation::CharLocation(char_location);
 
         let json = serde_json::to_string(&citation).unwrap();
-        let expected = r#"{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0,"type":"char_location"}"#;
+        let expected = r#"{"type":"char_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0}"#;
 
         assert_eq!(json, expected);
     }
@@ -60,20 +59,54 @@ mod tests {
             document_title: Some("Document Title".to_string()),
             end_page_number: 5,
             start_page_number: 3,
-            r#type: "page_location".to_string(),
         };
 
         let citation = TextCitation::PageLocation(page_location);
 
         let json = serde_json::to_string(&citation).unwrap();
-        let expected = r#"{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_page_number":5,"start_page_number":3,"type":"page_location"}"#;
+        let expected = r#"{"type":"page_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_page_number":5,"start_page_number":3}"#;
+
+        assert_eq!(json, expected);
+    }
+
+    #[test]
+    fn test_content_block_location_serialization() {
+        let content_block_location = CitationContentBlockLocation {
+            cited_text: "example text".to_string(),
+            document_index: 0,
+            document_title: Some("Document Title".to_string()),
+            start_block_index: 1,
+            end_block_index: 5,
+        };
+
+        let citation = TextCitation::ContentBlockLocation(content_block_location);
+
+        let json = serde_json::to_string(&citation).unwrap();
+        let expected = r#"{"type":"content_block_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_block_index":5,"start_block_index":1}"#;
+
+        assert_eq!(json, expected);
+    }
+
+    #[test]
+    fn test_web_search_result_location_serialization() {
+        let web_search_location = CitationWebSearchResultLocation {
+            cited_text: "example text".to_string(),
+            encrypted_index: "abc123".to_string(),
+            title: Some("Example Website".to_string()),
+            url: "https://example.com/page".to_string(),
+        };
+
+        let citation = TextCitation::WebSearchResultLocation(web_search_location);
+
+        let json = serde_json::to_string(&citation).unwrap();
+        let expected = r#"{"type":"web_search_result_location","cited_text":"example text","encrypted_index":"abc123","title":"Example Website","url":"https://example.com/page"}"#;
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0,"type":"char_location"}"#;
+        let json = r#"{"type":"char_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0}"#;
         let citation: TextCitation = serde_json::from_str(json).unwrap();
 
         match citation {

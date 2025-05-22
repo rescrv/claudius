@@ -20,14 +20,6 @@ pub struct CitationContentBlockLocation {
 
     /// The start content block index (inclusive) of the citation in the document
     pub start_block_index: i32,
-
-    /// The type of citation, always "content_block_location" for this struct
-    #[serde(default = "default_type")]
-    pub r#type: String,
-}
-
-fn default_type() -> String {
-    "content_block_location".to_string()
 }
 
 impl CitationContentBlockLocation {
@@ -45,7 +37,6 @@ impl CitationContentBlockLocation {
             document_title,
             end_block_index,
             start_block_index,
-            r#type: default_type(),
         }
     }
 
@@ -67,11 +58,10 @@ mod tests {
             document_title: Some("Document Title".to_string()),
             end_block_index: 3,
             start_block_index: 1,
-            r#type: "content_block_location".to_string(),
         };
 
         let json = serde_json::to_string(&location).unwrap();
-        let expected = r#"{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_block_index":3,"start_block_index":1,"type":"content_block_location"}"#;
+        let expected = r#"{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_block_index":3,"start_block_index":1}"#;
 
         assert_eq!(json, expected);
     }
@@ -84,11 +74,10 @@ mod tests {
             document_title: None,
             end_block_index: 3,
             start_block_index: 1,
-            r#type: "content_block_location".to_string(),
         };
 
         let json = serde_json::to_string(&location).unwrap();
-        let expected = r#"{"cited_text":"example text","document_index":0,"end_block_index":3,"start_block_index":1,"type":"content_block_location"}"#;
+        let expected = r#"{"cited_text":"example text","document_index":0,"end_block_index":3,"start_block_index":1}"#;
 
         assert_eq!(json, expected);
     }
@@ -103,7 +92,6 @@ mod tests {
         assert_eq!(location.document_title, Some("Document Title".to_string()));
         assert_eq!(location.end_block_index, 3);
         assert_eq!(location.start_block_index, 1);
-        assert_eq!(location.r#type, "content_block_location");
     }
 
     #[test]
@@ -114,7 +102,6 @@ mod tests {
             document_title: None,
             end_block_index: 3,
             start_block_index: 1,
-            r#type: "content_block_location".to_string(),
         };
 
         assert_eq!(location.block_count(), 2);

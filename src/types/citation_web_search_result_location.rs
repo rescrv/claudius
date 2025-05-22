@@ -15,16 +15,8 @@ pub struct CitationWebSearchResultLocation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
 
-    /// The type of citation, always "web_search_result_location" for this struct
-    #[serde(default = "default_type")]
-    pub r#type: String,
-
     /// The URL of the web page containing the cited content
     pub url: String,
-}
-
-fn default_type() -> String {
-    "web_search_result_location".to_string()
 }
 
 impl CitationWebSearchResultLocation {
@@ -39,7 +31,6 @@ impl CitationWebSearchResultLocation {
             cited_text,
             encrypted_index,
             title,
-            r#type: default_type(),
             url,
         }
     }
@@ -62,12 +53,11 @@ mod tests {
             cited_text: "example text".to_string(),
             encrypted_index: "abc123".to_string(),
             title: Some("Example Website".to_string()),
-            r#type: "web_search_result_location".to_string(),
             url: "https://example.com/page".to_string(),
         };
 
         let json = serde_json::to_string(&location).unwrap();
-        let expected = r#"{"cited_text":"example text","encrypted_index":"abc123","title":"Example Website","type":"web_search_result_location","url":"https://example.com/page"}"#;
+        let expected = r#"{"cited_text":"example text","encrypted_index":"abc123","title":"Example Website","url":"https://example.com/page"}"#;
 
         assert_eq!(json, expected);
     }
@@ -78,12 +68,11 @@ mod tests {
             cited_text: "example text".to_string(),
             encrypted_index: "abc123".to_string(),
             title: None,
-            r#type: "web_search_result_location".to_string(),
             url: "https://example.com/page".to_string(),
         };
 
         let json = serde_json::to_string(&location).unwrap();
-        let expected = r#"{"cited_text":"example text","encrypted_index":"abc123","type":"web_search_result_location","url":"https://example.com/page"}"#;
+        let expected = r#"{"cited_text":"example text","encrypted_index":"abc123","url":"https://example.com/page"}"#;
 
         assert_eq!(json, expected);
     }
@@ -96,7 +85,6 @@ mod tests {
         assert_eq!(location.cited_text, "example text");
         assert_eq!(location.encrypted_index, "abc123");
         assert_eq!(location.title, Some("Example Website".to_string()));
-        assert_eq!(location.r#type, "web_search_result_location");
         assert_eq!(location.url, "https://example.com/page");
     }
 
@@ -106,7 +94,6 @@ mod tests {
             cited_text: "example text".to_string(),
             encrypted_index: "abc123".to_string(),
             title: None,
-            r#type: "web_search_result_location".to_string(),
             url: "https://example.com/page".to_string(),
         };
 

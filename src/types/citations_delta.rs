@@ -83,13 +83,12 @@ mod tests {
             document_title: Some("Document Title".to_string()),
             end_char_index: 12,
             start_char_index: 0,
-            r#type: "char_location".to_string(),
         };
 
         let delta = CitationsDelta::with_char_location(char_location);
 
         let json = serde_json::to_string(&delta).unwrap();
-        let expected = r#"{"citation":{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0,"type":"char_location"},"type":"citations_delta"}"#;
+        let expected = r#"{"citation":{"type":"char_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0},"type":"citations_delta"}"#;
 
         assert_eq!(json, expected);
     }
@@ -102,13 +101,12 @@ mod tests {
             document_title: Some("Document Title".to_string()),
             end_page_number: 5,
             start_page_number: 3,
-            r#type: "page_location".to_string(),
         };
 
         let delta = CitationsDelta::with_page_location(page_location);
 
         let json = serde_json::to_string(&delta).unwrap();
-        let expected = r#"{"citation":{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_page_number":5,"start_page_number":3,"type":"page_location"},"type":"citations_delta"}"#;
+        let expected = r#"{"citation":{"type":"page_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_page_number":5,"start_page_number":3},"type":"citations_delta"}"#;
 
         assert_eq!(json, expected);
     }
@@ -121,13 +119,12 @@ mod tests {
             document_title: Some("Document Title".to_string()),
             end_block_index: 3,
             start_block_index: 1,
-            r#type: "content_block_location".to_string(),
         };
 
         let delta = CitationsDelta::with_content_block_location(content_block_location);
 
         let json = serde_json::to_string(&delta).unwrap();
-        let expected = r#"{"citation":{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_block_index":3,"start_block_index":1,"type":"content_block_location"},"type":"citations_delta"}"#;
+        let expected = r#"{"citation":{"type":"content_block_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_block_index":3,"start_block_index":1},"type":"citations_delta"}"#;
 
         assert_eq!(json, expected);
     }
@@ -138,21 +135,20 @@ mod tests {
             cited_text: "example text".to_string(),
             encrypted_index: "abc123".to_string(),
             title: Some("Example Website".to_string()),
-            r#type: "web_search_result_location".to_string(),
             url: "https://example.com/page".to_string(),
         };
 
         let delta = CitationsDelta::with_web_search_result_location(web_search_result_location);
 
         let json = serde_json::to_string(&delta).unwrap();
-        let expected = r#"{"citation":{"cited_text":"example text","encrypted_index":"abc123","title":"Example Website","type":"web_search_result_location","url":"https://example.com/page"},"type":"citations_delta"}"#;
+        let expected = r#"{"citation":{"type":"web_search_result_location","cited_text":"example text","encrypted_index":"abc123","title":"Example Website","url":"https://example.com/page"},"type":"citations_delta"}"#;
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_deserialization() {
-        let char_location_json = r#"{"citation":{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0,"type":"char_location"},"type":"citations_delta"}"#;
+        let char_location_json = r#"{"citation":{"type":"char_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0},"type":"citations_delta"}"#;
         let delta: CitationsDelta = serde_json::from_str(char_location_json).unwrap();
 
         assert_eq!(delta.r#type, "citations_delta");

@@ -21,14 +21,6 @@ pub struct CitationCharLocation {
 
     /// The start character index (inclusive) of the citation in the document
     pub start_char_index: i32,
-
-    /// The type of citation, always "char_location" for this struct
-    #[serde(default = "default_type")]
-    pub r#type: String,
-}
-
-fn default_type() -> String {
-    "char_location".to_string()
 }
 
 impl CitationCharLocation {
@@ -46,7 +38,6 @@ impl CitationCharLocation {
             document_title,
             end_char_index,
             start_char_index,
-            r#type: default_type(),
         }
     }
 
@@ -68,11 +59,10 @@ mod tests {
             document_title: Some("Document Title".to_string()),
             end_char_index: 12,
             start_char_index: 0,
-            r#type: "char_location".to_string(),
         };
 
         let json = serde_json::to_string(&location).unwrap();
-        let expected = r#"{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0,"type":"char_location"}"#;
+        let expected = r#"{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0}"#;
 
         assert_eq!(json, expected);
     }
@@ -85,11 +75,10 @@ mod tests {
             document_title: None,
             end_char_index: 12,
             start_char_index: 0,
-            r#type: "char_location".to_string(),
         };
 
         let json = serde_json::to_string(&location).unwrap();
-        let expected = r#"{"cited_text":"example text","document_index":0,"end_char_index":12,"start_char_index":0,"type":"char_location"}"#;
+        let expected = r#"{"cited_text":"example text","document_index":0,"end_char_index":12,"start_char_index":0}"#;
 
         assert_eq!(json, expected);
     }
@@ -104,7 +93,6 @@ mod tests {
         assert_eq!(location.document_title, Some("Document Title".to_string()));
         assert_eq!(location.end_char_index, 12);
         assert_eq!(location.start_char_index, 0);
-        assert_eq!(location.r#type, "char_location");
     }
 
     #[test]
@@ -115,7 +103,6 @@ mod tests {
             document_title: None,
             end_char_index: 12,
             start_char_index: 0,
-            r#type: "char_location".to_string(),
         };
 
         assert_eq!(location.length(), 12);
