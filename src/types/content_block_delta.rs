@@ -7,7 +7,7 @@ use crate::types::{CitationsDelta, InputJsonDelta, SignatureDelta, TextDelta, Th
 /// This type is used for streaming responses from the API, where content blocks
 /// are updated incrementally.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(tag = "type")]
 pub enum ContentBlockDelta {
     /// A text delta.
     #[serde(rename = "text_delta")]
@@ -88,6 +88,66 @@ mod tests {
             json!({
                 "partial_json": r#"{"key":"#,
                 "type": "input_json_delta"
+            })
+        );
+    }
+
+    #[test]
+    fn test_citations_delta_serialization() {
+        let char_location = crate::types::CitationCharLocation {
+            cited_text: "example text".to_string(),
+            document_index: 0,
+            document_title: Some("Document Title".to_string()),
+            end_char_index: 12,
+            start_char_index: 0,
+        };
+        
+        let citations_delta = CitationsDelta::with_char_location(char_location);
+        let delta = ContentBlockDelta::CitationsDelta(citations_delta);
+
+        let json = to_value(&delta).unwrap();
+        assert_eq!(
+            json,
+            json!({
+                "citation": {
+                    "type": "char_location",
+                    "cited_text": "example text",
+                    "document_index": 0,
+                    "document_title": "Document Title",
+                    "end_char_index": 12,
+                    "start_char_index": 0
+                },
+                "type": "citations_delta"
+            })
+        );
+    }
+
+    #[test]
+    fn test_thinking_delta_serialization() {
+        let thinking_delta = ThinkingDelta::new("Let me think about this...".to_string());
+        let delta = ContentBlockDelta::ThinkingDelta(thinking_delta);
+
+        let json = to_value(&delta).unwrap();
+        assert_eq!(
+            json,
+            json!({
+                "thinking": "Let me think about this...",
+                "type": "thinking_delta"
+            })
+        );
+    }
+
+    #[test]
+    fn test_signature_delta_serialization() {
+        let signature_delta = SignatureDelta::new("Robert Paulson".to_string());
+        let delta = ContentBlockDelta::SignatureDelta(signature_delta);
+
+        let json = to_value(&delta).unwrap();
+        assert_eq!(
+            json,
+            json!({
+                "signature": "Robert Paulson",
+                "type": "signature_delta"
             })
         );
     }

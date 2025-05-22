@@ -37,6 +37,7 @@ impl fmt::Display for StopReason {
     }
 }
 
+// TODO(claude): Use FromStr trait and implement an error return.
 impl From<&str> for StopReason {
     fn from(reason: &str) -> Self {
         match reason {

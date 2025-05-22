@@ -27,14 +27,6 @@ pub enum Citation {
 pub struct CitationsDelta {
     /// The citation that was added
     pub citation: Citation,
-
-    /// The type of delta, always "citations_delta" for this struct
-    #[serde(default = "default_type")]
-    pub r#type: String,
-}
-
-fn default_type() -> String {
-    "citations_delta".to_string()
 }
 
 impl CitationsDelta {
@@ -42,7 +34,6 @@ impl CitationsDelta {
     pub fn with_char_location(location: CitationCharLocation) -> Self {
         Self {
             citation: Citation::CharLocation(location),
-            r#type: default_type(),
         }
     }
 
@@ -50,7 +41,6 @@ impl CitationsDelta {
     pub fn with_page_location(location: CitationPageLocation) -> Self {
         Self {
             citation: Citation::PageLocation(location),
-            r#type: default_type(),
         }
     }
 
@@ -58,7 +48,6 @@ impl CitationsDelta {
     pub fn with_content_block_location(location: CitationContentBlockLocation) -> Self {
         Self {
             citation: Citation::ContentBlockLocation(location),
-            r#type: default_type(),
         }
     }
 
@@ -66,7 +55,6 @@ impl CitationsDelta {
     pub fn with_web_search_result_location(location: CitationWebSearchResultLocation) -> Self {
         Self {
             citation: Citation::WebSearchResultLocation(location),
-            r#type: default_type(),
         }
     }
 }
@@ -88,7 +76,7 @@ mod tests {
         let delta = CitationsDelta::with_char_location(char_location);
 
         let json = serde_json::to_string(&delta).unwrap();
-        let expected = r#"{"citation":{"type":"char_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0},"type":"citations_delta"}"#;
+        let expected = r#"{"citation":{"type":"char_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0}}"#;
 
         assert_eq!(json, expected);
     }
@@ -106,7 +94,7 @@ mod tests {
         let delta = CitationsDelta::with_page_location(page_location);
 
         let json = serde_json::to_string(&delta).unwrap();
-        let expected = r#"{"citation":{"type":"page_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_page_number":5,"start_page_number":3},"type":"citations_delta"}"#;
+        let expected = r#"{"citation":{"type":"page_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_page_number":5,"start_page_number":3}}"#;
 
         assert_eq!(json, expected);
     }
@@ -124,7 +112,7 @@ mod tests {
         let delta = CitationsDelta::with_content_block_location(content_block_location);
 
         let json = serde_json::to_string(&delta).unwrap();
-        let expected = r#"{"citation":{"type":"content_block_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_block_index":3,"start_block_index":1},"type":"citations_delta"}"#;
+        let expected = r#"{"citation":{"type":"content_block_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_block_index":3,"start_block_index":1}}"#;
 
         assert_eq!(json, expected);
     }
@@ -141,17 +129,15 @@ mod tests {
         let delta = CitationsDelta::with_web_search_result_location(web_search_result_location);
 
         let json = serde_json::to_string(&delta).unwrap();
-        let expected = r#"{"citation":{"type":"web_search_result_location","cited_text":"example text","encrypted_index":"abc123","title":"Example Website","url":"https://example.com/page"},"type":"citations_delta"}"#;
+        let expected = r#"{"citation":{"type":"web_search_result_location","cited_text":"example text","encrypted_index":"abc123","title":"Example Website","url":"https://example.com/page"}}"#;
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_deserialization() {
-        let char_location_json = r#"{"citation":{"type":"char_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0},"type":"citations_delta"}"#;
+        let char_location_json = r#"{"citation":{"type":"char_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0}}"#;
         let delta: CitationsDelta = serde_json::from_str(char_location_json).unwrap();
-
-        assert_eq!(delta.r#type, "citations_delta");
 
         match delta.citation {
             Citation::CharLocation(loc) => {

@@ -5,21 +5,16 @@ use serde::{Deserialize, Serialize};
 pub struct ThinkingDelta {
     /// The thinking content.
     pub thinking: String,
-
-    /// The type, which is always "thinking_delta".
-    pub r#type: String,
 }
 
 impl ThinkingDelta {
     /// Create a new `ThinkingDelta` with the given thinking text.
     pub fn new(thinking: String) -> Self {
-        Self {
-            thinking,
-            r#type: "thinking_delta".to_string(),
-        }
+        Self { thinking }
     }
 
     /// Create a new `ThinkingDelta` from a string reference.
+    // TODO(claude): no from_string_ref
     pub fn from_string_ref(thinking: &str) -> Self {
         Self::new(thinking.to_string())
     }
@@ -46,8 +41,7 @@ mod tests {
         assert_eq!(
             json,
             json!({
-                "thinking": "Let me think about this...",
-                "type": "thinking_delta"
+                "thinking": "Let me think about this..."
             })
         );
     }
@@ -55,13 +49,11 @@ mod tests {
     #[test]
     fn test_thinking_delta_deserialization() {
         let json = json!({
-            "thinking": "Let me think about this...",
-            "type": "thinking_delta"
+            "thinking": "Let me think about this..."
         });
 
         let delta: ThinkingDelta = serde_json::from_value(json).unwrap();
         assert_eq!(delta.thinking, "Let me think about this...");
-        assert_eq!(delta.r#type, "thinking_delta");
     }
 
     #[test]
@@ -70,6 +62,5 @@ mod tests {
             .parse::<ThinkingDelta>()
             .unwrap();
         assert_eq!(delta.thinking, "Let me think about this...");
-        assert_eq!(delta.r#type, "thinking_delta");
     }
 }
