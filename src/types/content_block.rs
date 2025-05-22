@@ -9,7 +9,7 @@ use crate::types::{
 /// This enum represents the different types of content blocks that can be included
 /// in a message's content.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type")]
+#[serde(untagged)]
 pub enum ContentBlock {
     /// A block of text content
     #[serde(rename = "text")]
@@ -145,7 +145,7 @@ mod tests {
         let content_block = ContentBlock::from(text_block);
 
         let json = serde_json::to_string(&content_block).unwrap();
-        let expected = r#"{"text":"This is some text content.","type":"text"}"#;
+        let expected = r#"{"type":"text","text":"This is some text content.","type":"text"}"#;
 
         assert_eq!(json, expected);
     }
