@@ -1,8 +1,8 @@
 use bytes::Bytes;
-use futures::stream::{self, StreamExt};
 use futures::Stream;
+use futures::stream::{self, StreamExt};
 use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{header, Client as ReqwestClient, Response};
+use reqwest::{Client as ReqwestClient, Response, header};
 use serde::Deserialize;
 use std::env;
 use std::time::Duration;
@@ -11,7 +11,7 @@ use crate::error::{Error, Result};
 use crate::types::{
     ContentBlockDeltaEvent, ContentBlockStartEvent, ContentBlockStopEvent, Message,
     MessageCountTokensParams, MessageCreateParams, MessageDeltaEvent, MessageStartEvent,
-    MessageStreamEvent, MessageTokensCount, MessageStopEvent,
+    MessageStopEvent, MessageStreamEvent, MessageTokensCount,
 };
 
 const DEFAULT_API_URL: &str = "https://api.anthropic.com/v1/";

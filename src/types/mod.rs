@@ -97,8 +97,8 @@ pub use message_count_tokens_params::{
     MessageCountTokensParams, SystemPrompt as MessageCountTokensSystemPrompt,
 };
 pub use message_count_tokens_tool_param::MessageCountTokensToolParam;
-pub use tool_param::{InputSchema, ToolParam};
 pub use message_create_params::{MessageCreateParams, SystemPrompt as MessageCreateSystemPrompt};
+pub use message_delta_event::{MessageDelta, MessageDeltaEvent};
 pub use message_delta_usage::MessageDeltaUsage;
 pub use message_param::{MessageContentBlock, MessageParam, MessageParamContent, MessageRole};
 pub use message_start_event::MessageStartEvent;
@@ -110,7 +110,6 @@ pub use model::{KnownModel, Model};
 pub use model_info::{ModelInfo, ModelType};
 pub use model_list_params::ModelListParams;
 pub use plain_text_source::PlainTextSource;
-pub use message_delta_event::{MessageDelta, MessageDeltaEvent};
 pub use redacted_thinking_block::RedactedThinkingBlock;
 pub use server_tool_usage::ServerToolUsage;
 pub use server_tool_use_block::ServerToolUseBlock;
@@ -131,6 +130,7 @@ pub use tool_choice_auto_param::ToolChoiceAutoParam;
 pub use tool_choice_none_param::ToolChoiceNoneParam;
 pub use tool_choice_param::ToolChoiceParam;
 pub use tool_choice_tool_param::ToolChoiceToolParam;
+pub use tool_param::{InputSchema, ToolParam};
 pub use tool_result_block_param::{
     ToolResultBlockParam, ToolResultBlockParamContent, ToolResultContent,
 };

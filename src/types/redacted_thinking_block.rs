@@ -12,9 +12,7 @@ pub struct RedactedThinkingBlock {
 impl RedactedThinkingBlock {
     /// Creates a new RedactedThinkingBlock with the specified data.
     pub fn new<S: Into<String>>(data: S) -> Self {
-        Self {
-            data: data.into(),
-        }
+        Self { data: data.into() }
     }
 }
 

@@ -7,7 +7,7 @@ use crate::types::ContentBlockSourceContentParam;
 pub struct ContentBlockSourceParam {
     /// The content of the source, which can be either a string or an array of content items.
     pub content: ContentBlockSourceContent,
-    
+
     /// The type of the source, always "content".
     #[serde(default = "default_type")]
     pub r#type: String,

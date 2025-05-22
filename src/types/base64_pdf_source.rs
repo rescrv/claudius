@@ -76,8 +76,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&source).unwrap();
-        let expected =
-            r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"application/pdf"}"#;
+        let expected = r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"application/pdf"}"#;
 
         assert_eq!(json, expected);
     }

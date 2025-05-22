@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    ContentBlock, DocumentBlock, ImageBlockParam, RedactedThinkingBlock,
-    ServerToolUseBlockParam, TextBlock, ThinkingBlock, ToolResultBlockParam,
-    ToolUseBlockParam, WebSearchToolResultBlockParam,
+    ContentBlock, DocumentBlock, ImageBlockParam, RedactedThinkingBlock, ServerToolUseBlockParam,
+    TextBlock, ThinkingBlock, ToolResultBlockParam, ToolUseBlockParam,
+    WebSearchToolResultBlockParam,
 };
 
 /// The content of a message, which can be either a string or an array of content blocks.

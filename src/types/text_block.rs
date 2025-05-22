@@ -78,7 +78,6 @@ impl FromStr for TextBlock {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,27 +112,45 @@ mod tests {
         // For this test, we'll directly check the structure instead of the exact string
         // since the citation order might change and cause test flakiness
         let json_value = serde_json::to_value(&text_block).unwrap();
-        
+
         // Check that basic structure is correct
         assert!(json_value.is_object());
         let obj = json_value.as_object().unwrap();
-        
+
         // Check text field
-        assert_eq!(obj.get("text").unwrap().as_str().unwrap(), "This is some text content with a citation.");
-        
+        assert_eq!(
+            obj.get("text").unwrap().as_str().unwrap(),
+            "This is some text content with a citation."
+        );
+
         // Check citations array exists and has one element
         assert!(obj.get("citations").unwrap().is_array());
         let citations = obj.get("citations").unwrap().as_array().unwrap();
         assert_eq!(citations.len(), 1);
-        
+
         // Check citation content
         let citation = &citations[0];
-        assert_eq!(citation.get("cited_text").unwrap().as_str().unwrap(), "example text");
+        assert_eq!(
+            citation.get("cited_text").unwrap().as_str().unwrap(),
+            "example text"
+        );
         assert_eq!(citation.get("document_index").unwrap().as_i64().unwrap(), 0);
-        assert_eq!(citation.get("document_title").unwrap().as_str().unwrap(), "Document Title");
-        assert_eq!(citation.get("end_char_index").unwrap().as_i64().unwrap(), 12);
-        assert_eq!(citation.get("start_char_index").unwrap().as_i64().unwrap(), 0);
-        assert_eq!(citation.get("type").unwrap().as_str().unwrap(), "char_location");
+        assert_eq!(
+            citation.get("document_title").unwrap().as_str().unwrap(),
+            "Document Title"
+        );
+        assert_eq!(
+            citation.get("end_char_index").unwrap().as_i64().unwrap(),
+            12
+        );
+        assert_eq!(
+            citation.get("start_char_index").unwrap().as_i64().unwrap(),
+            0
+        );
+        assert_eq!(
+            citation.get("type").unwrap().as_str().unwrap(),
+            "char_location"
+        );
     }
 
     #[test]
@@ -170,8 +187,7 @@ mod tests {
     #[test]
     fn test_text_block_with_cache_control() {
         let cache_control = CacheControlEphemeral::new();
-        let text_block = TextBlock::new("Sample text content")
-            .with_cache_control(cache_control);
+        let text_block = TextBlock::new("Sample text content").with_cache_control(cache_control);
 
         let json = to_value(&text_block).unwrap();
 

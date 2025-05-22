@@ -101,7 +101,7 @@ mod tests {
             end_char_index: 12,
             start_char_index: 0,
         };
-        
+
         let citations_delta = CitationsDelta::with_char_location(char_location);
         let delta = ContentBlockDelta::CitationsDelta(citations_delta);
 

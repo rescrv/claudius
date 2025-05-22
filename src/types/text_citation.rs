@@ -193,7 +193,7 @@ mod tests {
             _ => panic!("Expected CharLocation"),
         }
     }
-    
+
     #[test]
     fn test_char_location_method() {
         let citation = TextCitation::char_location(

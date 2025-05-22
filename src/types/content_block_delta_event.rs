@@ -15,10 +15,7 @@ pub struct ContentBlockDeltaEvent {
 impl ContentBlockDeltaEvent {
     /// Create a new `ContentBlockDeltaEvent` with the given delta and index.
     pub fn new(delta: ContentBlockDelta, index: usize) -> Self {
-        Self {
-            delta,
-            index,
-        }
+        Self { delta, index }
     }
 }
 

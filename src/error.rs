@@ -413,7 +413,7 @@ impl Error {
             _ => false,
         }
     }
-    
+
     /// Returns true if this error is a ToDo error.
     pub fn is_todo(&self) -> bool {
         matches!(self, Error::ToDo { .. })

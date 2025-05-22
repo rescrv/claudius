@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    MessageParam, Metadata, Model, TextBlock, ThinkingConfigParam, ToolChoiceParam,
-    ToolUnionParam,
+    MessageParam, Metadata, Model, TextBlock, ThinkingConfigParam, ToolChoiceParam, ToolUnionParam,
 };
 
 /// Parameters for creating messages.

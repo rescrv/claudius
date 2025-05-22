@@ -12,9 +12,7 @@ pub struct UrlPdfSource {
 impl UrlPdfSource {
     /// Creates a new UrlPdfSource with the specified URL.
     pub fn new<S: Into<String>>(url: S) -> Self {
-        Self {
-            url: url.into(),
-        }
+        Self { url: url.into() }
     }
 
     /// Checks if the URL has a PDF file extension.
