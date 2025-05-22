@@ -28,9 +28,6 @@ pub struct DocumentBlockParam {
     /// The source of the document.
     pub source: DocumentSource,
 
-    /// The type, which is always "document".
-    pub r#type: String,
-
     /// Create a cache control breakpoint at this content block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControlEphemeral>,
@@ -53,7 +50,6 @@ impl DocumentBlockParam {
     pub fn new(source: DocumentSource) -> Self {
         Self {
             source,
-            r#type: "document".to_string(),
             cache_control: None,
             citations: None,
             context: None,

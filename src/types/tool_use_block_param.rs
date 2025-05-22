@@ -17,9 +17,6 @@ pub struct ToolUseBlockParam {
     /// The name of the tool.
     pub name: String,
 
-    /// The type, which is always "tool_use".
-    pub r#type: String,
-
     /// Create a cache control breakpoint at this content block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControlEphemeral>,
@@ -32,7 +29,6 @@ impl ToolUseBlockParam {
             id,
             input,
             name,
-            r#type: "tool_use".to_string(),
             cache_control: None,
         }
     }
@@ -65,8 +61,7 @@ mod tests {
                 "input": {
                     "query": "weather in San Francisco"
                 },
-                "name": "web_search",
-                "type": "tool_use"
+                "name": "web_search"
             })
         );
     }
@@ -90,7 +85,6 @@ mod tests {
                     "query": "weather in San Francisco"
                 },
                 "name": "web_search",
-                "type": "tool_use",
                 "cache_control": {
                     "type": "ephemeral"
                 }
@@ -113,7 +107,6 @@ mod tests {
         assert_eq!(block.id, "tool_1");
         assert_eq!(block.input, json!({ "query": "weather in San Francisco" }));
         assert_eq!(block.name, "web_search");
-        assert_eq!(block.r#type, "tool_use");
         assert!(block.cache_control.is_none());
     }
 }

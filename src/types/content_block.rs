@@ -9,7 +9,7 @@ use crate::types::{
 /// This enum represents the different types of content blocks that can be included
 /// in a message's content.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(untagged)]
+#[serde(tag = "type")]
 pub enum ContentBlock {
     /// A block of text content
     #[serde(rename = "text")]
@@ -145,7 +145,7 @@ mod tests {
         let content_block = ContentBlock::from(text_block);
 
         let json = serde_json::to_string(&content_block).unwrap();
-        let expected = r#"{"type":"text","text":"This is some text content.","type":"text"}"#;
+        let expected = r#"{"type":"text","text":"This is some text content."}"#;
 
         assert_eq!(json, expected);
     }
@@ -161,7 +161,7 @@ mod tests {
         let content_block = ContentBlock::from(tool_block);
 
         let json = serde_json::to_string(&content_block).unwrap();
-        let expected = r#"{"id":"tool_123","input":{"limit":5,"query":"weather in San Francisco"},"name":"search","type":"tool_use"}"#;
+        let expected = r#"{"type":"tool_use","id":"tool_123","input":{"limit":5,"query":"weather in San Francisco"},"name":"search"}"#;
 
         assert_eq!(json, expected);
     }
@@ -173,7 +173,7 @@ mod tests {
         let content_block = ContentBlock::from(server_block);
 
         let json = serde_json::to_string(&content_block).unwrap();
-        let expected = r#"{"id":"tool_123","input":{"query":"weather in San Francisco"},"name":"web_search","type":"server_tool_use"}"#;
+        let expected = r#"{"type":"server_tool_use","id":"tool_123","input":{"query":"weather in San Francisco"},"name":"web_search"}"#;
 
         assert_eq!(json, expected);
     }
@@ -187,7 +187,7 @@ mod tests {
         let content_block = ContentBlock::from(thinking_block);
 
         let json = serde_json::to_string(&content_block).unwrap();
-        let expected = r#"{"signature":"abc123signature","thinking":"Let me think through this problem step by step...","type":"thinking"}"#;
+        let expected = r#"{"type":"thinking","signature":"abc123signature","thinking":"Let me think through this problem step by step..."}"#;
 
         assert_eq!(json, expected);
     }
@@ -198,7 +198,7 @@ mod tests {
         let content_block = ContentBlock::from(redacted_block);
 
         let json = serde_json::to_string(&content_block).unwrap();
-        let expected = r#"{"data":"encoded-thinking-data-123","type":"redacted_thinking"}"#;
+        let expected = r#"{"type":"redacted_thinking","data":"encoded-thinking-data-123"}"#;
 
         assert_eq!(json, expected);
     }

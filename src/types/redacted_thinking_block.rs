@@ -7,14 +7,6 @@ use serde::{Deserialize, Serialize};
 pub struct RedactedThinkingBlock {
     /// The encoded thinking data (redacted from normal display).
     pub data: String,
-
-    /// The type of content block, always "redacted_thinking" for this struct.
-    #[serde(default = "default_type", rename = "type")]
-    pub r#type: String,
-}
-
-fn default_type() -> String {
-    "redacted_thinking".to_string()
 }
 
 impl RedactedThinkingBlock {
@@ -22,7 +14,6 @@ impl RedactedThinkingBlock {
     pub fn new<S: Into<String>>(data: S) -> Self {
         Self {
             data: data.into(),
-            r#type: default_type(),
         }
     }
 }
@@ -45,7 +36,7 @@ mod tests {
         let block = RedactedThinkingBlock::new("encoded-thinking-data-123");
 
         let json = serde_json::to_string(&block).unwrap();
-        let expected = r#"{"data":"encoded-thinking-data-123","type":"redacted_thinking"}"#;
+        let expected = r#"{"data":"encoded-thinking-data-123"}"#;
 
         assert_eq!(json, expected);
     }
@@ -56,7 +47,6 @@ mod tests {
         let block: RedactedThinkingBlock = serde_json::from_str(json).unwrap();
 
         assert_eq!(block.data, "encoded-thinking-data-123");
-        assert_eq!(block.r#type, "redacted_thinking");
     }
 
     #[test]
@@ -67,8 +57,7 @@ mod tests {
         assert_eq!(
             json,
             json!({
-                "data": "Redacted thinking content",
-                "type": "redacted_thinking"
+                "data": "Redacted thinking content"
             })
         );
     }
@@ -79,6 +68,5 @@ mod tests {
             .parse::<RedactedThinkingBlock>()
             .unwrap();
         assert_eq!(block.data, "Redacted thinking content");
-        assert_eq!(block.r#type, "redacted_thinking");
     }
 }

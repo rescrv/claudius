@@ -19,36 +19,46 @@ pub enum MessageParamContent {
 
 /// A content block that can be part of a message parameter.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(untagged)]
+#[serde(tag = "type")]
 pub enum MessageContentBlock {
     /// A text block parameter.
+    #[serde(rename = "text")]
     Text(TextBlock),
 
     /// An image block parameter.
+    #[serde(rename = "image")]
     Image(ImageBlockParam),
 
     /// A tool use block parameter.
+    #[serde(rename = "tool_use")]
     ToolUse(ToolUseBlockParam),
 
     /// A server tool use block parameter.
+    #[serde(rename = "server_tool_use")]
     ServerToolUse(ServerToolUseBlockParam),
 
     /// A web search tool result block parameter.
+    #[serde(rename = "web_search_tool_result")]
     WebSearchToolResult(WebSearchToolResultBlockParam),
 
     /// A tool result block parameter.
+    #[serde(rename = "tool_result")]
     ToolResult(ToolResultBlockParam),
 
     /// A document block parameter.
+    #[serde(rename = "document")]
     Document(DocumentBlockParam),
 
     /// A thinking block parameter.
+    #[serde(rename = "thinking")]
     Thinking(ThinkingBlock),
 
     /// A redacted thinking block parameter.
+    #[serde(rename = "redacted_thinking")]
     RedactedThinking(RedactedThinkingBlock),
 
     /// A content block (for backward compatibility).
+    #[serde(rename = "content_block")]
     ContentBlock(ContentBlock),
 }
 

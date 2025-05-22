@@ -19,9 +19,6 @@ pub struct ImageBlockParam {
     /// The source of the image.
     pub source: ImageSource,
 
-    /// The type, which is always "image".
-    pub r#type: String,
-
     /// Create a cache control breakpoint at this content block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControlEphemeral>,
@@ -32,7 +29,6 @@ impl ImageBlockParam {
     pub fn new(source: ImageSource) -> Self {
         Self {
             source,
-            r#type: "image".to_string(),
             cache_control: None,
         }
     }
@@ -75,9 +71,9 @@ mod tests {
             json!({
                 "source": {
                     "data": "data:image/jpeg;base64,SGVsbG8gd29ybGQ=",
+                    "media_type": "image/jpeg",
                     "type": "base64"
-                },
-                "type": "image"
+                }
             })
         );
     }
@@ -95,8 +91,7 @@ mod tests {
                 "source": {
                     "url": "https://example.com/image.jpg",
                     "type": "url"
-                },
-                "type": "image"
+                }
             })
         );
     }
@@ -118,7 +113,6 @@ mod tests {
                     "url": "https://example.com/image.jpg",
                     "type": "url"
                 },
-                "type": "image",
                 "cache_control": {
                     "type": "ephemeral"
                 }

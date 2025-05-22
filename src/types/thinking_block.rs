@@ -10,14 +10,6 @@ pub struct ThinkingBlock {
 
     /// The thinking content.
     pub thinking: String,
-
-    /// The type of content block, always "thinking" for this struct.
-    #[serde(default = "default_type", rename = "type")]
-    pub r#type: String,
-}
-
-fn default_type() -> String {
-    "thinking".to_string()
 }
 
 impl ThinkingBlock {
@@ -26,7 +18,6 @@ impl ThinkingBlock {
         Self {
             thinking: thinking.into(),
             signature: signature.into(),
-            r#type: default_type(),
         }
     }
 
@@ -49,7 +40,7 @@ mod tests {
         );
 
         let json = serde_json::to_string(&thinking_block).unwrap();
-        let expected = r#"{"signature":"abc123signature","thinking":"Let me think through this problem step by step...","type":"thinking"}"#;
+        let expected = r#"{"signature":"abc123signature","thinking":"Let me think through this problem step by step..."}"#;
 
         assert_eq!(json, expected);
     }
@@ -64,7 +55,6 @@ mod tests {
             thinking_block.thinking,
             "Let me think through this problem step by step..."
         );
-        assert_eq!(thinking_block.r#type, "thinking");
     }
 
     #[test]
@@ -76,8 +66,7 @@ mod tests {
             json,
             json!({
                 "signature": "Signature",
-                "thinking": "Let me think about this...",
-                "type": "thinking"
+                "thinking": "Let me think about this..."
             })
         );
     }
@@ -91,8 +80,7 @@ mod tests {
             json,
             json!({
                 "signature": "Signature",
-                "thinking": "Let me think about this...",
-                "type": "thinking"
+                "thinking": "Let me think about this..."
             })
         );
     }

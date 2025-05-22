@@ -15,9 +15,6 @@ pub struct WebSearchToolResultBlockParam {
     #[serde(rename = "tool_use_id")]
     pub tool_use_id: String,
 
-    /// The type, which is always "web_search_tool_result".
-    pub r#type: String,
-
     /// Create a cache control breakpoint at this content block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControlEphemeral>,
@@ -29,7 +26,6 @@ impl WebSearchToolResultBlockParam {
         Self {
             content,
             tool_use_id,
-            r#type: "web_search_tool_result".to_string(),
             cache_control: None,
         }
     }
@@ -85,8 +81,7 @@ mod tests {
                         "url": "https://example.com"
                     }
                 ],
-                "tool_use_id": "tool_1",
-                "type": "web_search_tool_result"
+                "tool_use_id": "tool_1"
             })
         );
     }
@@ -107,8 +102,7 @@ mod tests {
                     "error_code": "invalid_tool_input",
                     "type": "web_search_tool_result_error"
                 },
-                "tool_use_id": "tool_1",
-                "type": "web_search_tool_result"
+                "tool_use_id": "tool_1"
             })
         );
     }
@@ -139,7 +133,6 @@ mod tests {
                     }
                 ],
                 "tool_use_id": "tool_1",
-                "type": "web_search_tool_result",
                 "cache_control": {
                     "type": "ephemeral"
                 }
@@ -167,7 +160,6 @@ mod tests {
 
         let block: WebSearchToolResultBlockParam = serde_json::from_value(json).unwrap();
         assert_eq!(block.tool_use_id, "tool_1");
-        assert_eq!(block.r#type, "web_search_tool_result");
         assert!(block.cache_control.is_some());
 
         match &block.content {

@@ -32,9 +32,6 @@ pub struct ToolResultBlockParam {
     #[serde(rename = "tool_use_id")]
     pub tool_use_id: String,
 
-    /// The type, which is always "tool_result".
-    pub r#type: String,
-
     /// Create a cache control breakpoint at this content block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControlEphemeral>,
@@ -64,7 +61,6 @@ impl ToolResultBlockParam {
     pub fn new(tool_use_id: String) -> Self {
         Self {
             tool_use_id,
-            r#type: "tool_result".to_string(),
             cache_control: None,
             content: None,
             is_error: None,
@@ -188,7 +184,6 @@ mod tests {
 
         let block: ToolResultBlockParam = serde_json::from_value(json).unwrap();
         assert_eq!(block.tool_use_id, "tool_1");
-        assert_eq!(block.r#type, "tool_result");
 
         match &block.content {
             Some(ToolResultBlockParamContent::String(s)) => {

@@ -17,9 +17,6 @@ pub struct ServerToolUseBlockParam {
     /// The name of the server tool, which is always "web_search".
     pub name: String,
 
-    /// The type, which is always "server_tool_use".
-    pub r#type: String,
-
     /// Create a cache control breakpoint at this content block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControlEphemeral>,
@@ -32,7 +29,6 @@ impl ServerToolUseBlockParam {
             id,
             input,
             name: "web_search".to_string(),
-            r#type: "server_tool_use".to_string(),
             cache_control: None,
         }
     }
@@ -113,7 +109,6 @@ mod tests {
         assert_eq!(block.id, "server_tool_1");
         assert_eq!(block.input, json!({ "query": "weather in San Francisco" }));
         assert_eq!(block.name, "web_search");
-        assert_eq!(block.r#type, "server_tool_use");
         assert!(block.cache_control.is_none());
     }
 }
