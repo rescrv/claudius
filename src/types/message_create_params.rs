@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    MessageParam, Metadata, Model, TextBlock, ThinkingConfig, ToolChoiceParam, ToolUnionParam,
+    MessageParam, Metadata, Model, TextBlock, ThinkingConfig, ToolChoice, ToolUnionParam,
 };
 
 /// Parameters for creating messages.
@@ -83,7 +83,7 @@ pub struct MessageCreateParams {
     /// The model can use a specific tool, any available tool, decide by itself, or not
     /// use tools at all.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<ToolChoiceParam>,
+    pub tool_choice: Option<ToolChoice>,
 
     /// Definitions of tools that the model may use.
     ///
@@ -210,7 +210,7 @@ impl MessageCreateParams {
     }
 
     /// Add tool choice to the parameters.
-    pub fn with_tool_choice(mut self, tool_choice: ToolChoiceParam) -> Self {
+    pub fn with_tool_choice(mut self, tool_choice: ToolChoice) -> Self {
         self.tool_choice = Some(tool_choice);
         self
     }

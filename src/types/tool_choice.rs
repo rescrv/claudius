@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Parameter for configuring Claude's tool choice behavior.
+/// Configuration for Claude's tool choice behavior.
 ///
 /// This can be one of the following:
 /// - "auto": Let the model decide if and when to use tools
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 #[serde(rename_all = "lowercase")]
-pub enum ToolChoiceParam {
+pub enum ToolChoice {
     /// Automatic tool choice
     Auto {
         /// Whether to disable parallel tool use.
@@ -45,36 +45,36 @@ pub enum ToolChoiceParam {
     None,
 }
 
-impl ToolChoiceParam {
-    /// Create a new `ToolChoiceParam` with auto mode.
+impl ToolChoice {
+    /// Create a new `ToolChoice` with auto mode.
     pub fn auto() -> Self {
         Self::Auto {
             disable_parallel_tool_use: None,
         }
     }
 
-    /// Create a new `ToolChoiceParam` with auto mode, specifying whether to disable parallel tool use.
+    /// Create a new `ToolChoice` with auto mode, specifying whether to disable parallel tool use.
     pub fn auto_with_disable_parallel(disable: bool) -> Self {
         Self::Auto {
             disable_parallel_tool_use: Some(disable),
         }
     }
 
-    /// Create a new `ToolChoiceParam` allowing any tool.
+    /// Create a new `ToolChoice` allowing any tool.
     pub fn any() -> Self {
         Self::Any {
             disable_parallel_tool_use: None,
         }
     }
 
-    /// Create a new `ToolChoiceParam` allowing any tool, specifying whether to disable parallel tool use.
+    /// Create a new `ToolChoice` allowing any tool, specifying whether to disable parallel tool use.
     pub fn any_with_disable_parallel(disable: bool) -> Self {
         Self::Any {
             disable_parallel_tool_use: Some(disable),
         }
     }
 
-    /// Create a new `ToolChoiceParam` with a specific named tool.
+    /// Create a new `ToolChoice` with a specific named tool.
     pub fn tool(name: impl Into<String>) -> Self {
         Self::Tool {
             name: name.into(),
@@ -82,7 +82,7 @@ impl ToolChoiceParam {
         }
     }
 
-    /// Create a new `ToolChoiceParam` with a specific named tool, specifying whether to disable parallel tool use.
+    /// Create a new `ToolChoice` with a specific named tool, specifying whether to disable parallel tool use.
     pub fn tool_with_disable_parallel(name: impl Into<String>, disable: bool) -> Self {
         Self::Tool {
             name: name.into(),
@@ -90,13 +90,13 @@ impl ToolChoiceParam {
         }
     }
 
-    /// Create a new `ToolChoiceParam` with no tools.
+    /// Create a new `ToolChoice` with no tools.
     pub fn none() -> Self {
         Self::None
     }
 }
 
-impl Default for ToolChoiceParam {
+impl Default for ToolChoice {
     fn default() -> Self {
         Self::auto()
     }
@@ -108,8 +108,8 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_tool_choice_param_auto() {
-        let param = ToolChoiceParam::auto();
+    fn test_tool_choice_auto() {
+        let param = ToolChoice::auto();
         let json = to_value(&param).unwrap();
 
         assert_eq!(
@@ -121,8 +121,8 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_choice_param_any() {
-        let param = ToolChoiceParam::any();
+    fn test_tool_choice_any() {
+        let param = ToolChoice::any();
         let json = to_value(&param).unwrap();
 
         assert_eq!(
@@ -134,8 +134,8 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_choice_param_tool() {
-        let param = ToolChoiceParam::tool("my_tool");
+    fn test_tool_choice_tool() {
+        let param = ToolChoice::tool("my_tool");
         let json = to_value(&param).unwrap();
 
         assert_eq!(
@@ -148,8 +148,8 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_choice_param_none() {
-        let param = ToolChoiceParam::none();
+    fn test_tool_choice_none() {
+        let param = ToolChoice::none();
         let json = to_value(&param).unwrap();
 
         assert_eq!(
@@ -161,8 +161,8 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_choice_param_auto_with_disable_parallel() {
-        let param = ToolChoiceParam::auto_with_disable_parallel(true);
+    fn test_tool_choice_auto_with_disable_parallel() {
+        let param = ToolChoice::auto_with_disable_parallel(true);
         let json = to_value(&param).unwrap();
 
         assert_eq!(
@@ -175,15 +175,15 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_choice_param_deserialization_auto() {
+    fn test_tool_choice_deserialization_auto() {
         let json = json!({
             "type": "auto",
             "disable_parallel_tool_use": true
         });
 
-        let param: ToolChoiceParam = serde_json::from_value(json).unwrap();
+        let param: ToolChoice = serde_json::from_value(json).unwrap();
         match param {
-            ToolChoiceParam::Auto {
+            ToolChoice::Auto {
                 disable_parallel_tool_use,
             } => {
                 assert_eq!(disable_parallel_tool_use, Some(true));
@@ -193,16 +193,16 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_choice_param_deserialization_tool() {
+    fn test_tool_choice_deserialization_tool() {
         let json = json!({
             "name": "my_tool",
             "type": "tool",
             "disable_parallel_tool_use": true
         });
 
-        let param: ToolChoiceParam = serde_json::from_value(json).unwrap();
+        let param: ToolChoice = serde_json::from_value(json).unwrap();
         match param {
-            ToolChoiceParam::Tool {
+            ToolChoice::Tool {
                 name,
                 disable_parallel_tool_use,
             } => {

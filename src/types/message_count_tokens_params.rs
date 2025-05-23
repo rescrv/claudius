@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    MessageCountTokensToolParam, MessageParam, Model, TextBlock, ThinkingConfig, ToolChoiceParam,
+    MessageCountTokensToolParam, MessageParam, Model, TextBlock, ThinkingConfig, ToolChoice,
 };
 
 /// Parameters for counting tokens in messages.
@@ -55,7 +55,7 @@ pub struct MessageCountTokensParams {
     /// The model can use a specific tool, any available tool, decide by itself, or not
     /// use tools at all.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<ToolChoiceParam>,
+    pub tool_choice: Option<ToolChoice>,
 
     /// Definitions of tools that the model may use.
     ///
@@ -110,7 +110,7 @@ impl MessageCountTokensParams {
     }
 
     /// Add tool choice.
-    pub fn with_tool_choice(mut self, tool_choice: ToolChoiceParam) -> Self {
+    pub fn with_tool_choice(mut self, tool_choice: ToolChoice) -> Self {
         self.tool_choice = Some(tool_choice);
         self
     }
