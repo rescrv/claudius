@@ -103,8 +103,7 @@ mod tests {
         let url_source = UrlImageSource::new("https://example.com/image.jpg".to_string());
         let cache_control = CacheControlEphemeral::new();
 
-        let image_block =
-            ImageBlock::new_with_url(url_source).with_cache_control(cache_control);
+        let image_block = ImageBlock::new_with_url(url_source).with_cache_control(cache_control);
 
         let json = to_value(&image_block).unwrap();
 

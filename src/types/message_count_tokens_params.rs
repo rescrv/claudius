@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    MessageCountTokensToolParam, MessageParam, Model, TextBlock, ThinkingConfig,
-    ToolChoiceParam,
+    MessageCountTokensToolParam, MessageParam, Model, TextBlock, ThinkingConfig, ToolChoiceParam,
 };
 
 /// Parameters for counting tokens in messages.

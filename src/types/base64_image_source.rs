@@ -37,10 +37,7 @@ pub enum ImageMediaType {
 impl Base64ImageSource {
     /// Create a new Base64ImageSource from a base64-encoded string
     pub fn new(data: String, media_type: ImageMediaType) -> Self {
-        Self {
-            data,
-            media_type,
-        }
+        Self { data, media_type }
     }
 
     /// Create a Base64ImageSource from a file path
@@ -72,10 +69,7 @@ impl Base64ImageSource {
         // Encode as base64
         let data = base64::engine::general_purpose::STANDARD.encode(&buffer);
 
-        Ok(Self {
-            data,
-            media_type,
-        })
+        Ok(Self { data, media_type })
     }
 }
 

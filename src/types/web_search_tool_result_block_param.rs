@@ -60,11 +60,8 @@ mod tests {
 
     #[test]
     fn test_web_search_tool_result_block_param_with_results() {
-        let result = WebSearchResultBlock::new(
-            "encrypted-content",
-            "Example Title",
-            "https://example.com",
-        );
+        let result =
+            WebSearchResultBlock::new("encrypted-content", "Example Title", "https://example.com");
 
         let block =
             WebSearchToolResultBlockParam::new_with_results(vec![result], "tool_1".to_string());
@@ -109,11 +106,8 @@ mod tests {
 
     #[test]
     fn test_web_search_tool_result_block_param_with_cache_control() {
-        let result = WebSearchResultBlock::new(
-            "encrypted-content",
-            "Example Title",
-            "https://example.com",
-        );
+        let result =
+            WebSearchResultBlock::new("encrypted-content", "Example Title", "https://example.com");
 
         let cache_control = CacheControlEphemeral::new();
         let block =

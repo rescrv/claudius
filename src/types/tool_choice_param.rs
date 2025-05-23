@@ -1,9 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{
-    ToolChoiceAnyParam, ToolChoiceAutoParam, ToolChoiceNoneParam, ToolChoiceToolParam,
-};
-
 /// Parameter for configuring Claude's tool choice behavior.
 ///
 /// This can be one of the following:
@@ -12,55 +8,91 @@ use crate::types::{
 /// - "tool": Force the model to use a specific named tool
 /// - "none": Do not use any tools
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(untagged)]
+#[serde(tag = "type")]
+#[serde(rename_all = "lowercase")]
 pub enum ToolChoiceParam {
     /// Automatic tool choice
-    Auto(ToolChoiceAutoParam),
+    Auto {
+        /// Whether to disable parallel tool use.
+        ///
+        /// Defaults to `false`. If set to `true`, the model will output at most one tool use.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        disable_parallel_tool_use: Option<bool>,
+    },
 
     /// Any tool choice
-    Any(ToolChoiceAnyParam),
+    Any {
+        /// Whether to disable parallel tool use.
+        ///
+        /// Defaults to `false`. If set to `true`, the model will output exactly one tool use.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        disable_parallel_tool_use: Option<bool>,
+    },
 
     /// Specific tool choice
-    Tool(ToolChoiceToolParam),
+    Tool {
+        /// The name of the tool to use.
+        name: String,
+
+        /// Whether to disable parallel tool use.
+        ///
+        /// Defaults to `false`. If set to `true`, the model will output exactly one tool use.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        disable_parallel_tool_use: Option<bool>,
+    },
 
     /// No tools
-    None(ToolChoiceNoneParam),
+    None,
 }
 
 impl ToolChoiceParam {
     /// Create a new `ToolChoiceParam` with auto mode.
     pub fn auto() -> Self {
-        Self::Auto(ToolChoiceAutoParam::new())
+        Self::Auto {
+            disable_parallel_tool_use: None,
+        }
     }
 
     /// Create a new `ToolChoiceParam` with auto mode, specifying whether to disable parallel tool use.
     pub fn auto_with_disable_parallel(disable: bool) -> Self {
-        Self::Auto(ToolChoiceAutoParam::new().with_disable_parallel_tool_use(disable))
+        Self::Auto {
+            disable_parallel_tool_use: Some(disable),
+        }
     }
 
     /// Create a new `ToolChoiceParam` allowing any tool.
     pub fn any() -> Self {
-        Self::Any(ToolChoiceAnyParam::new())
+        Self::Any {
+            disable_parallel_tool_use: None,
+        }
     }
 
     /// Create a new `ToolChoiceParam` allowing any tool, specifying whether to disable parallel tool use.
     pub fn any_with_disable_parallel(disable: bool) -> Self {
-        Self::Any(ToolChoiceAnyParam::new().with_disable_parallel_tool_use(disable))
+        Self::Any {
+            disable_parallel_tool_use: Some(disable),
+        }
     }
 
     /// Create a new `ToolChoiceParam` with a specific named tool.
     pub fn tool(name: impl Into<String>) -> Self {
-        Self::Tool(ToolChoiceToolParam::new(name))
+        Self::Tool {
+            name: name.into(),
+            disable_parallel_tool_use: None,
+        }
     }
 
     /// Create a new `ToolChoiceParam` with a specific named tool, specifying whether to disable parallel tool use.
     pub fn tool_with_disable_parallel(name: impl Into<String>, disable: bool) -> Self {
-        Self::Tool(ToolChoiceToolParam::new(name).with_disable_parallel_tool_use(disable))
+        Self::Tool {
+            name: name.into(),
+            disable_parallel_tool_use: Some(disable),
+        }
     }
 
     /// Create a new `ToolChoiceParam` with no tools.
     pub fn none() -> Self {
-        Self::None(ToolChoiceNoneParam::new())
+        Self::None
     }
 }
 
@@ -151,9 +183,10 @@ mod tests {
 
         let param: ToolChoiceParam = serde_json::from_value(json).unwrap();
         match param {
-            ToolChoiceParam::Auto(auto) => {
-                assert_eq!(auto.r#type, "auto");
-                assert_eq!(auto.disable_parallel_tool_use, Some(true));
+            ToolChoiceParam::Auto {
+                disable_parallel_tool_use,
+            } => {
+                assert_eq!(disable_parallel_tool_use, Some(true));
             }
             _ => panic!("Expected Auto variant"),
         }
@@ -169,10 +202,12 @@ mod tests {
 
         let param: ToolChoiceParam = serde_json::from_value(json).unwrap();
         match param {
-            ToolChoiceParam::Tool(tool) => {
-                assert_eq!(tool.r#type, "tool");
-                assert_eq!(tool.name, "my_tool");
-                assert_eq!(tool.disable_parallel_tool_use, Some(true));
+            ToolChoiceParam::Tool {
+                name,
+                disable_parallel_tool_use,
+            } => {
+                assert_eq!(name, "my_tool");
+                assert_eq!(disable_parallel_tool_use, Some(true));
             }
             _ => panic!("Expected Tool variant"),
         }

@@ -42,7 +42,7 @@ impl WebSearchResultBlock {
             url: url.into(),
         }
     }
-    
+
     /// Add page age to this web search result block.
     pub fn with_page_age(mut self, page_age: String) -> Self {
         self.page_age = Some(page_age);

@@ -33,11 +33,8 @@ mod tests {
 
     #[test]
     fn test_web_search_tool_result_block_param_content_results() {
-        let result = WebSearchResultBlock::new(
-            "encrypted-content",
-            "Example Title",
-            "https://example.com",
-        );
+        let result =
+            WebSearchResultBlock::new("encrypted-content", "Example Title", "https://example.com");
 
         let content = WebSearchToolResultBlockParamContent::new_with_results(vec![result]);
         let json = to_value(&content).unwrap();
