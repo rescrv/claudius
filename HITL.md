@@ -4,17 +4,12 @@
 [ ] src/types/message_count_tokens_params.rs
 [ ] src/types/message_count_tokens_tool_param.rs
 [ ] src/types/message_delta_usage.rs
-[ ] src/types/message_param.rs
 [ ] src/types/message_tokens_count.rs
-[ ] src/types/message.rs
 [ ] src/types/model_info.rs
 [ ] src/types/model_list_params.rs
 [ ] src/types/model.rs
 [ ] src/types/server_tool_usage.rs
-[ ] src/types/server_tool_use_block_param.rs
-[ ] src/types/server_tool_use_block.rs
 [ ] src/types/tool_bash_20250124_param.rs
-[ ] src/types/tool_choice_tool_param.rs
 [ ] src/types/tool_param.rs
 [ ] src/types/tool_result_block_param.rs
 [ ] src/types/tool_text_editor_20250124_param.rs
@@ -53,9 +48,11 @@
 [X] src/types/input_json_delta.rs
 [X] src/types/message_create_params.rs
 [X] src/types/message_delta_event.rs
+[X] src/types/message_param.rs
 [X] src/types/message_start_event.rs
 [X] src/types/message_stop_event.rs
 [X] src/types/message_stream_event.rs
+[X] src/types/message.rs
 [X] src/types/messages/batch_create_params.rs
 [X] src/types/messages/batch_list_params.rs
 [X] src/types/messages/mod.rs
@@ -72,6 +69,8 @@
 [X] src/types/raw_message_stream_event.rs
 [X] src/types/redacted_thinking_block_param.rs
 [X] src/types/redacted_thinking_block.rs
+[X] src/types/server_tool_use_block_param.rs
+[X] src/types/server_tool_use_block.rs
 [X] src/types/signature_delta.rs
 [X] src/types/stop_reason.rs
 [X] src/types/text_block_param.rs
@@ -87,6 +86,7 @@
 [X] src/types/tool_choice_auto_param.rs
 [X] src/types/tool_choice_none_param.rs
 [X] src/types/tool_choice_param.rs
+[X] src/types/tool_choice_tool_param.rs
 [X] src/types/url_image_source.rs
 [X] src/types/url_pdf_source.rs
 [X] src/utils/mod.rs

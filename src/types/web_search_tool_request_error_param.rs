@@ -25,9 +25,6 @@ pub enum WebSearchToolRequestErrorCode {
 pub struct WebSearchToolRequestErrorParam {
     /// The error code for the web search tool request error.
     pub error_code: WebSearchToolRequestErrorCode,
-
-    /// The type, which is always "web_search_tool_result_error".
-    pub r#type: String,
 }
 
 impl WebSearchToolRequestErrorParam {
@@ -35,7 +32,6 @@ impl WebSearchToolRequestErrorParam {
     pub fn new(error_code: WebSearchToolRequestErrorCode) -> Self {
         Self {
             error_code,
-            r#type: "web_search_tool_result_error".to_string(),
         }
     }
 }
@@ -54,8 +50,7 @@ mod tests {
         assert_eq!(
             json,
             json!({
-                "error_code": "invalid_tool_input",
-                "type": "web_search_tool_result_error"
+                "error_code": "invalid_tool_input"
             })
         );
     }
@@ -63,8 +58,7 @@ mod tests {
     #[test]
     fn test_web_search_tool_request_error_param_deserialization() {
         let json = json!({
-            "error_code": "max_uses_exceeded",
-            "type": "web_search_tool_result_error"
+            "error_code": "max_uses_exceeded"
         });
 
         let error: WebSearchToolRequestErrorParam = serde_json::from_value(json).unwrap();
@@ -72,6 +66,5 @@ mod tests {
             error.error_code,
             WebSearchToolRequestErrorCode::MaxUsesExceeded
         );
-        assert_eq!(error.r#type, "web_search_tool_result_error");
     }
 }

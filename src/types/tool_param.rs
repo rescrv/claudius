@@ -9,9 +9,6 @@ use crate::types::CacheControlEphemeral;
 pub enum InputSchema {
     /// A typed input schema with an object type.
     Typed {
-        /// The type of the schema is always "object".
-        r#type: String,
-
         /// Optional properties of the schema.
         #[serde(skip_serializing_if = "Option::is_none")]
         properties: Option<serde_json::Value>,
@@ -96,7 +93,6 @@ mod tests {
     #[test]
     fn test_tool_param_complete() {
         let input_schema = InputSchema::Typed {
-            r#type: "object".to_string(),
             properties: Some(json!({
                 "query": {
                     "type": "string",
@@ -118,7 +114,6 @@ mod tests {
             json,
             json!({
                 "input_schema": {
-                    "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",

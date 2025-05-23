@@ -4,12 +4,14 @@ use crate::types::{ImageBlock, TextBlock};
 
 /// Parameter for a content block source content, which can be either a text block or an image block.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(untagged)]
+#[serde(tag = "type")]
 pub enum ContentBlockSourceContentParam {
     /// A text block source content.
+    #[serde(rename = "text")]
     Text(TextBlock),
 
     /// An image block source content.
+    #[serde(rename = "image")]
     Image(ImageBlock),
 }
 
@@ -60,8 +62,8 @@ mod tests {
             json,
             json!({
                 "source": {
-                    "url": "https://example.com/image.jpg",
-                    "type": "url"
+                    "type": "url",
+                    "url": "https://example.com/image.jpg"
                 },
                 "type": "image"
             })

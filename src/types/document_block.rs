@@ -32,10 +32,6 @@ pub struct DocumentBlock {
     /// The source of the document.
     pub source: DocumentSource,
 
-    /// The type of the block, always "document".
-    #[serde(default = "default_type")]
-    pub r#type: String,
-
     /// Create a cache control breakpoint at this content block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControlEphemeral>,
@@ -53,16 +49,11 @@ pub struct DocumentBlock {
     pub title: Option<String>,
 }
 
-fn default_type() -> String {
-    "document".to_string()
-}
-
 impl DocumentBlock {
     /// Create a new `DocumentBlock` with the given source.
     pub fn new(source: DocumentSource) -> Self {
         Self {
             source,
-            r#type: default_type(),
             cache_control: None,
             citations: None,
             context: None,

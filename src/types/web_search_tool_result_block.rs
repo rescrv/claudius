@@ -6,21 +6,16 @@ use crate::types::WebSearchToolResultBlockContent;
 ///
 /// WebSearchToolResultBlock contains either a list of search results or an error.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename = "web_search_tool_result")]
 pub struct WebSearchToolResultBlock {
     /// The content of the web search tool result.
     pub content: WebSearchToolResultBlockContent,
 
     /// The ID of the tool use that this result is for.
     pub tool_use_id: String,
-
-    /// The type of content block, always "web_search_tool_result" for this struct.
-    #[serde(default = "default_type")]
-    pub r#type: String,
 }
 
-fn default_type() -> String {
-    "web_search_tool_result".to_string()
-}
 
 impl WebSearchToolResultBlock {
     /// Creates a new WebSearchToolResultBlock.
@@ -28,7 +23,6 @@ impl WebSearchToolResultBlock {
         Self {
             content,
             tool_use_id: tool_use_id.into(),
-            r#type: default_type(),
         }
     }
 
@@ -52,6 +46,7 @@ impl WebSearchToolResultBlock {
 mod tests {
     use super::*;
     use crate::types::{WebSearchErrorCode, WebSearchResultBlock, WebSearchToolResultError};
+    use serde_json::Value;
 
     #[test]
     fn test_results_serialization() {
@@ -59,7 +54,6 @@ mod tests {
             encrypted_content: "encrypted-data-1".to_string(),
             page_age: Some("2 days ago".to_string()),
             title: "Example Page 1".to_string(),
-            r#type: "web_search_result".to_string(),
             url: "https://example.com/page1".to_string(),
         }];
 
@@ -67,34 +61,43 @@ mod tests {
         let block = WebSearchToolResultBlock::new(content, "tool-123");
 
         let json = serde_json::to_string(&block).unwrap();
-        let expected = r#"{"content":[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","type":"web_search_result","url":"https://example.com/page1"}],"tool_use_id":"tool-123","type":"web_search_tool_result"}"#;
+        
+        // Parse both the actual and expected JSON to Values for comparison
+        // This avoids issues with key ordering
+        let actual: Value = serde_json::from_str(&json).unwrap();
+        let expected: Value = serde_json::from_str(
+            r#"{"type":"web_search_tool_result","content":[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","url":"https://example.com/page1"}],"tool_use_id":"tool-123"}"#
+        ).unwrap();
 
-        assert_eq!(json, expected);
+        assert_eq!(actual, expected);
     }
 
     #[test]
     fn test_error_serialization() {
         let error = WebSearchToolResultError {
             error_code: WebSearchErrorCode::InvalidToolInput,
-            r#type: "web_search_tool_result_error".to_string(),
         };
 
         let content = WebSearchToolResultBlockContent::with_error(error);
         let block = WebSearchToolResultBlock::new(content, "tool-123");
 
         let json = serde_json::to_string(&block).unwrap();
-        let expected = r#"{"content":{"error_code":"invalid_tool_input","type":"web_search_tool_result_error"},"tool_use_id":"tool-123","type":"web_search_tool_result"}"#;
+        
+        // Parse both the actual and expected JSON to Values for comparison
+        let actual: Value = serde_json::from_str(&json).unwrap();
+        let expected: Value = serde_json::from_str(
+            r#"{"type":"web_search_tool_result","content":{"error_code":"invalid_tool_input"},"tool_use_id":"tool-123"}"#
+        ).unwrap();
 
-        assert_eq!(json, expected);
+        assert_eq!(actual, expected);
     }
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"content":[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","type":"web_search_result","url":"https://example.com/page1"}],"tool_use_id":"tool-123","type":"web_search_tool_result"}"#;
+        let json = r#"{"content":[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","url":"https://example.com/page1"}],"tool_use_id":"tool-123","type":"web_search_tool_result"}"#;
         let block: WebSearchToolResultBlock = serde_json::from_str(json).unwrap();
 
         assert_eq!(block.tool_use_id, "tool-123");
-        assert_eq!(block.r#type, "web_search_tool_result");
         assert!(block.has_results());
         assert!(!block.has_error());
         assert_eq!(block.result_count(), 1);

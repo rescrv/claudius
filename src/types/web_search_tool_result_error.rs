@@ -38,22 +38,14 @@ impl fmt::Display for WebSearchErrorCode {
 pub struct WebSearchToolResultError {
     /// The specific error code.
     pub error_code: WebSearchErrorCode,
-
-    /// The type of the error, always "web_search_tool_result_error" for this struct.
-    #[serde(default = "default_type")]
-    pub r#type: String,
 }
 
-fn default_type() -> String {
-    "web_search_tool_result_error".to_string()
-}
 
 impl WebSearchToolResultError {
     /// Creates a new WebSearchToolResultError with the specified error code.
     pub fn new(error_code: WebSearchErrorCode) -> Self {
         Self {
             error_code,
-            r#type: default_type(),
         }
     }
 
@@ -91,23 +83,20 @@ mod tests {
     fn test_serialization() {
         let error = WebSearchToolResultError {
             error_code: WebSearchErrorCode::InvalidToolInput,
-            r#type: "web_search_tool_result_error".to_string(),
         };
 
         let json = serde_json::to_string(&error).unwrap();
-        let expected =
-            r#"{"error_code":"invalid_tool_input","type":"web_search_tool_result_error"}"#;
+        let expected = r#"{"error_code":"invalid_tool_input"}"#;
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"error_code":"max_uses_exceeded","type":"web_search_tool_result_error"}"#;
+        let json = r#"{"error_code":"max_uses_exceeded"}"#;
         let error: WebSearchToolResultError = serde_json::from_str(json).unwrap();
 
         assert_eq!(error.error_code, WebSearchErrorCode::MaxUsesExceeded);
-        assert_eq!(error.r#type, "web_search_tool_result_error");
     }
 
     #[test]

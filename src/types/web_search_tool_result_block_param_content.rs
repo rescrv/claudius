@@ -45,7 +45,6 @@ mod tests {
                 {
                     "encrypted_content": "encrypted-content",
                     "title": "Example Title",
-                    "type": "web_search_result",
                     "url": "https://example.com"
                 }
             ])
@@ -64,8 +63,7 @@ mod tests {
         assert_eq!(
             json,
             json!({
-                "error_code": "invalid_tool_input",
-                "type": "web_search_tool_result_error"
+                "error_code": "invalid_tool_input"
             })
         );
     }
@@ -76,7 +74,6 @@ mod tests {
             {
                 "encrypted_content": "encrypted-content",
                 "title": "Example Title",
-                "type": "web_search_result",
                 "url": "https://example.com"
             }
         ]);
@@ -94,8 +91,7 @@ mod tests {
     #[test]
     fn test_web_search_tool_result_block_param_content_deserialization_error() {
         let json = json!({
-            "error_code": "invalid_tool_input",
-            "type": "web_search_tool_result_error"
+            "error_code": "invalid_tool_input"
         });
 
         let content: WebSearchToolResultBlockParamContent = serde_json::from_value(json).unwrap();

@@ -74,7 +74,6 @@ mod tests {
                     {
                         "encrypted_content": "encrypted-content",
                         "title": "Example Title",
-                        "type": "web_search_result",
                         "url": "https://example.com"
                     }
                 ],
@@ -96,8 +95,7 @@ mod tests {
             json,
             json!({
                 "content": {
-                    "error_code": "invalid_tool_input",
-                    "type": "web_search_tool_result_error"
+                    "error_code": "invalid_tool_input"
                 },
                 "tool_use_id": "tool_1"
             })
@@ -122,7 +120,6 @@ mod tests {
                     {
                         "encrypted_content": "encrypted-content",
                         "title": "Example Title",
-                        "type": "web_search_result",
                         "url": "https://example.com"
                     }
                 ],
@@ -141,12 +138,10 @@ mod tests {
                 {
                     "encrypted_content": "encrypted-content",
                     "title": "Example Title",
-                    "type": "web_search_result",
                     "url": "https://example.com"
                 }
             ],
             "tool_use_id": "tool_1",
-            "type": "web_search_tool_result",
             "cache_control": {
                 "type": "ephemeral"
             }

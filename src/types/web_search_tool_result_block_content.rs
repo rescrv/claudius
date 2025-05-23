@@ -68,6 +68,7 @@ impl WebSearchToolResultBlockContent {
 mod tests {
     use super::*;
     use crate::types::WebSearchErrorCode;
+    use serde_json::Value;
 
     #[test]
     fn test_results_serialization() {
@@ -76,14 +77,12 @@ mod tests {
                 encrypted_content: "encrypted-data-1".to_string(),
                 page_age: Some("2 days ago".to_string()),
                 title: "Example Page 1".to_string(),
-                r#type: "web_search_result".to_string(),
                 url: "https://example.com/page1".to_string(),
             },
             WebSearchResultBlock {
                 encrypted_content: "encrypted-data-2".to_string(),
                 page_age: None,
                 title: "Example Page 2".to_string(),
-                r#type: "web_search_result".to_string(),
                 url: "https://example.com/page2".to_string(),
             },
         ];
@@ -91,30 +90,30 @@ mod tests {
         let content = WebSearchToolResultBlockContent::with_results(results);
 
         let json = serde_json::to_string(&content).unwrap();
-        let expected = r#"[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","type":"web_search_result","url":"https://example.com/page1"},{"encrypted_content":"encrypted-data-2","title":"Example Page 2","type":"web_search_result","url":"https://example.com/page2"}]"#;
+        let json_value: Value = serde_json::from_str(&json).unwrap();
+        let expected_value: Value = serde_json::from_str(r#"[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","url":"https://example.com/page1"},{"encrypted_content":"encrypted-data-2","title":"Example Page 2","url":"https://example.com/page2"}]"#).unwrap();
 
-        assert_eq!(json, expected);
+        assert_eq!(json_value, expected_value);
     }
 
     #[test]
     fn test_error_serialization() {
         let error = WebSearchToolResultError {
             error_code: WebSearchErrorCode::InvalidToolInput,
-            r#type: "web_search_tool_result_error".to_string(),
         };
 
         let content = WebSearchToolResultBlockContent::with_error(error);
 
         let json = serde_json::to_string(&content).unwrap();
-        let expected =
-            r#"{"error_code":"invalid_tool_input","type":"web_search_tool_result_error"}"#;
+        let json_value: Value = serde_json::from_str(&json).unwrap();
+        let expected_value: Value = serde_json::from_str(r#"{"error_code":"invalid_tool_input"}"#).unwrap();
 
-        assert_eq!(json, expected);
+        assert_eq!(json_value, expected_value);
     }
 
     #[test]
     fn test_results_deserialization() {
-        let json = r#"[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","type":"web_search_result","url":"https://example.com/page1"},{"encrypted_content":"encrypted-data-2","title":"Example Page 2","type":"web_search_result","url":"https://example.com/page2"}]"#;
+        let json = r#"[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","url":"https://example.com/page1"},{"encrypted_content":"encrypted-data-2","title":"Example Page 2","url":"https://example.com/page2"}]"#;
         let content: WebSearchToolResultBlockContent = serde_json::from_str(json).unwrap();
 
         assert!(content.is_results());
@@ -130,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_error_deserialization() {
-        let json = r#"{"error_code":"invalid_tool_input","type":"web_search_tool_result_error"}"#;
+        let json = r#"{"error_code":"invalid_tool_input"}"#;
         let content: WebSearchToolResultBlockContent = serde_json::from_str(json).unwrap();
 
         assert!(!content.is_results());
@@ -147,14 +146,12 @@ mod tests {
                 encrypted_content: "encrypted-data-1".to_string(),
                 page_age: Some("2 days ago".to_string()),
                 title: "Example Page 1".to_string(),
-                r#type: "web_search_result".to_string(),
                 url: "https://example.com/page1".to_string(),
             },
             WebSearchResultBlock {
                 encrypted_content: "encrypted-data-2".to_string(),
                 page_age: None,
                 title: "Example Page 2".to_string(),
-                r#type: "web_search_result".to_string(),
                 url: "https://example.com/page2".to_string(),
             },
         ];
@@ -164,7 +161,6 @@ mod tests {
 
         let error = WebSearchToolResultError {
             error_code: WebSearchErrorCode::InvalidToolInput,
-            r#type: "web_search_tool_result_error".to_string(),
         };
 
         let content = WebSearchToolResultBlockContent::with_error(error);

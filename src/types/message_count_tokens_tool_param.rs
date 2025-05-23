@@ -243,7 +243,6 @@ mod tests {
     #[test]
     fn test_message_count_tokens_tool_param_custom() {
         let input_schema = InputSchema::Typed {
-            r#type: "object".to_string(),
             properties: Some(json!({
                 "query": {
                     "type": "string",
@@ -262,7 +261,6 @@ mod tests {
             json!({
                 "type": "custom",
                 "input_schema": {
-                    "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
@@ -409,7 +407,6 @@ mod tests {
     #[test]
     fn test_message_count_tokens_tool_param_from_tool_param() {
         let input_schema = InputSchema::Typed {
-            r#type: "object".to_string(),
             properties: Some(json!({
                 "query": {
                     "type": "string",
@@ -430,7 +427,6 @@ mod tests {
             json!({
                 "type": "custom",
                 "input_schema": {
-                    "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",

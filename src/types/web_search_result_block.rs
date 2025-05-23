@@ -15,16 +15,8 @@ pub struct WebSearchResultBlock {
     /// The title of the web page.
     pub title: String,
 
-    /// The type of content block, always "web_search_result" for this struct.
-    #[serde(default = "default_type")]
-    pub r#type: String,
-
     /// The URL of the web page.
     pub url: String,
-}
-
-fn default_type() -> String {
-    "web_search_result".to_string()
 }
 
 impl WebSearchResultBlock {
@@ -38,7 +30,6 @@ impl WebSearchResultBlock {
             encrypted_content: encrypted_content.into(),
             page_age: None,
             title: title.into(),
-            r#type: default_type(),
             url: url.into(),
         }
     }
@@ -67,7 +58,6 @@ mod tests {
             encrypted_content: "encrypted-data-123".to_string(),
             page_age: Some("2 days ago".to_string()),
             title: "Example Page Title".to_string(),
-            r#type: "web_search_result".to_string(),
             url: "https://example.com/page".to_string(),
         };
 
@@ -83,7 +73,6 @@ mod tests {
             encrypted_content: "encrypted-data-123".to_string(),
             page_age: None,
             title: "Example Page Title".to_string(),
-            r#type: "web_search_result".to_string(),
             url: "https://example.com/page".to_string(),
         };
 
@@ -101,7 +90,6 @@ mod tests {
         assert_eq!(block.encrypted_content, "encrypted-data-123");
         assert_eq!(block.page_age, Some("2 days ago".to_string()));
         assert_eq!(block.title, "Example Page Title");
-        assert_eq!(block.r#type, "web_search_result");
         assert_eq!(block.url, "https://example.com/page");
     }
 
