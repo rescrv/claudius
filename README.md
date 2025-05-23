@@ -1,7 +1,7 @@
 # Claudius
 
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
-![Version](https://img.shields.io/badge/version-0.2.0-green.svg)
+![Version](https://img.shields.io/badge/version-0.4.0-green.svg)
 
 Claudius is a Rust SDK for the Anthropic API, providing a clean, idiomatic interface to interact
 with Claude, Anthropic's powerful AI assistant. This library enables seamless integration with all
@@ -18,7 +18,7 @@ use tokio;
 
 #[tokio::main]
 async fn main() -> claudius::Result<()> {
-    // Initialize the client (uses CLAUDIUS_API_KEY environment variable)
+    // Initialize the client (uses CLAUDIUS_API_KEY or ANTHROPIC_API_KEY environment variable)
     let client = Anthropic::new(None)?;
 
     // Create a message from the user
@@ -92,7 +92,7 @@ let client = Anthropic::new(Some("your-api-key".to_string()))?;
 
 ```rust
 // Create a client
-let client = Anthropic::new(None)?; // Uses CLAUDIUS_API_KEY env var
+let client = Anthropic::new(None)?; // Uses CLAUDIUS_API_KEY env var and falls back to ANTHROPIC_API_KEY
 
 // Create a user message
 let message = MessageParam::new_with_string(
