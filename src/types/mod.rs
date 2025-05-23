@@ -51,7 +51,6 @@ mod tool_result_block_param;
 mod tool_text_editor_20250124_param;
 mod tool_union_param;
 mod tool_use_block;
-mod tool_use_block_param;
 mod url_image_source;
 mod url_pdf_source;
 mod usage;
@@ -122,7 +121,6 @@ pub use tool_result_block_param::{
 pub use tool_text_editor_20250124_param::ToolTextEditor20250124Param;
 pub use tool_union_param::ToolUnionParam;
 pub use tool_use_block::ToolUseBlock;
-pub use tool_use_block_param::ToolUseBlockParam;
 pub use url_image_source::UrlImageSource;
 pub use url_pdf_source::UrlPdfSource;
 pub use usage::Usage;

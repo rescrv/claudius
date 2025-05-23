@@ -40,13 +40,10 @@ pub struct WebSearchToolResultError {
     pub error_code: WebSearchErrorCode,
 }
 
-
 impl WebSearchToolResultError {
     /// Creates a new WebSearchToolResultError with the specified error code.
     pub fn new(error_code: WebSearchErrorCode) -> Self {
-        Self {
-            error_code,
-        }
+        Self { error_code }
     }
 
     /// Returns true if the error is due to an invalid tool input.

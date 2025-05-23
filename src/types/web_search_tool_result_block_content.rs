@@ -106,7 +106,8 @@ mod tests {
 
         let json = serde_json::to_string(&content).unwrap();
         let json_value: Value = serde_json::from_str(&json).unwrap();
-        let expected_value: Value = serde_json::from_str(r#"{"error_code":"invalid_tool_input"}"#).unwrap();
+        let expected_value: Value =
+            serde_json::from_str(r#"{"error_code":"invalid_tool_input"}"#).unwrap();
 
         assert_eq!(json_value, expected_value);
     }

@@ -16,7 +16,6 @@ pub struct WebSearchToolResultBlock {
     pub tool_use_id: String,
 }
 
-
 impl WebSearchToolResultBlock {
     /// Creates a new WebSearchToolResultBlock.
     pub fn new<S: Into<String>>(content: WebSearchToolResultBlockContent, tool_use_id: S) -> Self {
@@ -61,7 +60,7 @@ mod tests {
         let block = WebSearchToolResultBlock::new(content, "tool-123");
 
         let json = serde_json::to_string(&block).unwrap();
-        
+
         // Parse both the actual and expected JSON to Values for comparison
         // This avoids issues with key ordering
         let actual: Value = serde_json::from_str(&json).unwrap();
@@ -82,7 +81,7 @@ mod tests {
         let block = WebSearchToolResultBlock::new(content, "tool-123");
 
         let json = serde_json::to_string(&block).unwrap();
-        
+
         // Parse both the actual and expected JSON to Values for comparison
         let actual: Value = serde_json::from_str(&json).unwrap();
         let expected: Value = serde_json::from_str(

@@ -30,9 +30,7 @@ pub struct WebSearchToolRequestErrorParam {
 impl WebSearchToolRequestErrorParam {
     /// Create a new `WebSearchToolRequestErrorParam` with the given error code.
     pub fn new(error_code: WebSearchToolRequestErrorCode) -> Self {
-        Self {
-            error_code,
-        }
+        Self { error_code }
     }
 }
 
