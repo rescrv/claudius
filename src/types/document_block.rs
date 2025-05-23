@@ -126,8 +126,7 @@ mod tests {
                     "type": "base64",
                     "data": "data:application/pdf;base64,JVBERi0xLjcKJeLjz9MKN",
                     "media_type": "application/pdf"
-                },
-                "type": "document"
+                }
             })
         );
     }
@@ -146,8 +145,7 @@ mod tests {
                     "type": "text",
                     "data": "Sample text content",
                     "media_type": "text/plain"
-                },
-                "type": "document"
+                }
             })
         );
     }
@@ -165,8 +163,7 @@ mod tests {
                 "source": {
                     "type": "content",
                     "content": "Sample content"
-                },
-                "type": "document"
+                }
             })
         );
     }
@@ -184,8 +181,7 @@ mod tests {
                 "source": {
                     "type": "url",
                     "url": "https://example.com/document.pdf"
-                },
-                "type": "document"
+                }
             })
         );
     }
@@ -211,7 +207,6 @@ mod tests {
                     "type": "url",
                     "url": "https://example.com/document.pdf"
                 },
-                "type": "document",
                 "cache_control": {
                     "type": "ephemeral"
                 },
