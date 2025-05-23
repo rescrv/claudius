@@ -5,9 +5,10 @@ use crate::types::CacheControlEphemeral;
 
 /// Represents the schema for a tool input.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(untagged)]
+#[serde(tag = "type")]
 pub enum InputSchema {
     /// A typed input schema with an object type.
+    #[serde(rename = "typed")]
     Typed {
         /// Optional properties of the schema.
         #[serde(skip_serializing_if = "Option::is_none")]
