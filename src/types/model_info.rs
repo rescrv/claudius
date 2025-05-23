@@ -13,7 +13,7 @@ pub struct ModelInfo {
     /// RFC 3339 datetime string representing the time at which the model was released.
     ///
     /// May be set to an epoch value if the release date is unknown.
-    #[serde(rename = "created_at")]
+    #[serde(rename = "created_at", with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 
     /// A human-readable name for the model.
@@ -24,7 +24,7 @@ pub struct ModelInfo {
     ///
     /// For Models, this is always `"model"`.
     #[serde(rename = "type")]
-    pub type_field: ModelType,
+    pub r#type: ModelType,
 }
 
 /// Type of the model object.
@@ -48,7 +48,7 @@ mod tests {
             id: "claude-3-7-sonnet-20250219".to_string(),
             created_at: datetime!(2025-02-19 0:00:00 UTC),
             display_name: "Claude 3.7 Sonnet".to_string(),
-            type_field: ModelType::Model,
+            r#type: ModelType::Model,
         };
 
         let json = serde_json::to_string(&model_info).unwrap();
@@ -64,6 +64,6 @@ mod tests {
         assert_eq!(model_info.id, "claude-3-7-sonnet-20250219");
         assert_eq!(model_info.created_at, datetime!(2025-02-19 0:00:00 UTC));
         assert_eq!(model_info.display_name, "Claude 3.7 Sonnet");
-        assert_eq!(model_info.type_field, ModelType::Model);
+        assert_eq!(model_info.r#type, ModelType::Model);
     }
 }
