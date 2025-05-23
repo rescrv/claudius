@@ -48,10 +48,6 @@ pub struct ToolParam {
     /// aspects of the tool input JSON schema.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-
-    /// The type of the tool, always "custom" when specified.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub r#type: Option<String>,
 }
 
 impl ToolParam {
@@ -62,7 +58,6 @@ impl ToolParam {
             input_schema,
             cache_control: None,
             description: None,
-            r#type: None,
         }
     }
 
@@ -75,12 +70,6 @@ impl ToolParam {
     /// Add cache control to the tool.
     pub fn with_cache_control(mut self, cache_control: CacheControlEphemeral) -> Self {
         self.cache_control = Some(cache_control);
-        self
-    }
-
-    /// Set the type to "custom".
-    pub fn with_custom_type(mut self) -> Self {
-        self.r#type = Some("custom".to_string());
         self
     }
 }
@@ -106,8 +95,7 @@ mod tests {
 
         let tool = ToolParam::new("search".to_string(), input_schema)
             .with_description("Search for information".to_string())
-            .with_cache_control(cache_control)
-            .with_custom_type();
+            .with_cache_control(cache_control);
 
         let json = to_value(&tool).unwrap();
         assert_eq!(
@@ -125,8 +113,7 @@ mod tests {
                 "cache_control": {
                     "type": "ephemeral"
                 },
-                "description": "Search for information",
-                "type": "custom"
+                "description": "Search for information"
             })
         );
     }

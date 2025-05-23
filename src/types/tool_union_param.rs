@@ -14,18 +14,22 @@ use crate::types::{
 ///
 /// The API accepts any of these tool types when tools are provided to Claude.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(untagged)]
+#[serde(tag = "type")]
 pub enum ToolUnionParam {
     /// A custom tool with a defined schema
+    #[serde(rename = "custom")]
     CustomTool(ToolParam),
-    
+
     /// A bash tool for executing shell commands
+    #[serde(rename = "bash_20250124")]
     Bash20250124(ToolBash20250124Param),
-    
+
     /// A text editor tool for making changes to text
+    #[serde(rename = "text_editor_20250124")]
     TextEditor20250124(ToolTextEditor20250124Param),
-    
+
     /// A web search tool for retrieving information from the internet
+    #[serde(rename = "web_search_20250305")]
     WebSearch20250305(WebSearchTool20250305Param),
 }
 
@@ -72,9 +76,8 @@ mod tests {
 
         let custom_tool = ToolParam::new("search".to_string(), input_schema)
             .with_description("Search for information".to_string())
-            .with_cache_control(CacheControlEphemeral::new())
-            .with_custom_type();
-        
+            .with_cache_control(CacheControlEphemeral::new());
+
         let tool = ToolUnionParam::CustomTool(custom_tool);
 
         let json = to_value(&tool).unwrap();
@@ -146,7 +149,7 @@ mod tests {
             .with_max_uses(5)
             .with_user_location(user_location)
             .with_cache_control(CacheControlEphemeral::new());
-            
+
         let tool = ToolUnionParam::WebSearch20250305(web_search_tool);
 
         let json = to_value(&tool).unwrap();
@@ -191,7 +194,6 @@ mod tests {
             ToolUnionParam::CustomTool(t) => {
                 assert_eq!(t.name, "search");
                 assert_eq!(t.description, Some("Search for information".to_string()));
-                assert_eq!(t.r#type, Some("custom".to_string()));
             }
             _ => panic!("Expected CustomTool variant"),
         }
@@ -206,7 +208,6 @@ mod tests {
         match tool {
             ToolUnionParam::Bash20250124(t) => {
                 assert_eq!(t.name, "bash");
-                assert_eq!(t.r#type, "bash_20250124");
             }
             _ => panic!("Expected Bash20250124 variant"),
         }

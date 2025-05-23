@@ -13,10 +13,6 @@ pub struct ToolBash20250124Param {
     #[serde(default = "default_name")]
     pub name: String,
 
-    /// The type of the tool, which is always "bash_20250124".
-    #[serde(default = "default_type")]
-    pub r#type: String,
-
     /// Create a cache control breakpoint at this content block.
     /// If provided, this instructs the API to not cache this tool or its results.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -27,16 +23,11 @@ fn default_name() -> String {
     "bash".to_string()
 }
 
-fn default_type() -> String {
-    "bash_20250124".to_string()
-}
-
 impl ToolBash20250124Param {
     /// Creates a new Bash tool parameter object with default settings.
     pub fn new() -> Self {
         Self {
             name: default_name(),
-            r#type: default_type(),
             cache_control: None,
         }
     }
@@ -67,8 +58,7 @@ mod tests {
         assert_eq!(
             json,
             json!({
-                "name": "bash",
-                "type": "bash_20250124"
+                "name": "bash"
             })
         );
     }
@@ -82,7 +72,6 @@ mod tests {
             json,
             json!({
                 "name": "bash",
-                "type": "bash_20250124",
                 "cache_control": {
                     "type": "ephemeral"
                 }
@@ -94,7 +83,6 @@ mod tests {
     fn test_tool_bash_param_deserialization() {
         let json = json!({
             "name": "bash",
-            "type": "bash_20250124",
             "cache_control": {
                 "type": "ephemeral"
             }
@@ -102,7 +90,6 @@ mod tests {
 
         let param: ToolBash20250124Param = serde_json::from_value(json).unwrap();
         assert_eq!(param.name, "bash");
-        assert_eq!(param.r#type, "bash_20250124");
         assert!(param.cache_control.is_some());
     }
 }

@@ -84,10 +84,6 @@ pub struct WebSearchTool20250305Param {
     #[serde(default = "default_name")]
     pub name: String,
 
-    /// The type of tool, identifying the version.
-    #[serde(default = "default_tool_type")]
-    pub r#type: String,
-
     /// If provided, only these domains will be included in results.
     ///
     /// Cannot be used alongside `blocked_domains`.
@@ -117,16 +113,11 @@ fn default_name() -> String {
     "web_search".to_string()
 }
 
-fn default_tool_type() -> String {
-    "web_search_20250305".to_string()
-}
-
 impl WebSearchTool20250305Param {
     /// Creates a new WebSearchTool20250305Param instance with default values
     pub fn new() -> Self {
         Self {
             name: default_name(),
-            r#type: default_tool_type(),
             allowed_domains: None,
             blocked_domains: None,
             cache_control: None,
@@ -233,7 +224,7 @@ mod tests {
             .with_cache_control(CacheControlEphemeral::new());
 
         let json = serde_json::to_string(&web_search_tool).unwrap();
-        let expected = r#"{"name":"web_search","type":"web_search_20250305","allowed_domains":["example.com","example.org"],"cache_control":{"type":"ephemeral"},"max_uses":5,"user_location":{"type":"approximate","city":"San Francisco","country":"US"}}"#;
+        let expected = r#"{"name":"web_search","allowed_domains":["example.com","example.org"],"cache_control":{"type":"ephemeral"},"max_uses":5,"user_location":{"type":"approximate","city":"San Francisco","country":"US"}}"#;
 
         assert_eq!(json, expected);
     }
@@ -242,7 +233,6 @@ mod tests {
     fn test_web_search_tool_deserialization() {
         let json = r#"{
             "name": "web_search",
-            "type": "web_search_20250305",
             "allowed_domains": ["example.com", "example.org"],
             "cache_control": {"type": "ephemeral"},
             "max_uses": 5,
@@ -256,7 +246,6 @@ mod tests {
         let web_search_tool: WebSearchTool20250305Param = serde_json::from_str(json).unwrap();
 
         assert_eq!(web_search_tool.name, "web_search");
-        assert_eq!(web_search_tool.r#type, "web_search_20250305");
         assert_eq!(
             web_search_tool.allowed_domains,
             Some(vec!["example.com".to_string(), "example.org".to_string()])
