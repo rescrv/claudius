@@ -47,7 +47,6 @@ mod thinking_config;
 mod thinking_delta;
 mod tool_bash_20250124_param;
 mod tool_choice;
-mod tool_choice_tool_param;
 mod tool_param;
 mod tool_result_block_param;
 mod tool_text_editor_20250124_param;
@@ -118,7 +117,6 @@ pub use thinking_config::ThinkingConfig;
 pub use thinking_delta::ThinkingDelta;
 pub use tool_bash_20250124_param::ToolBash20250124Param;
 pub use tool_choice::ToolChoice;
-pub use tool_choice_tool_param::ToolChoiceToolParam;
 pub use tool_param::{InputSchema, ToolParam};
 pub use tool_result_block_param::{
     ToolResultBlockParam, ToolResultBlockParamContent, ToolResultContent,
