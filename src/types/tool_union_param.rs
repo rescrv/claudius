@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+use crate::types::{
+    ToolBash20250124Param, ToolParam, ToolTextEditor20250124Param, WebSearchTool20250305Param,
+};
+
 /// Union type for different tool parameter types.
 ///
 /// This type represents a union of different tool types that can be used with Claude, including:
@@ -12,16 +16,199 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum ToolUnionParam {
-    // Note: These variants will be enabled as each tool type is implemented
-    // TODO: Add CustomTool(ToolParam) when implemented
-    // TODO: Add Bash20250124(ToolBash20250124Param) when implemented
-    // TODO: Add TextEditor20250124(ToolTextEditor20250124Param) when implemented
-    // TODO: Add WebSearch20250305(WebSearchTool20250305Param) when implemented
+    /// A custom tool with a defined schema
+    CustomTool(ToolParam),
+    
+    /// A bash tool for executing shell commands
+    Bash20250124(ToolBash20250124Param),
+    
+    /// A text editor tool for making changes to text
+    TextEditor20250124(ToolTextEditor20250124Param),
+    
+    /// A web search tool for retrieving information from the internet
+    WebSearch20250305(WebSearchTool20250305Param),
 }
 
-// Note: Factory methods will be added as tool types are implemented
+impl ToolUnionParam {
+    /// Creates a new custom tool
+    pub fn new_custom_tool(name: String, input_schema: crate::types::InputSchema) -> Self {
+        Self::CustomTool(ToolParam::new(name, input_schema))
+    }
+
+    /// Creates a new bash tool
+    pub fn new_bash_tool() -> Self {
+        Self::Bash20250124(ToolBash20250124Param::new())
+    }
+
+    /// Creates a new text editor tool
+    pub fn new_text_editor_tool() -> Self {
+        Self::TextEditor20250124(ToolTextEditor20250124Param::new())
+    }
+
+    /// Creates a new web search tool
+    pub fn new_web_search_tool() -> Self {
+        Self::WebSearch20250305(WebSearchTool20250305Param::new())
+    }
+}
 
 #[cfg(test)]
 mod tests {
-    // Tests will be added as tool types are implemented
+    use super::*;
+    use crate::types::{CacheControlEphemeral, InputSchema, UserLocation};
+    use serde_json::{json, to_value};
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_custom_tool() {
+        let input_schema = InputSchema::Typed {
+            properties: Some(json!({
+                "query": {
+                    "type": "string",
+                    "description": "The search query"
+                }
+            })),
+            additional: HashMap::new(),
+        };
+
+        let custom_tool = ToolParam::new("search".to_string(), input_schema)
+            .with_description("Search for information".to_string())
+            .with_cache_control(CacheControlEphemeral::new())
+            .with_custom_type();
+        
+        let tool = ToolUnionParam::CustomTool(custom_tool);
+
+        let json = to_value(&tool).unwrap();
+        assert_eq!(
+            json,
+            json!({
+                "input_schema": {
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The search query"
+                        }
+                    }
+                },
+                "name": "search",
+                "cache_control": {
+                    "type": "ephemeral"
+                },
+                "description": "Search for information",
+                "type": "custom"
+            })
+        );
+    }
+
+    #[test]
+    fn test_bash_tool() {
+        let bash_tool = ToolBash20250124Param::new().with_ephemeral_cache_control();
+        let tool = ToolUnionParam::Bash20250124(bash_tool);
+
+        let json = to_value(&tool).unwrap();
+        assert_eq!(
+            json,
+            json!({
+                "name": "bash",
+                "type": "bash_20250124",
+                "cache_control": {
+                    "type": "ephemeral"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn test_text_editor_tool() {
+        let text_editor_tool = ToolTextEditor20250124Param::new().with_ephemeral_cache_control();
+        let tool = ToolUnionParam::TextEditor20250124(text_editor_tool);
+
+        let json = to_value(&tool).unwrap();
+        assert_eq!(
+            json,
+            json!({
+                "name": "str_replace_editor",
+                "type": "text_editor_20250124",
+                "cache_control": {
+                    "type": "ephemeral"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn test_web_search_tool() {
+        let user_location = UserLocation::new()
+            .with_city("San Francisco")
+            .with_country("US");
+
+        let web_search_tool = WebSearchTool20250305Param::new()
+            .with_allowed_domains(vec!["example.com".to_string(), "example.org".to_string()])
+            .with_max_uses(5)
+            .with_user_location(user_location)
+            .with_cache_control(CacheControlEphemeral::new());
+            
+        let tool = ToolUnionParam::WebSearch20250305(web_search_tool);
+
+        let json = to_value(&tool).unwrap();
+        assert_eq!(
+            json,
+            json!({
+                "name": "web_search",
+                "type": "web_search_20250305",
+                "allowed_domains": ["example.com", "example.org"],
+                "cache_control": {
+                    "type": "ephemeral"
+                },
+                "max_uses": 5,
+                "user_location": {
+                    "type": "approximate",
+                    "city": "San Francisco",
+                    "country": "US"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn test_deserialization() {
+        // Test custom tool deserialization
+        let json = json!({
+            "input_schema": {
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query"
+                    }
+                }
+            },
+            "name": "search",
+            "description": "Search for information",
+            "type": "custom"
+        });
+
+        let tool: ToolUnionParam = serde_json::from_value(json).unwrap();
+        match tool {
+            ToolUnionParam::CustomTool(t) => {
+                assert_eq!(t.name, "search");
+                assert_eq!(t.description, Some("Search for information".to_string()));
+                assert_eq!(t.r#type, Some("custom".to_string()));
+            }
+            _ => panic!("Expected CustomTool variant"),
+        }
+
+        // Test bash tool deserialization
+        let json = json!({
+            "name": "bash",
+            "type": "bash_20250124"
+        });
+
+        let tool: ToolUnionParam = serde_json::from_value(json).unwrap();
+        match tool {
+            ToolUnionParam::Bash20250124(t) => {
+                assert_eq!(t.name, "bash");
+                assert_eq!(t.r#type, "bash_20250124");
+            }
+            _ => panic!("Expected Bash20250124 variant"),
+        }
+    }
 }

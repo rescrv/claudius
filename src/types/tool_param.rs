@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::types::CacheControlEphemeral;
 
 /// Represents the schema for a tool input.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum InputSchema {
     /// A typed input schema with an object type.
@@ -23,7 +23,7 @@ pub enum InputSchema {
 }
 
 /// Common parameters for a custom tool.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolParam {
     /// [JSON schema](https://json-schema.org/draft/2020-12) for this tool's input.
     ///
