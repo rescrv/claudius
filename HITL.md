@@ -14,10 +14,6 @@
 [ ] src/types/server_tool_use_block_param.rs
 [ ] src/types/server_tool_use_block.rs
 [ ] src/types/tool_bash_20250124_param.rs
-[ ] src/types/tool_choice_any_param.rs
-[ ] src/types/tool_choice_auto_param.rs
-[ ] src/types/tool_choice_none_param.rs
-[ ] src/types/tool_choice_param.rs
 [ ] src/types/tool_choice_tool_param.rs
 [ ] src/types/tool_param.rs
 [ ] src/types/tool_result_block_param.rs
@@ -87,6 +83,10 @@
 [X] src/types/thinking_block.rs
 [X] src/types/thinking_config.rs
 [X] src/types/thinking_delta.rs
+[X] src/types/tool_choice_any_param.rs
+[X] src/types/tool_choice_auto_param.rs
+[X] src/types/tool_choice_none_param.rs
+[X] src/types/tool_choice_param.rs
 [X] src/types/url_image_source.rs
 [X] src/types/url_pdf_source.rs
 [X] src/utils/mod.rs
