@@ -16,18 +16,10 @@ pub struct ServerToolUseBlock {
     /// Currently only "web_search" is supported.
     #[serde(default = "default_name")]
     pub name: String,
-
-    /// The type of content block, always "server_tool_use" for this struct.
-    #[serde(default = "default_type")]
-    pub r#type: String,
 }
 
 fn default_name() -> String {
     "web_search".to_string()
-}
-
-fn default_type() -> String {
-    "server_tool_use".to_string()
 }
 
 impl ServerToolUseBlock {
@@ -38,7 +30,6 @@ impl ServerToolUseBlock {
             id: id.into(),
             input,
             name: default_name(),
-            r#type: default_type(),
         }
     }
 
@@ -65,7 +56,7 @@ mod tests {
         let block = ServerToolUseBlock::new("tool_123", input_json);
 
         let json = serde_json::to_string(&block).unwrap();
-        let expected = r#"{"id":"tool_123","input":{"query":"weather in San Francisco"},"name":"web_search","type":"server_tool_use"}"#;
+        let expected = r#"{"id":"tool_123","input":{"query":"weather in San Francisco"},"name":"web_search"}"#;
 
         assert_eq!(json, expected);
     }
@@ -75,19 +66,18 @@ mod tests {
         let block = ServerToolUseBlock::new_web_search("tool_123", "weather in San Francisco");
 
         let json = serde_json::to_string(&block).unwrap();
-        let expected = r#"{"id":"tool_123","input":{"query":"weather in San Francisco"},"name":"web_search","type":"server_tool_use"}"#;
+        let expected = r#"{"id":"tool_123","input":{"query":"weather in San Francisco"},"name":"web_search"}"#;
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"id":"tool_123","input":{"query":"weather in San Francisco"},"name":"web_search","type":"server_tool_use"}"#;
+        let json = r#"{"id":"tool_123","input":{"query":"weather in San Francisco"},"name":"web_search"}"#;
         let block: ServerToolUseBlock = serde_json::from_str(json).unwrap();
 
         assert_eq!(block.id, "tool_123");
         assert_eq!(block.name, "web_search");
-        assert_eq!(block.r#type, "server_tool_use");
 
         let expected_input = serde_json::json!({
             "query": "weather in San Francisco"
