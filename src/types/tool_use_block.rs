@@ -14,15 +14,8 @@ pub struct ToolUseBlock {
 
     /// The name of the tool being invoked.
     pub name: String,
-
-    /// The type of content block, always "tool_use" for this struct.
-    #[serde(default = "default_type")]
-    pub r#type: String,
 }
 
-fn default_type() -> String {
-    "tool_use".to_string()
-}
 
 impl ToolUseBlock {
     /// Creates a new ToolUseBlock with the specified id, name, and input.
@@ -31,7 +24,6 @@ impl ToolUseBlock {
             id: id.into(),
             name: name.into(),
             input,
-            r#type: default_type(),
         }
     }
 }
@@ -50,19 +42,18 @@ mod tests {
         let block = ToolUseBlock::new("tool_123", "search", input_json);
 
         let json = serde_json::to_string(&block).unwrap();
-        let expected = r#"{"id":"tool_123","input":{"limit":5,"query":"weather in San Francisco"},"name":"search","type":"tool_use"}"#;
+        let expected = r#"{"id":"tool_123","input":{"limit":5,"query":"weather in San Francisco"},"name":"search"}"#;
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"id":"tool_123","input":{"query":"weather in San Francisco","limit":5},"name":"search","type":"tool_use"}"#;
+        let json = r#"{"id":"tool_123","input":{"query":"weather in San Francisco","limit":5},"name":"search"}"#;
         let block: ToolUseBlock = serde_json::from_str(json).unwrap();
 
         assert_eq!(block.id, "tool_123");
         assert_eq!(block.name, "search");
-        assert_eq!(block.r#type, "tool_use");
 
         let expected_input = serde_json::json!({
             "query": "weather in San Francisco",
