@@ -30,8 +30,8 @@ impl From<ImageBlock> for ContentBlockSourceContentParam {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::UrlImageSource;
     use crate::types::base64_image_source::{Base64ImageSource, ImageMediaType};
+    use crate::types::UrlImageSource;
     use serde_json::{json, to_value};
 
     #[test]

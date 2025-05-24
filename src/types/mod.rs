@@ -64,7 +64,7 @@ mod web_search_tool_result_block_param_content;
 mod web_search_tool_result_error;
 
 // Exports
-pub use base64_image_source::Base64ImageSource;
+pub use base64_image_source::{Base64ImageSource, ImageMediaType};
 pub use base64_pdf_source::Base64PdfSource;
 pub use cache_control_ephemeral::CacheControlEphemeral;
 pub use citation_char_location::CitationCharLocation;

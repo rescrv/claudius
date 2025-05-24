@@ -4,6 +4,8 @@ use crate::types::ContentBlockSourceContentParam;
 
 /// Parameter for a content block source.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+#[serde(rename = "content")]
 pub struct ContentBlockSourceParam {
     /// The content of the source, which can be either a string or an array of content items.
     pub content: ContentBlockSourceContent,
