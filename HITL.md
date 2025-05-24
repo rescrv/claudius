@@ -3,12 +3,6 @@
 [ ] src/lib.rs
 [ ] src/types/tool_bash_20250124_param.rs
 [ ] src/types/tool_result_block_param.rs
-[ ] src/types/tool_text_editor_20250124_param.rs
-[ ] src/types/web_search_tool_20250305_param.rs
-[ ] src/types/web_search_tool_result_block_content.rs
-[ ] src/types/web_search_tool_result_block_param_content.rs
-[ ] src/types/web_search_tool_result_block_param.rs
-[ ] src/types/web_search_tool_result_block.rs
 [X] src/types/base64_image_source.rs
 [X] src/types/base64_pdf_source.rs
 [X] src/types/cache_control_ephemeral.rs
@@ -79,6 +73,7 @@
 [X] src/types/tool_choice_param.rs
 [X] src/types/tool_choice_tool_param.rs
 [X] src/types/tool_param.rs
+[X] src/types/tool_text_editor_20250124_param.rs
 [X] src/types/tool_union_param.rs
 [X] src/types/tool_use_block_param.rs
 [X] src/types/tool_use_block.rs
@@ -87,7 +82,12 @@
 [X] src/types/usage.rs
 [X] src/types/web_search_result_block_param.rs
 [X] src/types/web_search_result_block.rs
+[X] src/types/web_search_tool_20250305_param.rs
 [X] src/types/web_search_tool_request_error_param.rs
+[X] src/types/web_search_tool_result_block_content.rs
+[X] src/types/web_search_tool_result_block_param_content.rs
+[X] src/types/web_search_tool_result_block_param.rs
+[X] src/types/web_search_tool_result_block.rs
 [X] src/types/web_search_tool_result_error.rs
 [X] src/utils/mod.rs
 [X] src/utils/time.rs
