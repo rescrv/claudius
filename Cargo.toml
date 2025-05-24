@@ -19,3 +19,7 @@ tokio-util = { version = "0.7", features = ["codec"] }
 
 [dev-dependencies]
 tokio = { version = "1.36", features = ["full", "test-util", "macros"] }
+
+[[example]]
+name = "retry_example"
+path = "examples/retry_example.rs"

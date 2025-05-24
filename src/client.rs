@@ -6,7 +6,9 @@ use reqwest::{Client as ReqwestClient, Response, header};
 use serde::Deserialize;
 use std::env;
 use std::time::Duration;
+use tokio::time::sleep;
 
+use crate::backoff::ExponentialBackoff;
 use crate::error::{Error, Result};
 use crate::types::{
     ContentBlockDeltaEvent, ContentBlockStartEvent, ContentBlockStopEvent, Message,
@@ -25,6 +27,9 @@ pub struct Anthropic {
     client: ReqwestClient,
     base_url: String,
     timeout: Duration,
+    max_retries: usize,
+    throughput_ops_sec: f64,
+    reserve_capacity: f64,
 }
 
 impl Anthropic {
@@ -61,6 +66,9 @@ impl Anthropic {
             client,
             base_url: DEFAULT_API_URL.to_string(),
             timeout,
+            max_retries: 3,
+            throughput_ops_sec: 1.0/60.0,
+            reserve_capacity: 1.0/60.0,
         })
     }
 
@@ -88,6 +96,23 @@ impl Anthropic {
         self
     }
 
+    /// Set the maximum number of retries for this client.
+    ///
+    /// This method allows you to specify how many times to retry failed requests.
+    pub fn with_max_retries(mut self, max_retries: usize) -> Self {
+        self.max_retries = max_retries;
+        self
+    }
+
+    /// Set the backoff parameters for this client.
+    ///
+    /// This method allows you to configure the exponential backoff algorithm.
+    pub fn with_backoff_params(mut self, throughput_ops_sec: f64, reserve_capacity: f64) -> Self {
+        self.throughput_ops_sec = throughput_ops_sec;
+        self.reserve_capacity = reserve_capacity;
+        self
+    }
+
     /// Set both a custom base URL and timeout for this client.
     ///
     /// This is a convenience method that chains with_base_url and with_timeout.
@@ -112,6 +137,59 @@ impl Anthropic {
             HeaderValue::from_static(ANTHROPIC_API_VERSION),
         );
         headers
+    }
+
+    /// Retry wrapper that implements exponential backoff with header-based retry-after
+    async fn retry_with_backoff<F, Fut, T>(&self, operation: F) -> Result<T>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        let backoff = ExponentialBackoff::new(self.throughput_ops_sec, self.reserve_capacity);
+        let mut last_error = None;
+
+        for attempt in 0..=self.max_retries {
+            match operation().await {
+                Ok(result) => return Ok(result),
+                Err(error) => {
+                    // Check if error is retryable
+                    if !error.is_retryable() {
+                        return Err(error);
+                    }
+
+                    // Don't sleep on the last attempt
+                    if attempt == self.max_retries {
+                        last_error = Some(error);
+                        break;
+                    }
+
+                    // Calculate backoff duration
+                    let exp_backoff_duration = backoff.next();
+                    
+                    // Get retry-after from error if available
+                    let header_backoff_duration = match &error {
+                        Error::RateLimit { retry_after: Some(seconds), .. } => {
+                            Some(Duration::from_secs(*seconds))
+                        }
+                        Error::ServiceUnavailable { retry_after: Some(seconds), .. } => {
+                            Some(Duration::from_secs(*seconds))
+                        }
+                        _ => None,
+                    };
+
+                    // Take the maximum of exponential backoff and header-based backoff
+                    let sleep_duration = match header_backoff_duration {
+                        Some(header_duration) => exp_backoff_duration.max(header_duration),
+                        None => exp_backoff_duration,
+                    };
+
+                    sleep(sleep_duration).await;
+                    last_error = Some(error);
+                }
+            }
+        }
+
+        Err(last_error.unwrap())
     }
 
     /// Process API response errors and convert to our Error type
@@ -188,38 +266,40 @@ impl Anthropic {
 
     /// Send a message to the API and get a non-streaming response.
     pub async fn send(&self, params: MessageCreateParams) -> Result<Message> {
-        let url = format!("{}messages", self.base_url);
+        self.retry_with_backoff(|| async {
+            let url = format!("{}messages", self.base_url);
 
-        let response = self
-            .client
-            .post(&url)
-            .headers(self.default_headers())
-            .json(&params)
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    Error::timeout(
-                        format!("Request timed out: {}", e),
-                        Some(self.timeout.as_secs_f64()),
-                    )
-                } else if e.is_connect() {
-                    Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
-                } else {
-                    Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
-                }
-            })?;
+            let response = self
+                .client
+                .post(&url)
+                .headers(self.default_headers())
+                .json(&params)
+                .send()
+                .await
+                .map_err(|e| {
+                    if e.is_timeout() {
+                        Error::timeout(
+                            format!("Request timed out: {}", e),
+                            Some(self.timeout.as_secs_f64()),
+                        )
+                    } else if e.is_connect() {
+                        Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
+                    } else {
+                        Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
+                    }
+                })?;
 
-        if !response.status().is_success() {
-            return Err(Self::process_error_response(response).await);
-        }
+            if !response.status().is_success() {
+                return Err(Self::process_error_response(response).await);
+            }
 
-        response.json::<Message>().await.map_err(|e| {
-            Error::serialization(
-                format!("Failed to parse response: {}", e),
-                Some(Box::new(e)),
-            )
-        })
+            response.json::<Message>().await.map_err(|e| {
+                Error::serialization(
+                    format!("Failed to parse response: {}", e),
+                    Some(Box::new(e)),
+                )
+            })
+        }).await
     }
 
     /// Send a message to the API and get a streaming response.
@@ -232,37 +312,41 @@ impl Anthropic {
         // Ensure stream is enabled
         params.stream = true;
 
-        let url = format!("{}messages", self.base_url);
+        let response = self.retry_with_backoff(|| async {
+            let url = format!("{}messages", self.base_url);
 
-        let mut headers = self.default_headers();
-        headers.insert(
-            header::ACCEPT,
-            HeaderValue::from_static("text/event-stream"),
-        );
+            let mut headers = self.default_headers();
+            headers.insert(
+                header::ACCEPT,
+                HeaderValue::from_static("text/event-stream"),
+            );
 
-        let response = self
-            .client
-            .post(&url)
-            .headers(headers)
-            .json(&params)
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    Error::timeout(
-                        format!("Request timed out: {}", e),
-                        Some(self.timeout.as_secs_f64()),
-                    )
-                } else if e.is_connect() {
-                    Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
-                } else {
-                    Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
-                }
-            })?;
+            let response = self
+                .client
+                .post(&url)
+                .headers(headers)
+                .json(&params)
+                .send()
+                .await
+                .map_err(|e| {
+                    if e.is_timeout() {
+                        Error::timeout(
+                            format!("Request timed out: {}", e),
+                            Some(self.timeout.as_secs_f64()),
+                        )
+                    } else if e.is_connect() {
+                        Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
+                    } else {
+                        Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
+                    }
+                })?;
 
-        if !response.status().is_success() {
-            return Err(Self::process_error_response(response).await);
-        }
+            if !response.status().is_success() {
+                return Err(Self::process_error_response(response).await);
+            }
+
+            Ok(response)
+        }).await?;
 
         // Get the byte stream from the response
         let stream = response.bytes_stream();
@@ -279,38 +363,40 @@ impl Anthropic {
         &self,
         params: MessageCountTokensParams,
     ) -> Result<MessageTokensCount> {
-        let url = format!("{}messages/count_tokens", self.base_url);
+        self.retry_with_backoff(|| async {
+            let url = format!("{}messages/count_tokens", self.base_url);
 
-        let response = self
-            .client
-            .post(&url)
-            .headers(self.default_headers())
-            .json(&params)
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    Error::timeout(
-                        format!("Request timed out: {}", e),
-                        Some(self.timeout.as_secs_f64()),
-                    )
-                } else if e.is_connect() {
-                    Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
-                } else {
-                    Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
-                }
-            })?;
+            let response = self
+                .client
+                .post(&url)
+                .headers(self.default_headers())
+                .json(&params)
+                .send()
+                .await
+                .map_err(|e| {
+                    if e.is_timeout() {
+                        Error::timeout(
+                            format!("Request timed out: {}", e),
+                            Some(self.timeout.as_secs_f64()),
+                        )
+                    } else if e.is_connect() {
+                        Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
+                    } else {
+                        Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
+                    }
+                })?;
 
-        if !response.status().is_success() {
-            return Err(Self::process_error_response(response).await);
-        }
+            if !response.status().is_success() {
+                return Err(Self::process_error_response(response).await);
+            }
 
-        response.json::<MessageTokensCount>().await.map_err(|e| {
-            Error::serialization(
-                format!("Failed to parse response: {}", e),
-                Some(Box::new(e)),
-            )
-        })
+            response.json::<MessageTokensCount>().await.map_err(|e| {
+                Error::serialization(
+                    format!("Failed to parse response: {}", e),
+                    Some(Box::new(e)),
+                )
+            })
+        }).await
     }
 }
 
@@ -419,5 +505,101 @@ fn extract_event(buffer: &str) -> Option<(Result<MessageStreamEvent>, String)> {
             }
         }
         event_type => Some((Err(Error::todo(format!("handle {}", event_type))), rest)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_retry_logic_with_backoff() {
+        let client = Anthropic {
+            api_key: "test".to_string(),
+            client: ReqwestClient::new(),
+            base_url: "http://localhost".to_string(),
+            timeout: Duration::from_secs(1),
+            max_retries: 2,
+            throughput_ops_sec: 1.0/60.0,
+            reserve_capacity: 1.0/60.0,
+        };
+
+        let attempt_counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = attempt_counter.clone();
+
+        let result = client.retry_with_backoff(|| {
+            let counter = counter_clone.clone();
+            async move {
+                let attempt = counter.fetch_add(1, Ordering::SeqCst);
+                match attempt {
+                    0 | 1 => Err(Error::rate_limit("Rate limited", Some(1))),
+                    _ => Ok("success".to_string()),
+                }
+            }
+        }).await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "success");
+        assert_eq!(attempt_counter.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn test_retry_logic_with_non_retryable_error() {
+        let client = Anthropic {
+            api_key: "test".to_string(),
+            client: ReqwestClient::new(),
+            base_url: "http://localhost".to_string(),
+            timeout: Duration::from_secs(1),
+            max_retries: 2,
+            throughput_ops_sec: 1.0/60.0,
+            reserve_capacity: 1.0/60.0,
+        };
+
+        let attempt_counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = attempt_counter.clone();
+
+        let result: Result<String> = client.retry_with_backoff(|| {
+            let counter = counter_clone.clone();
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Err(Error::authentication("Invalid API key"))
+            }
+        }).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_authentication());
+        // Should only attempt once since authentication errors are not retryable
+        assert_eq!(attempt_counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_retry_logic_max_retries_exceeded() {
+        let client = Anthropic {
+            api_key: "test".to_string(),
+            client: ReqwestClient::new(),
+            base_url: "http://localhost".to_string(),
+            timeout: Duration::from_secs(1),
+            max_retries: 2,
+            throughput_ops_sec: 1.0/60.0,
+            reserve_capacity: 1.0/60.0,
+        };
+
+        let attempt_counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = attempt_counter.clone();
+
+        let result: Result<String> = client.retry_with_backoff(|| {
+            let counter = counter_clone.clone();
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Err(Error::rate_limit("Always rate limited", Some(1)))
+            }
+        }).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_rate_limit());
+        // Should attempt max_retries + 1 times (3 total: initial + 2 retries)
+        assert_eq!(attempt_counter.load(Ordering::SeqCst), 3);
     }
 }
