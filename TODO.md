@@ -24,31 +24,31 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
 
 ### Client Architecture
 - [X] Define core client traits and structs
-  - [ ] Implement `Client` async_trait
+  - [-] Implement `Client` async_trait
   - [X] Create the main `Anthropic` client struct
-  - [ ] Add support for client options similar to TypeScript (e.g., `withOptions` method)
+  - [-] Add support for client options similar to TypeScript (e.g., `withOptions` method)
 - [X] Implement authentication mechanisms
   - [X] API key authentication via header
-  - [ ] Auth token authentication via Bearer
+  - [-] Auth token authentication via Bearer
   - [X] Environment variable fallbacks
 - [X] Set up configuration system
   - [X] Timeouts (with calculation based on token count for non-streaming requests)
-  - [ ] Retry mechanisms with exponential backoff
+  - [X] Retry mechanisms with exponential backoff
   - [X] Base URL configuration
   - [X] Default headers with API versioning
-  - [ ] Client-level options customization
+  - [-] Client-level options customization
 
 ### HTTP Layer
 - [X] Evaluate HTTP client options (reqwest, hyper, etc.)
 - [X] Implement request building with proper validation
 - [X] Implement response parsing
 - [X] Design stream handling framework
-- [ ] Enable customizable fetch options
+- [-] Enable customizable fetch options
 - [ ] Implement idempotency keys for non-GET requests
 - [X] Implement error handling and mapping to domain-specific errors
 - [X] Set up connection pooling and keep-alive settings
-- [ ] Add header/query parameter sanitization
-- [ ] Support for custom headers, custom query parameters
+- [-] Add header/query parameter sanitization
+- [-] Support for custom headers, custom query parameters
 
 ### Error Handling
 - [X] Define comprehensive error types
@@ -56,11 +56,11 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
   - [X] Connection errors
   - [X] Timeout errors
   - [X] Validation errors
-  - [ ] Abort errors
+  - [-] Abort errors
 - [X] Implement error conversion from HTTP responses
 - [X] Add detailed error messages with context
 - [X] Include request IDs in errors for easier debugging
-- [ ] Support retry-after headers for rate limiting
+- [X] Support retry-after headers for rate limiting
 - [ ] Add special handling for request timeouts
 
 ## Phase 2: API Resources and Models
@@ -133,26 +133,26 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
     - [X] TextDelta (text_delta.py)
     - [X] InputJsonDelta (input_json_delta.py)
     - [X] SignatureDelta (signature_delta.py)
-    - [ ] RawMessageStreamEvent (raw_message_stream_event.py)
-    - [ ] RawMessageStartEvent (raw_message_start_event.py)
-    - [ ] RawMessageStopEvent (raw_message_stop_event.py)
-    - [ ] RawMessageDeltaEvent (raw_message_delta_event.py)
-    - [ ] RawContentBlockDelta (raw_content_block_delta.py)
-    - [ ] RawContentBlockStartEvent (raw_content_block_start_event.py)
-    - [ ] RawContentBlockStopEvent (raw_content_block_stop_event.py)
-    - [ ] RawContentBlockDeltaEvent (raw_content_block_delta_event.py)
-  - [ ] Error types
-    - [ ] ErrorObject (shared/error_object.py)
-    - [ ] ApiErrorObject (shared/api_error_object.py)
-    - [ ] ErrorResponse (shared/error_response.py)
-    - [ ] AuthenticationError (shared/authentication_error.py)
-    - [ ] InvalidRequestError (shared/invalid_request_error.py)
-    - [ ] NotFoundError (shared/not_found_error.py)
-    - [ ] PermissionError (shared/permission_error.py)
-    - [ ] RateLimitError (shared/rate_limit_error.py)
-    - [ ] OverloadedError (shared/overloaded_error.py)
-    - [ ] BillingError (shared/billing_error.py)
-    - [ ] GatewayTimeoutError (shared/gateway_timeout_error.py)
+    - [-] RawMessageStreamEvent (raw_message_stream_event.py)
+    - [-] RawMessageStartEvent (raw_message_start_event.py)
+    - [-] RawMessageStopEvent (raw_message_stop_event.py)
+    - [-] RawMessageDeltaEvent (raw_message_delta_event.py)
+    - [-] RawContentBlockDelta (raw_content_block_delta.py)
+    - [-] RawContentBlockStartEvent (raw_content_block_start_event.py)
+    - [-] RawContentBlockStopEvent (raw_content_block_stop_event.py)
+    - [-] RawContentBlockDeltaEvent (raw_content_block_delta_event.py)
+  - [-] Error types
+    - [-] ErrorObject (shared/error_object.py)
+    - [-] ApiErrorObject (shared/api_error_object.py)
+    - [-] ErrorResponse (shared/error_response.py)
+    - [-] AuthenticationError (shared/authentication_error.py)
+    - [-] InvalidRequestError (shared/invalid_request_error.py)
+    - [-] NotFoundError (shared/not_found_error.py)
+    - [-] PermissionError (shared/permission_error.py)
+    - [-] RateLimitError (shared/rate_limit_error.py)
+    - [-] OverloadedError (shared/overloaded_error.py)
+    - [-] BillingError (shared/billing_error.py)
+    - [-] GatewayTimeoutError (shared/gateway_timeout_error.py)
   - [X] Metadata and cache types
     - [X] Metadata (metadata.py)
     - [X] CacheControlEphemeral (cache_control_ephemeral.py)
@@ -174,10 +174,10 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
 ## Phase 3: Advanced Features
 
 ### Streaming Support
-- [ ] Implement synchronous streaming
+- [-] Implement synchronous streaming
 - [X] Implement asynchronous streaming
 - [X] Create MessageStream struct similar to TypeScript SDK
-- [ ] Support event subscription model (listeners)
+- [-] Support event subscription model (listeners)
 - [X] Add helpers for consuming streamed responses
 - [X] Support all stream event types
   - [X] Message events
@@ -209,10 +209,10 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
 - [ ] Provide convenient methods for file loading/conversion
 
 ### Rate Limiting & Pagination
-- [ ] Implement automatic rate limit handling and retries
-- [ ] Add pagination support for list endpoints
-- [ ] Support cursor-based pagination
-- [ ] Add iterator-based access to paginated resources
+- [-] Implement automatic rate limit handling and retries
+- [-] Add pagination support for list endpoints
+- [-] Support cursor-based pagination
+- [-] Add iterator-based access to paginated resources
 
 ## Phase 4: Extended Features
 
@@ -247,27 +247,27 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
 ## Phase 5: Integrations
 
 ### AWS Bedrock Integration
-- [ ] Implement Bedrock client
-- [ ] Configure AWS authentication
-- [ ] Support model name translation
-- [ ] Support Bedrock-specific parameters
+- [-] Implement Bedrock client
+- [-] Configure AWS authentication
+- [-] Support model name translation
+- [-] Support Bedrock-specific parameters
 
 ### Google Vertex Integration
-- [ ] Implement Vertex client
-- [ ] Configure Google Cloud authentication
-- [ ] Support Vertex-specific parameters
-- [ ] Add model version translation
+- [-] Implement Vertex client
+- [-] Configure Google Cloud authentication
+- [-] Support Vertex-specific parameters
+- [-] Add model version translation
 
 ## Phase 6: Testing & Documentation
 
 ### Testing
 - [X] Unit tests for all components
 - [ ] Integration tests against API
-- [ ] Mock server for testing without API credentials
-- [ ] Snapshot tests for responses
-- [ ] Add comprehensive test fixtures
+- [-] Mock server for testing without API credentials
+- [-] Snapshot tests for responses
+- [-] Add comprehensive test fixtures
 - [X] Example applications
-- [ ] Test both sync and async variants
+- [-] Test both sync and async variants
 - [ ] Add CI test pipeline for all platforms
 
 ### Documentation
@@ -282,13 +282,13 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
 ## Phase 7: Performance & Optimization
 
 ### Performance
-- [ ] Benchmark against other SDKs
-- [ ] Optimize memory usage
-- [ ] Reduce allocations in hot paths
-- [ ] Improve streaming performance
-- [ ] Optimize serialization/deserialization
-- [ ] Implement proper caching
-- [ ] Add configurable TCP settings
+- [-] Benchmark against other SDKs
+- [-] Optimize memory usage
+- [-] Reduce allocations in hot paths
+- [-] Improve streaming performance
+- [-] Optimize serialization/deserialization
+- [-] Implement proper caching
+- [-] Add configurable TCP settings
 
 ### Developer Experience
 - [ ] Add builder patterns for complex request types
@@ -303,9 +303,9 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
 ## Phase 8: Release & Maintenance
 
 ### Crate Publishing
-- [ ] Set up crate metadata
+- [X] Set up crate metadata
 - [ ] Configure CI/CD for automated testing and release
-- [ ] Establish versioning strategy
+- [X] Establish versioning strategy
 - [ ] Add changelog automation
 - [ ] Set up documentation publishing
 
