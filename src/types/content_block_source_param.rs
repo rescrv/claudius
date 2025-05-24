@@ -82,10 +82,7 @@ mod tests {
         let url_source = UrlImageSource::new("https://example.com/image.jpg".to_string());
         let image_param = ImageBlock::new_with_url(url_source);
 
-        let content = vec![
-            Content::Text(text_param),
-            Content::Image(image_param),
-        ];
+        let content = vec![Content::Text(text_param), Content::Image(image_param)];
 
         let source = ContentBlockSourceParam::new_with_array(content);
         let json = to_value(&source).unwrap();
@@ -114,9 +111,7 @@ mod tests {
     #[test]
     fn test_content_block_source_param_with_item() {
         let text_param = TextBlock::new("Sample text content".to_string());
-        let source = ContentBlockSourceParam::new_with_item(Content::Text(
-            text_param,
-        ));
+        let source = ContentBlockSourceParam::new_with_item(Content::Text(text_param));
 
         let json = to_value(&source).unwrap();
 
