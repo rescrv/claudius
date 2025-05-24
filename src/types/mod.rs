@@ -56,11 +56,8 @@ mod url_pdf_source;
 mod usage;
 mod web_search_result_block;
 mod web_search_tool_20250305_param;
-mod web_search_tool_request_error_param;
 mod web_search_tool_result_block;
 mod web_search_tool_result_block_content;
-mod web_search_tool_result_block_param;
-mod web_search_tool_result_block_param_content;
 mod web_search_tool_result_error;
 
 // Exports
@@ -124,9 +121,6 @@ pub use url_pdf_source::UrlPdfSource;
 pub use usage::Usage;
 pub use web_search_result_block::WebSearchResultBlock;
 pub use web_search_tool_20250305_param::{UserLocation, WebSearchTool20250305Param};
-pub use web_search_tool_request_error_param::WebSearchToolRequestErrorParam;
 pub use web_search_tool_result_block::WebSearchToolResultBlock;
 pub use web_search_tool_result_block_content::WebSearchToolResultBlockContent;
-pub use web_search_tool_result_block_param::WebSearchToolResultBlockParam;
-pub use web_search_tool_result_block_param_content::WebSearchToolResultBlockParamContent;
 pub use web_search_tool_result_error::{WebSearchErrorCode, WebSearchToolResultError};

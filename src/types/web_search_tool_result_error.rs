@@ -34,7 +34,7 @@ impl fmt::Display for WebSearchErrorCode {
 }
 
 /// An error that occurred when using the web search tool.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WebSearchToolResultError {
     /// The specific error code.
     pub error_code: WebSearchErrorCode,

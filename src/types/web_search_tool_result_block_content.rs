@@ -5,7 +5,7 @@ use crate::types::{WebSearchResultBlock, WebSearchToolResultError};
 /// Content of a web search tool result.
 ///
 /// This can either be a list of search results or an error.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum WebSearchToolResultBlockContent {
     /// A list of web search results.
