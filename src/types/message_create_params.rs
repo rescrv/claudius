@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    MessageParam, Metadata, Model, TextBlock, ThinkingConfig, ToolChoice, ToolUnionParam,
+    MessageParam, Metadata, Model, SystemPrompt, TextBlock, ThinkingConfig, ToolChoice, ToolUnionParam,
 };
 
 /// Parameters for creating messages.
@@ -123,16 +123,6 @@ pub struct MessageCreateParams {
     pub stream: bool,
 }
 
-/// Represents either a string or an array of TextBlockParam for system prompts.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SystemPrompt {
-    /// A simple string system prompt.
-    String(String),
-
-    /// An array of text block parameters.
-    Blocks(Vec<TextBlock>),
-}
 
 impl MessageCreateParams {
     /// Create a new message creation parameters with streaming disabled.
@@ -187,13 +177,19 @@ impl MessageCreateParams {
 
     /// Add a system prompt as a string.
     pub fn with_system_string(mut self, system: String) -> Self {
-        self.system = Some(SystemPrompt::String(system));
+        self.system = Some(SystemPrompt::from_string(system));
         self
     }
 
     /// Add a system prompt as text blocks.
     pub fn with_system_blocks(mut self, blocks: Vec<TextBlock>) -> Self {
-        self.system = Some(SystemPrompt::Blocks(blocks));
+        self.system = Some(SystemPrompt::from_blocks(blocks));
+        self
+    }
+
+    /// Add a system prompt.
+    pub fn with_system(mut self, system: SystemPrompt) -> Self {
+        self.system = Some(system);
         self
     }
 

@@ -90,7 +90,8 @@ mod tests {
                             "type": "string",
                             "description": "The search query"
                         }
-                    }
+                    },
+                    "type": "typed"
                 },
                 "name": "search",
                 "cache_control": {
@@ -182,7 +183,8 @@ mod tests {
                         "type": "string",
                         "description": "The search query"
                     }
-                }
+                },
+                "type": "typed"
             },
             "name": "search",
             "description": "Search for information",
