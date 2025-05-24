@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    MessageParam, Metadata, Model, SystemPrompt, TextBlock, ThinkingConfig, ToolChoice, ToolUnionParam,
+    MessageParam, Metadata, Model, SystemPrompt, TextBlock, ThinkingConfig, ToolChoice,
+    ToolUnionParam,
 };
 
 /// Parameters for creating messages.
@@ -122,7 +123,6 @@ pub struct MessageCreateParams {
     /// details.
     pub stream: bool,
 }
-
 
 impl MessageCreateParams {
     /// Create a new message creation parameters with streaming disabled.

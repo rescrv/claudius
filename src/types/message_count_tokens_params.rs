@@ -67,7 +67,6 @@ pub struct MessageCountTokensParams {
     pub tools: Option<Vec<ToolUnionParam>>,
 }
 
-
 impl MessageCountTokensParams {
     /// Create a new `MessageCountTokensParams` with the required fields.
     pub fn new(messages: Vec<MessageParam>, model: Model) -> Self {
@@ -191,7 +190,7 @@ mod tests {
                     }
                 })),
                 additional: HashMap::new(),
-            }
+            },
         );
 
         let params = MessageCountTokensParams::new(

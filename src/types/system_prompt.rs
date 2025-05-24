@@ -7,7 +7,7 @@ use crate::types::TextBlock;
 pub struct SystemTextBlock {
     /// The type field, always "text".
     pub r#type: String,
-    
+
     /// The text content.
     #[serde(flatten)]
     pub block: TextBlock,
@@ -37,10 +37,13 @@ impl SystemPrompt {
 
     /// Create a new SystemPrompt from text blocks.
     pub fn from_blocks(blocks: Vec<TextBlock>) -> Self {
-        let system_blocks = blocks.into_iter().map(|block| SystemTextBlock {
-            r#type: "text".to_string(),
-            block,
-        }).collect();
+        let system_blocks = blocks
+            .into_iter()
+            .map(|block| SystemTextBlock {
+                r#type: "text".to_string(),
+                block,
+            })
+            .collect();
         Self::Blocks(system_blocks)
     }
 }
@@ -59,10 +62,13 @@ impl From<&str> for SystemPrompt {
 
 impl From<Vec<TextBlock>> for SystemPrompt {
     fn from(blocks: Vec<TextBlock>) -> Self {
-        let system_blocks = blocks.into_iter().map(|block| SystemTextBlock {
-            r#type: "text".to_string(),
-            block,
-        }).collect();
+        let system_blocks = blocks
+            .into_iter()
+            .map(|block| SystemTextBlock {
+                r#type: "text".to_string(),
+                block,
+            })
+            .collect();
         Self::Blocks(system_blocks)
     }
 }

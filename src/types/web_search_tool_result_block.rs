@@ -31,13 +31,25 @@ impl WebSearchToolResultBlock {
     }
 
     /// Creates a new WebSearchToolResultBlock with results.
-    pub fn new_with_results<S: Into<String>>(results: Vec<crate::types::WebSearchResultBlock>, tool_use_id: S) -> Self {
-        Self::new(WebSearchToolResultBlockContent::with_results(results), tool_use_id)
+    pub fn new_with_results<S: Into<String>>(
+        results: Vec<crate::types::WebSearchResultBlock>,
+        tool_use_id: S,
+    ) -> Self {
+        Self::new(
+            WebSearchToolResultBlockContent::with_results(results),
+            tool_use_id,
+        )
     }
 
     /// Creates a new WebSearchToolResultBlock with an error.
-    pub fn new_with_error<S: Into<String>>(error: crate::types::WebSearchToolResultError, tool_use_id: S) -> Self {
-        Self::new(WebSearchToolResultBlockContent::with_error(error), tool_use_id)
+    pub fn new_with_error<S: Into<String>>(
+        error: crate::types::WebSearchToolResultError,
+        tool_use_id: S,
+    ) -> Self {
+        Self::new(
+            WebSearchToolResultBlockContent::with_error(error),
+            tool_use_id,
+        )
     }
 
     /// Add a cache control to this web search tool result block.
