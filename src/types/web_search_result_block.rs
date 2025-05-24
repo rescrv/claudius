@@ -62,7 +62,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&block).unwrap();
-        let expected = r#"{"encrypted_content":"encrypted-data-123","page_age":"2 days ago","title":"Example Page Title","type":"web_search_result","url":"https://example.com/page"}"#;
+        let expected = r#"{"encrypted_content":"encrypted-data-123","page_age":"2 days ago","title":"Example Page Title","url":"https://example.com/page"}"#;
 
         assert_eq!(json, expected);
     }
@@ -77,14 +77,14 @@ mod tests {
         };
 
         let json = serde_json::to_string(&block).unwrap();
-        let expected = r#"{"encrypted_content":"encrypted-data-123","title":"Example Page Title","type":"web_search_result","url":"https://example.com/page"}"#;
+        let expected = r#"{"encrypted_content":"encrypted-data-123","title":"Example Page Title","url":"https://example.com/page"}"#;
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"encrypted_content":"encrypted-data-123","page_age":"2 days ago","title":"Example Page Title","type":"web_search_result","url":"https://example.com/page"}"#;
+        let json = r#"{"encrypted_content":"encrypted-data-123","page_age":"2 days ago","title":"Example Page Title","url":"https://example.com/page"}"#;
         let block: WebSearchResultBlock = serde_json::from_str(json).unwrap();
 
         assert_eq!(block.encrypted_content, "encrypted-data-123");

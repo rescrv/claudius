@@ -103,6 +103,7 @@ mod tests {
             json,
             json!({
                 "input_schema": {
+                    "type": "typed",
                     "properties": {
                         "query": {
                             "type": "string",
