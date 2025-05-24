@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::ContentBlockSourceContentParam;
+use crate::types::Content;
 
 /// Parameter for a content block source.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -19,7 +19,7 @@ pub enum ContentBlockSourceContent {
     String(String),
 
     /// An array of content items.
-    Array(Vec<ContentBlockSourceContentParam>),
+    Array(Vec<Content>),
 }
 
 impl ContentBlockSourceParam {
@@ -36,14 +36,14 @@ impl ContentBlockSourceParam {
     }
 
     /// Create a new `ContentBlockSourceParam` with an array of content items.
-    pub fn new_with_array(content: Vec<ContentBlockSourceContentParam>) -> Self {
+    pub fn new_with_array(content: Vec<Content>) -> Self {
         Self {
             content: ContentBlockSourceContent::Array(content),
         }
     }
 
     /// Create a new `ContentBlockSourceParam` with a single content item.
-    pub fn new_with_item(content: ContentBlockSourceContentParam) -> Self {
+    pub fn new_with_item(content: Content) -> Self {
         Self::new_with_array(vec![content])
     }
 }
@@ -83,8 +83,8 @@ mod tests {
         let image_param = ImageBlock::new_with_url(url_source);
 
         let content = vec![
-            ContentBlockSourceContentParam::Text(text_param),
-            ContentBlockSourceContentParam::Image(image_param),
+            Content::Text(text_param),
+            Content::Image(image_param),
         ];
 
         let source = ContentBlockSourceParam::new_with_array(content);
@@ -114,7 +114,7 @@ mod tests {
     #[test]
     fn test_content_block_source_param_with_item() {
         let text_param = TextBlock::new("Sample text content".to_string());
-        let source = ContentBlockSourceParam::new_with_item(ContentBlockSourceContentParam::Text(
+        let source = ContentBlockSourceParam::new_with_item(Content::Text(
             text_param,
         ));
 

@@ -1,32 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{CacheControlEphemeral, ImageBlock, TextBlock};
+use crate::types::{CacheControlEphemeral, Content};
 
-/// Content type for tool result blocks, which can be either a text block or an image block.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(untagged)]
-pub enum ToolResultContent {
-    /// A text block content.
-    Text(TextBlock),
-
-    /// An image block content.
-    Image(ImageBlock),
-}
-
-impl From<TextBlock> for ToolResultContent {
-    fn from(param: TextBlock) -> Self {
-        ToolResultContent::Text(param)
-    }
-}
-
-impl From<ImageBlock> for ToolResultContent {
-    fn from(param: ImageBlock) -> Self {
-        ToolResultContent::Image(param)
-    }
-}
 
 /// Parameters for a tool result block.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+#[serde(rename = "tool_result")]
 pub struct ToolResultBlockParam {
     /// The ID of the tool use that this result is for.
     #[serde(rename = "tool_use_id")]
@@ -53,7 +33,7 @@ pub enum ToolResultBlockParamContent {
     String(String),
 
     /// An array of content items.
-    Array(Vec<ToolResultContent>),
+    Array(Vec<Content>),
 }
 
 impl ToolResultBlockParam {
@@ -80,25 +60,25 @@ impl ToolResultBlockParam {
     }
 
     /// Add array content to this tool result block.
-    pub fn with_array_content(mut self, content: Vec<ToolResultContent>) -> Self {
+    pub fn with_array_content(mut self, content: Vec<Content>) -> Self {
         self.content = Some(ToolResultBlockParamContent::Array(content));
         self
     }
 
     /// Add a single text content item to this tool result block.
-    pub fn with_text_content(mut self, text: TextBlock) -> Self {
+    pub fn with_text_content(mut self, text: crate::types::TextBlock) -> Self {
         let content = match self.content {
             Some(ToolResultBlockParamContent::Array(mut items)) => {
-                items.push(ToolResultContent::Text(text));
+                items.push(Content::Text(text));
                 ToolResultBlockParamContent::Array(items)
             }
             Some(ToolResultBlockParamContent::String(s)) => {
                 ToolResultBlockParamContent::Array(vec![
-                    ToolResultContent::Text(TextBlock::new(s)),
-                    ToolResultContent::Text(text),
+                    Content::Text(crate::types::TextBlock::new(s)),
+                    Content::Text(text),
                 ])
             }
-            None => ToolResultBlockParamContent::Array(vec![ToolResultContent::Text(text)]),
+            None => ToolResultBlockParamContent::Array(vec![Content::Text(text)]),
         };
         self.content = Some(content);
         self
@@ -134,8 +114,8 @@ mod tests {
 
     #[test]
     fn test_tool_result_block_param_with_array_content() {
-        let text_param = TextBlock::new("Sample text content".to_string());
-        let content = vec![ToolResultContent::Text(text_param)];
+        let text_param = crate::types::TextBlock::new("Sample text content".to_string());
+        let content = vec![Content::Text(text_param)];
 
         let block = ToolResultBlockParam::new("tool_1".to_string()).with_array_content(content);
 
