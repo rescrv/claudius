@@ -1,35 +1,17 @@
 use serde::{Deserialize, Serialize};
 
-/// The error code for a web search tool request error.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WebSearchToolRequestErrorCode {
-    /// The tool input was invalid.
-    InvalidToolInput,
-
-    /// The web search service is unavailable.
-    Unavailable,
-
-    /// The maximum number of uses for the web search tool has been exceeded.
-    MaxUsesExceeded,
-
-    /// Too many requests have been made to the web search service.
-    TooManyRequests,
-
-    /// The query is too long.
-    QueryTooLong,
-}
+use crate::types::WebSearchErrorCode;
 
 /// Parameters for a web search tool request error.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WebSearchToolRequestErrorParam {
     /// The error code for the web search tool request error.
-    pub error_code: WebSearchToolRequestErrorCode,
+    pub error_code: WebSearchErrorCode,
 }
 
 impl WebSearchToolRequestErrorParam {
     /// Create a new `WebSearchToolRequestErrorParam` with the given error code.
-    pub fn new(error_code: WebSearchToolRequestErrorCode) -> Self {
+    pub fn new(error_code: WebSearchErrorCode) -> Self {
         Self { error_code }
     }
 }
@@ -42,7 +24,7 @@ mod tests {
     #[test]
     fn test_web_search_tool_request_error_param_serialization() {
         let error =
-            WebSearchToolRequestErrorParam::new(WebSearchToolRequestErrorCode::InvalidToolInput);
+            WebSearchToolRequestErrorParam::new(WebSearchErrorCode::InvalidToolInput);
 
         let json = to_value(&error).unwrap();
         assert_eq!(
@@ -62,7 +44,7 @@ mod tests {
         let error: WebSearchToolRequestErrorParam = serde_json::from_value(json).unwrap();
         assert_eq!(
             error.error_code,
-            WebSearchToolRequestErrorCode::MaxUsesExceeded
+            WebSearchErrorCode::MaxUsesExceeded
         );
     }
 }

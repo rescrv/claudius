@@ -54,7 +54,7 @@ mod tests {
     #[test]
     fn test_web_search_tool_result_block_param_content_error() {
         let error = WebSearchToolRequestErrorParam::new(
-            crate::types::WebSearchToolRequestErrorCode::InvalidToolInput,
+            crate::types::WebSearchErrorCode::InvalidToolInput,
         );
 
         let content = WebSearchToolResultBlockParamContent::new_with_error(error);
@@ -99,7 +99,7 @@ mod tests {
             WebSearchToolResultBlockParamContent::Error(error) => {
                 assert_eq!(
                     error.error_code,
-                    crate::types::WebSearchToolRequestErrorCode::InvalidToolInput
+                    crate::types::WebSearchErrorCode::InvalidToolInput
                 );
             }
             _ => panic!("Expected Error variant"),

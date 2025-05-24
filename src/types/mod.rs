@@ -124,9 +124,7 @@ pub use url_pdf_source::UrlPdfSource;
 pub use usage::Usage;
 pub use web_search_result_block::WebSearchResultBlock;
 pub use web_search_tool_20250305_param::{UserLocation, WebSearchTool20250305Param};
-pub use web_search_tool_request_error_param::{
-    WebSearchToolRequestErrorCode, WebSearchToolRequestErrorParam,
-};
+pub use web_search_tool_request_error_param::WebSearchToolRequestErrorParam;
 pub use web_search_tool_result_block::WebSearchToolResultBlock;
 pub use web_search_tool_result_block_content::WebSearchToolResultBlockContent;
 pub use web_search_tool_result_block_param::WebSearchToolResultBlockParam;

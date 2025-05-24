@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn test_web_search_tool_result_block_param_with_error() {
         let error = WebSearchToolRequestErrorParam::new(
-            crate::types::WebSearchToolRequestErrorCode::InvalidToolInput,
+            crate::types::WebSearchErrorCode::InvalidToolInput,
         );
 
         let block = WebSearchToolResultBlockParam::new_with_error(error, "tool_1".to_string());
