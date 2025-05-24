@@ -3,6 +3,23 @@
 ## Overview
 This document outlines a comprehensive plan for developing `claudius`, a Rust SDK for interacting with the Anthropic API. The design is inspired by the official Python and TypeScript SDKs but will leverage Rust's unique features for performance, safety, and developer experience.
 
+## Recent Completed Work
+
+### Type System Consolidation (Latest)
+- [X] Fixed all failing tests for serialization format compatibility
+- [X] Consolidated duplicate content types (`ContentBlockSourceContentParam` and `ToolResultContent`) into unified `Content` enum
+- [X] Renamed `TextOrImage` to `Content` for better semantic meaning and future extensibility
+- [X] Removed Param suffix from `ToolResultBlockParam` (renamed to `ToolResultBlock`)
+- [X] Removed Param suffix from tool types (`WebSearchTool20250305Param`, `ToolTextEditor20250124Param`, `ToolBash20250124Param`)
+- [X] Consolidated WebSearchToolResultBlock types by moving cache_control to main type
+- [X] Replaced duplicate `WebSearchToolRequestErrorCode` with `WebSearchErrorCode`
+- [X] Replaced duplicate `WebSearchToolRequestErrorParam` with `WebSearchToolResultError`
+- [X] Added proper serde tagging for `ToolResultContent` and related types
+- [X] Consolidated duplicate `SystemPrompt` types with unified implementation
+- [X] Replaced `MessageCountTokensToolParam` with existing `ToolUnionParam`
+- [X] Added Claude 4 model support from Python SDK reference
+- [X] All 228 tests now passing with proper serialization format expectations
+
 ## Phase 1: Core Infrastructure
 
 ### Client Architecture
@@ -244,7 +261,7 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
 ## Phase 6: Testing & Documentation
 
 ### Testing
-- [ ] Unit tests for all components
+- [X] Unit tests for all components
 - [ ] Integration tests against API
 - [ ] Mock server for testing without API credentials
 - [ ] Snapshot tests for responses
