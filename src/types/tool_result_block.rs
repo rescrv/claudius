@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{CacheControlEphemeral, Content};
 
-
 /// A tool result block.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
@@ -72,12 +71,10 @@ impl ToolResultBlock {
                 items.push(Content::Text(text));
                 ToolResultBlockContent::Array(items)
             }
-            Some(ToolResultBlockContent::String(s)) => {
-                ToolResultBlockContent::Array(vec![
-                    Content::Text(crate::types::TextBlock::new(s)),
-                    Content::Text(text),
-                ])
-            }
+            Some(ToolResultBlockContent::String(s)) => ToolResultBlockContent::Array(vec![
+                Content::Text(crate::types::TextBlock::new(s)),
+                Content::Text(text),
+            ]),
             None => ToolResultBlockContent::Array(vec![Content::Text(text)]),
         };
         self.content = Some(content);

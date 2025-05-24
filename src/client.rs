@@ -67,8 +67,8 @@ impl Anthropic {
             base_url: DEFAULT_API_URL.to_string(),
             timeout,
             max_retries: 3,
-            throughput_ops_sec: 1.0/60.0,
-            reserve_capacity: 1.0/60.0,
+            throughput_ops_sec: 1.0 / 60.0,
+            reserve_capacity: 1.0 / 60.0,
         })
     }
 
@@ -165,15 +165,17 @@ impl Anthropic {
 
                     // Calculate backoff duration
                     let exp_backoff_duration = backoff.next();
-                    
+
                     // Get retry-after from error if available
                     let header_backoff_duration = match &error {
-                        Error::RateLimit { retry_after: Some(seconds), .. } => {
-                            Some(Duration::from_secs(*seconds))
-                        }
-                        Error::ServiceUnavailable { retry_after: Some(seconds), .. } => {
-                            Some(Duration::from_secs(*seconds))
-                        }
+                        Error::RateLimit {
+                            retry_after: Some(seconds),
+                            ..
+                        } => Some(Duration::from_secs(*seconds)),
+                        Error::ServiceUnavailable {
+                            retry_after: Some(seconds),
+                            ..
+                        } => Some(Duration::from_secs(*seconds)),
                         _ => None,
                     };
 
@@ -299,7 +301,8 @@ impl Anthropic {
                     Some(Box::new(e)),
                 )
             })
-        }).await
+        })
+        .await
     }
 
     /// Send a message to the API and get a streaming response.
@@ -312,41 +315,43 @@ impl Anthropic {
         // Ensure stream is enabled
         params.stream = true;
 
-        let response = self.retry_with_backoff(|| async {
-            let url = format!("{}messages", self.base_url);
+        let response = self
+            .retry_with_backoff(|| async {
+                let url = format!("{}messages", self.base_url);
 
-            let mut headers = self.default_headers();
-            headers.insert(
-                header::ACCEPT,
-                HeaderValue::from_static("text/event-stream"),
-            );
+                let mut headers = self.default_headers();
+                headers.insert(
+                    header::ACCEPT,
+                    HeaderValue::from_static("text/event-stream"),
+                );
 
-            let response = self
-                .client
-                .post(&url)
-                .headers(headers)
-                .json(&params)
-                .send()
-                .await
-                .map_err(|e| {
-                    if e.is_timeout() {
-                        Error::timeout(
-                            format!("Request timed out: {}", e),
-                            Some(self.timeout.as_secs_f64()),
-                        )
-                    } else if e.is_connect() {
-                        Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
-                    } else {
-                        Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
-                    }
-                })?;
+                let response = self
+                    .client
+                    .post(&url)
+                    .headers(headers)
+                    .json(&params)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        if e.is_timeout() {
+                            Error::timeout(
+                                format!("Request timed out: {}", e),
+                                Some(self.timeout.as_secs_f64()),
+                            )
+                        } else if e.is_connect() {
+                            Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
+                        } else {
+                            Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
+                        }
+                    })?;
 
-            if !response.status().is_success() {
-                return Err(Self::process_error_response(response).await);
-            }
+                if !response.status().is_success() {
+                    return Err(Self::process_error_response(response).await);
+                }
 
-            Ok(response)
-        }).await?;
+                Ok(response)
+            })
+            .await?;
 
         // Get the byte stream from the response
         let stream = response.bytes_stream();
@@ -396,7 +401,8 @@ impl Anthropic {
                     Some(Box::new(e)),
                 )
             })
-        }).await
+        })
+        .await
     }
 }
 
@@ -511,8 +517,8 @@ fn extract_event(buffer: &str) -> Option<(Result<MessageStreamEvent>, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[tokio::test]
     async fn test_retry_logic_with_backoff() {
@@ -522,23 +528,25 @@ mod tests {
             base_url: "http://localhost".to_string(),
             timeout: Duration::from_secs(1),
             max_retries: 2,
-            throughput_ops_sec: 1.0/60.0,
-            reserve_capacity: 1.0/60.0,
+            throughput_ops_sec: 1.0 / 60.0,
+            reserve_capacity: 1.0 / 60.0,
         };
 
         let attempt_counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = attempt_counter.clone();
 
-        let result = client.retry_with_backoff(|| {
-            let counter = counter_clone.clone();
-            async move {
-                let attempt = counter.fetch_add(1, Ordering::SeqCst);
-                match attempt {
-                    0 | 1 => Err(Error::rate_limit("Rate limited", Some(1))),
-                    _ => Ok("success".to_string()),
+        let result = client
+            .retry_with_backoff(|| {
+                let counter = counter_clone.clone();
+                async move {
+                    let attempt = counter.fetch_add(1, Ordering::SeqCst);
+                    match attempt {
+                        0 | 1 => Err(Error::rate_limit("Rate limited", Some(1))),
+                        _ => Ok("success".to_string()),
+                    }
                 }
-            }
-        }).await;
+            })
+            .await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "success");
@@ -553,20 +561,22 @@ mod tests {
             base_url: "http://localhost".to_string(),
             timeout: Duration::from_secs(1),
             max_retries: 2,
-            throughput_ops_sec: 1.0/60.0,
-            reserve_capacity: 1.0/60.0,
+            throughput_ops_sec: 1.0 / 60.0,
+            reserve_capacity: 1.0 / 60.0,
         };
 
         let attempt_counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = attempt_counter.clone();
 
-        let result: Result<String> = client.retry_with_backoff(|| {
-            let counter = counter_clone.clone();
-            async move {
-                counter.fetch_add(1, Ordering::SeqCst);
-                Err(Error::authentication("Invalid API key"))
-            }
-        }).await;
+        let result: Result<String> = client
+            .retry_with_backoff(|| {
+                let counter = counter_clone.clone();
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    Err(Error::authentication("Invalid API key"))
+                }
+            })
+            .await;
 
         assert!(result.is_err());
         assert!(result.unwrap_err().is_authentication());
@@ -582,20 +592,22 @@ mod tests {
             base_url: "http://localhost".to_string(),
             timeout: Duration::from_secs(1),
             max_retries: 2,
-            throughput_ops_sec: 1.0/60.0,
-            reserve_capacity: 1.0/60.0,
+            throughput_ops_sec: 1.0 / 60.0,
+            reserve_capacity: 1.0 / 60.0,
         };
 
         let attempt_counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = attempt_counter.clone();
 
-        let result: Result<String> = client.retry_with_backoff(|| {
-            let counter = counter_clone.clone();
-            async move {
-                counter.fetch_add(1, Ordering::SeqCst);
-                Err(Error::rate_limit("Always rate limited", Some(1)))
-            }
-        }).await;
+        let result: Result<String> = client
+            .retry_with_backoff(|| {
+                let counter = counter_clone.clone();
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    Err(Error::rate_limit("Always rate limited", Some(1)))
+                }
+            })
+            .await;
 
         assert!(result.is_err());
         assert!(result.unwrap_err().is_rate_limit());
