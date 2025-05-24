@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    ToolBash20250124Param, ToolParam, ToolTextEditor20250124, WebSearchTool20250305,
+    ToolBash20250124, ToolParam, ToolTextEditor20250124, WebSearchTool20250305,
 };
 
 /// Union type for different tool parameter types.
@@ -22,7 +22,7 @@ pub enum ToolUnionParam {
 
     /// A bash tool for executing shell commands
     #[serde(rename = "bash_20250124")]
-    Bash20250124(ToolBash20250124Param),
+    Bash20250124(ToolBash20250124),
 
     /// A text editor tool for making changes to text
     #[serde(rename = "text_editor_20250124")]
@@ -41,7 +41,7 @@ impl ToolUnionParam {
 
     /// Creates a new bash tool
     pub fn new_bash_tool() -> Self {
-        Self::Bash20250124(ToolBash20250124Param::new())
+        Self::Bash20250124(ToolBash20250124::new())
     }
 
     /// Creates a new text editor tool
@@ -105,7 +105,7 @@ mod tests {
 
     #[test]
     fn test_bash_tool() {
-        let bash_tool = ToolBash20250124Param::new().with_ephemeral_cache_control();
+        let bash_tool = ToolBash20250124::new().with_ephemeral_cache_control();
         let tool = ToolUnionParam::Bash20250124(bash_tool);
 
         let json = to_value(&tool).unwrap();
