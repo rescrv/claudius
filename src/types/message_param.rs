@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{
     ContentBlock, DocumentBlock, ImageBlock, RedactedThinkingBlock, ServerToolUseBlock, TextBlock,
-    ThinkingBlock, ToolResultBlockParam, ToolUseBlock, WebSearchToolResultBlock,
+    ThinkingBlock, ToolResultBlock, ToolUseBlock, WebSearchToolResultBlock,
 };
 
 /// The content of a message, which can be either a string or an array of content blocks.
@@ -40,9 +40,9 @@ pub enum MessageContentBlock {
     #[serde(rename = "web_search_tool_result")]
     WebSearchToolResult(WebSearchToolResultBlock),
 
-    /// A tool result block parameter.
+    /// A tool result block.
     #[serde(rename = "tool_result")]
-    ToolResult(ToolResultBlockParam),
+    ToolResult(ToolResultBlock),
 
     /// A document block.
     #[serde(rename = "document")]
@@ -151,8 +151,8 @@ impl From<WebSearchToolResultBlock> for MessageContentBlock {
     }
 }
 
-impl From<ToolResultBlockParam> for MessageContentBlock {
-    fn from(param: ToolResultBlockParam) -> Self {
+impl From<ToolResultBlock> for MessageContentBlock {
+    fn from(param: ToolResultBlock) -> Self {
         MessageContentBlock::ToolResult(param)
     }
 }
