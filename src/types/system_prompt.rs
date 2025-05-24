@@ -30,11 +30,6 @@ impl SystemPrompt {
         Self::String(content)
     }
 
-    /// Create a new SystemPrompt from a string slice.
-    pub fn from_str(content: &str) -> Self {
-        Self::String(content.to_string())
-    }
-
     /// Create a new SystemPrompt from text blocks.
     pub fn from_blocks(blocks: Vec<TextBlock>) -> Self {
         let system_blocks = blocks
@@ -102,9 +97,6 @@ mod tests {
     #[test]
     fn test_from_string() {
         let prompt = SystemPrompt::from_string("Hello".to_string());
-        assert_eq!(prompt, SystemPrompt::String("Hello".to_string()));
-
-        let prompt = SystemPrompt::from_str("Hello");
         assert_eq!(prompt, SystemPrompt::String("Hello".to_string()));
 
         let prompt: SystemPrompt = "Hello".into();
