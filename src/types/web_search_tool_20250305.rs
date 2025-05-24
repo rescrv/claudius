@@ -79,7 +79,7 @@ impl Default for UserLocation {
 ///
 /// This tool allows the model to search the web for information.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct WebSearchTool20250305Param {
+pub struct WebSearchTool20250305 {
     /// Name of the tool. This is how the tool will be called by the model and in `tool_use` blocks.
     #[serde(default = "default_name")]
     pub name: String,
@@ -113,8 +113,8 @@ fn default_name() -> String {
     "web_search".to_string()
 }
 
-impl WebSearchTool20250305Param {
-    /// Creates a new WebSearchTool20250305Param instance with default values
+impl WebSearchTool20250305 {
+    /// Creates a new WebSearchTool20250305 instance with default values
     pub fn new() -> Self {
         Self {
             name: default_name(),
@@ -165,7 +165,7 @@ impl WebSearchTool20250305Param {
     }
 }
 
-impl Default for WebSearchTool20250305Param {
+impl Default for WebSearchTool20250305 {
     fn default() -> Self {
         Self::new()
     }
@@ -217,7 +217,7 @@ mod tests {
             .with_city("San Francisco")
             .with_country("US");
 
-        let web_search_tool = WebSearchTool20250305Param::new()
+        let web_search_tool = WebSearchTool20250305::new()
             .with_allowed_domains(vec!["example.com".to_string(), "example.org".to_string()])
             .with_max_uses(5)
             .with_user_location(user_location)
@@ -243,7 +243,7 @@ mod tests {
             }
         }"#;
 
-        let web_search_tool: WebSearchTool20250305Param = serde_json::from_str(json).unwrap();
+        let web_search_tool: WebSearchTool20250305 = serde_json::from_str(json).unwrap();
 
         assert_eq!(web_search_tool.name, "web_search");
         assert_eq!(
@@ -264,7 +264,7 @@ mod tests {
     fn test_allowed_blocked_domains_mutual_exclusivity() {
         // Test that setting allowed_domains clears blocked_domains
         let mut web_search_tool =
-            WebSearchTool20250305Param::new().with_blocked_domains(vec!["blocked.com".to_string()]);
+            WebSearchTool20250305::new().with_blocked_domains(vec!["blocked.com".to_string()]);
 
         // Verify blocked_domains is set
         assert!(web_search_tool.blocked_domains.is_some());

@@ -6,7 +6,7 @@ use crate::types::CacheControlEphemeral;
 ///
 /// This tool allows the AI to perform text editing operations via the API.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ToolTextEditor20250124Param {
+pub struct ToolTextEditor20250124 {
     /// Name of the tool. This is how the tool will be called by the model and in `tool_use` blocks.
     ///
     /// Always set to "str_replace_editor".
@@ -23,7 +23,7 @@ fn default_name() -> String {
     "str_replace_editor".to_string()
 }
 
-impl ToolTextEditor20250124Param {
+impl ToolTextEditor20250124 {
     /// Creates a new Text Editor tool parameter object with default settings.
     pub fn new() -> Self {
         Self {
@@ -39,7 +39,7 @@ impl ToolTextEditor20250124Param {
     }
 }
 
-impl Default for ToolTextEditor20250124Param {
+impl Default for ToolTextEditor20250124 {
     fn default() -> Self {
         Self::new()
     }
@@ -52,7 +52,7 @@ mod tests {
 
     #[test]
     fn test_tool_text_editor_param_minimal() {
-        let param = ToolTextEditor20250124Param::new();
+        let param = ToolTextEditor20250124::new();
         let json = to_value(&param).unwrap();
 
         assert_eq!(
@@ -65,7 +65,7 @@ mod tests {
 
     #[test]
     fn test_tool_text_editor_param_with_cache_control() {
-        let param = ToolTextEditor20250124Param::new().with_ephemeral_cache_control();
+        let param = ToolTextEditor20250124::new().with_ephemeral_cache_control();
 
         let json = to_value(&param).unwrap();
         assert_eq!(
@@ -88,7 +88,7 @@ mod tests {
             }
         });
 
-        let param: ToolTextEditor20250124Param = serde_json::from_value(json).unwrap();
+        let param: ToolTextEditor20250124 = serde_json::from_value(json).unwrap();
         assert_eq!(param.name, "str_replace_editor");
         assert!(param.cache_control.is_some());
     }
