@@ -5,7 +5,6 @@
 [ ] src/types/message_count_tokens_tool_param.rs
 [ ] src/types/message_tokens_count.rs
 [ ] src/types/model_list_params.rs
-[ ] src/types/model.rs
 [ ] src/types/tool_bash_20250124_param.rs
 [ ] src/types/tool_result_block_param.rs
 [ ] src/types/tool_text_editor_20250124_param.rs
@@ -51,6 +50,7 @@
 [X] src/types/metadata.rs
 [X] src/types/mod.rs
 [X] src/types/model_info.rs
+[X] src/types/model.rs
 [X] src/types/plain_text_source.rs
 [X] src/types/raw_content_block_delta_event.rs
 [X] src/types/raw_content_block_delta.rs
