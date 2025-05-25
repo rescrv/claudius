@@ -1,27 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 use crate::types::CacheControlEphemeral;
-
-/// Represents the schema for a tool input.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type")]
-pub enum InputSchema {
-    /// A typed input schema with an object type.
-    #[serde(rename = "typed")]
-    Typed {
-        /// Optional properties of the schema.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        properties: Option<serde_json::Value>,
-
-        /// Additional fields.
-        #[serde(flatten)]
-        additional: HashMap<String, serde_json::Value>,
-    },
-
-    /// A generic input schema represented as a map.
-    Generic(HashMap<String, serde_json::Value>),
-}
 
 /// Common parameters for a custom tool.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -30,7 +9,7 @@ pub struct ToolParam {
     ///
     /// This defines the shape of the `input` that your tool accepts and that the model
     /// will produce.
-    pub input_schema: InputSchema,
+    pub input_schema: serde_json::Value,
 
     /// Name of the tool.
     ///
@@ -53,7 +32,7 @@ pub struct ToolParam {
 
 impl ToolParam {
     /// Create a new `ToolParam` with the required fields.
-    pub fn new(name: String, input_schema: InputSchema) -> Self {
+    pub fn new(name: String, input_schema: serde_json::Value) -> Self {
         Self {
             name,
             input_schema,
@@ -82,15 +61,15 @@ mod tests {
 
     #[test]
     fn test_tool_param_complete() {
-        let input_schema = InputSchema::Typed {
-            properties: Some(json!({
+        let input_schema = json!({
+            "type": "object",
+            "properties": {
                 "query": {
                     "type": "string",
                     "description": "The search query"
                 }
-            })),
-            additional: HashMap::new(),
-        };
+            }
+        });
 
         let cache_control = CacheControlEphemeral::new();
 
@@ -103,7 +82,7 @@ mod tests {
             json,
             json!({
                 "input_schema": {
-                    "type": "typed",
+                    "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",

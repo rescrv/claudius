@@ -13,18 +13,13 @@ impl SignatureDelta {
         Self { signature }
     }
 
-    /// Create a new `SignatureDelta` from a string reference.
-    // TODO(claude): no from_string_ref
-    pub fn from_string_ref(signature: &str) -> Self {
-        Self::new(signature.to_string())
-    }
 }
 
 impl std::str::FromStr for SignatureDelta {
     type Err = std::convert::Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self::from_string_ref(s))
+        Ok(Self::new(s.to_string()))
     }
 }
 

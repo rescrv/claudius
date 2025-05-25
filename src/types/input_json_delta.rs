@@ -14,18 +14,13 @@ impl InputJsonDelta {
         Self { partial_json }
     }
 
-    /// Create a new `InputJsonDelta` from a string reference.
-    // TODO(claude): no from_string_ref
-    pub fn from_string_ref(partial_json: &str) -> Self {
-        Self::new(partial_json.to_string())
-    }
 }
 
 impl std::str::FromStr for InputJsonDelta {
     type Err = std::convert::Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self::from_string_ref(s))
+        Ok(Self::new(s.to_string()))
     }
 }
 

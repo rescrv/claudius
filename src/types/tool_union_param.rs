@@ -33,7 +33,7 @@ pub enum ToolUnionParam {
 
 impl ToolUnionParam {
     /// Creates a new custom tool
-    pub fn new_custom_tool(name: String, input_schema: crate::types::InputSchema) -> Self {
+    pub fn new_custom_tool(name: String, input_schema: serde_json::Value) -> Self {
         Self::CustomTool(ToolParam::new(name, input_schema))
     }
 
@@ -56,21 +56,20 @@ impl ToolUnionParam {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{CacheControlEphemeral, InputSchema, UserLocation};
+    use crate::types::{CacheControlEphemeral, UserLocation};
     use serde_json::{json, to_value};
-    use std::collections::HashMap;
 
     #[test]
     fn test_custom_tool() {
-        let input_schema = InputSchema::Typed {
-            properties: Some(json!({
+        let input_schema = json!({
+            "type": "object",
+            "properties": {
                 "query": {
                     "type": "string",
                     "description": "The search query"
                 }
-            })),
-            additional: HashMap::new(),
-        };
+            }
+        });
 
         let custom_tool = ToolParam::new("search".to_string(), input_schema)
             .with_description("Search for information".to_string())
@@ -83,13 +82,13 @@ mod tests {
             json,
             json!({
                 "input_schema": {
+                    "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
                             "description": "The search query"
                         }
-                    },
-                    "type": "typed"
+                    }
                 },
                 "name": "search",
                 "cache_control": {
@@ -176,13 +175,13 @@ mod tests {
         // Test custom tool deserialization
         let json = json!({
             "input_schema": {
+                "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
                         "description": "The search query"
                     }
-                },
-                "type": "typed"
+                }
             },
             "name": "search",
             "description": "Search for information",

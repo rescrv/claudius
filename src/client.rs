@@ -1,8 +1,8 @@
 use bytes::Bytes;
-use futures::Stream;
 use futures::stream::{self, StreamExt};
+use futures::Stream;
 use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{Client as ReqwestClient, Response, header};
+use reqwest::{header, Client as ReqwestClient, Response};
 use serde::Deserialize;
 use std::env;
 use std::time::Duration;
@@ -267,7 +267,10 @@ impl Anthropic {
     }
 
     /// Send a message to the API and get a non-streaming response.
-    pub async fn send(&self, params: MessageCreateParams) -> Result<Message> {
+    pub async fn send(&self, mut params: MessageCreateParams) -> Result<Message> {
+        // Ensure stream is disabled
+        params.stream = false;
+
         self.retry_with_backoff(|| async {
             let url = format!("{}messages", self.base_url);
 
@@ -517,8 +520,8 @@ fn extract_event(buffer: &str) -> Option<(Result<MessageStreamEvent>, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_retry_logic_with_backoff() {

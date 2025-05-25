@@ -175,22 +175,20 @@ mod tests {
 
     #[test]
     fn test_message_count_tokens_params_with_tools() {
-        use crate::types::InputSchema;
-        use std::collections::HashMap;
 
         let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
 
         let tool = ToolUnionParam::new_custom_tool(
             "search".to_string(),
-            InputSchema::Typed {
-                properties: Some(json!({
+            json!({
+                "type": "object",
+                "properties": {
                     "query": {
                         "type": "string",
                         "description": "The search query"
                     }
-                })),
-                additional: HashMap::new(),
-            },
+                }
+            }),
         );
 
         let params = MessageCountTokensParams::new(
@@ -214,13 +212,13 @@ mod tests {
                     {
                         "type": "custom",
                         "input_schema": {
+                            "type": "object",
                             "properties": {
                                 "query": {
                                     "type": "string",
                                     "description": "The search query"
                                 }
-                            },
-                            "type": "typed"
+                            }
                         },
                         "name": "search"
                     }

@@ -35,7 +35,7 @@ pub fn derive_json_schema(input: proc_macro::TokenStream) -> proc_macro::TokenSt
     let (value, required) = jsv.visit_struct(&ty_name, data);
 
     let gen = quote! {
-        impl #impl_generics ::yammer::JsonSchema for #ty_name #ty_generics #where_clause {
+        impl #impl_generics ::claudius::JsonSchema for #ty_name #ty_generics #where_clause {
             fn json_schema() -> serde_json::Value {
                 let mut result = serde_json::json!{{}};
                 let mut properties = serde_json::json!{{}};
@@ -77,7 +77,7 @@ impl StructVisitor for JsonSchemaVisitor {
                 let field_type = field.ty.clone();
                 result = quote! {
                     #result
-                    properties[#field_ident] = <#field_type as ::yammer::JsonSchema>::json_schema();
+                    properties[#field_ident] = <#field_type as ::claudius::JsonSchema>::json_schema();
                 };
                 required = quote! {
                     #required

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::str::FromStr;
 
 /// Reasons why the model stopped generating a response.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -37,17 +38,33 @@ impl fmt::Display for StopReason {
     }
 }
 
-// TODO(claude): Use FromStr trait and implement an error return.
-impl From<&str> for StopReason {
-    fn from(reason: &str) -> Self {
-        match reason {
-            "end_turn" => StopReason::EndTurn,
-            "max_tokens" => StopReason::MaxTokens,
-            "stop_sequence" => StopReason::StopSequence,
-            "tool_use" => StopReason::ToolUse,
-            "pause_turn" => StopReason::PauseTurn,
-            "refusal" => StopReason::Refusal,
-            _ => panic!("Unknown stop reason: {}", reason),
+#[derive(Debug)]
+pub struct StopReasonParseError {
+    pub invalid_value: String,
+}
+
+impl fmt::Display for StopReasonParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Unknown stop reason: {}", self.invalid_value)
+    }
+}
+
+impl std::error::Error for StopReasonParseError {}
+
+impl FromStr for StopReason {
+    type Err = StopReasonParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "end_turn" => Ok(StopReason::EndTurn),
+            "max_tokens" => Ok(StopReason::MaxTokens),
+            "stop_sequence" => Ok(StopReason::StopSequence),
+            "tool_use" => Ok(StopReason::ToolUse),
+            "pause_turn" => Ok(StopReason::PauseTurn),
+            "refusal" => Ok(StopReason::Refusal),
+            _ => Err(StopReasonParseError {
+                invalid_value: s.to_string(),
+            }),
         }
     }
 }

@@ -67,13 +67,13 @@ pub struct MessageParam {
     /// The content of the message.
     pub content: MessageParamContent,
 
-    /// The role of the message, which is either "user" or "assistant".
-    // TODO(claude): Convert this to MessageRole.
-    pub role: String,
+    /// The role of the message.
+    pub role: MessageRole,
 }
 
 /// Role type for a message parameter.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum MessageRole {
     /// User role.
     User,
@@ -82,21 +82,13 @@ pub enum MessageRole {
     Assistant,
 }
 
-impl From<MessageRole> for String {
-    fn from(role: MessageRole) -> Self {
-        match role {
-            MessageRole::User => "user".to_string(),
-            MessageRole::Assistant => "assistant".to_string(),
-        }
-    }
-}
 
 impl MessageParam {
     /// Create a new `MessageParam` with the given content and role.
     pub fn new(content: MessageParamContent, role: MessageRole) -> Self {
         Self {
             content,
-            role: role.into(),
+            role,
         }
     }
 
@@ -271,7 +263,7 @@ mod tests {
             MessageParamContent::String(s) => assert_eq!(s, "Hello, Claude!"),
             _ => panic!("Expected String variant"),
         }
-        assert_eq!(message.role, "user");
+        assert_eq!(message.role, MessageRole::User);
 
         let json = json!({
             "content": [
@@ -294,6 +286,6 @@ mod tests {
             }
             _ => panic!("Expected Array variant"),
         }
-        assert_eq!(message.role, "assistant");
+        assert_eq!(message.role, MessageRole::Assistant);
     }
 }

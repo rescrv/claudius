@@ -13,18 +13,13 @@ impl TextDelta {
         Self { text }
     }
 
-    /// Create a new `TextDelta` from a string reference.
-    // TODO(claude): Do not make from_string_ref.  Call new directly.
-    pub fn from_string_ref(text: &str) -> Self {
-        Self::new(text.to_string())
-    }
 }
 
 impl std::str::FromStr for TextDelta {
     type Err = std::convert::Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self::from_string_ref(s))
+        Ok(Self::new(s.to_string()))
     }
 }
 

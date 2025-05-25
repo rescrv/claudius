@@ -109,7 +109,7 @@ pub use thinking_config::ThinkingConfig;
 pub use thinking_delta::ThinkingDelta;
 pub use tool_bash_20250124::ToolBash20250124;
 pub use tool_choice::ToolChoice;
-pub use tool_param::{InputSchema, ToolParam};
+pub use tool_param::ToolParam;
 pub use tool_result_block::{ToolResultBlock, ToolResultBlockContent};
 pub use tool_text_editor_20250124::ToolTextEditor20250124;
 pub use tool_union_param::ToolUnionParam;

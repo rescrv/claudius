@@ -13,18 +13,13 @@ impl ThinkingDelta {
         Self { thinking }
     }
 
-    /// Create a new `ThinkingDelta` from a string reference.
-    // TODO(claude): no from_string_ref
-    pub fn from_string_ref(thinking: &str) -> Self {
-        Self::new(thinking.to_string())
-    }
 }
 
 impl std::str::FromStr for ThinkingDelta {
     type Err = std::convert::Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self::from_string_ref(s))
+        Ok(Self::new(s.to_string()))
     }
 }
 

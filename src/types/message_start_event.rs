@@ -19,7 +19,7 @@ impl MessageStartEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ContentBlock, Model, TextBlock, Usage};
+    use crate::types::{ContentBlock, MessageRole, Model, TextBlock, Usage};
     use serde_json::{json, to_value};
 
     #[test]
@@ -80,6 +80,6 @@ mod tests {
 
         let event: MessageStartEvent = serde_json::from_value(json).unwrap();
         assert_eq!(event.message.id, "msg_012345");
-        assert_eq!(event.message.role, "assistant");
+        assert_eq!(event.message.role, MessageRole::Assistant);
     }
 }
