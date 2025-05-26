@@ -82,14 +82,10 @@ pub enum MessageRole {
     Assistant,
 }
 
-
 impl MessageParam {
     /// Create a new `MessageParam` with the given content and role.
     pub fn new(content: MessageParamContent, role: MessageRole) -> Self {
-        Self {
-            content,
-            role,
-        }
+        Self { content, role }
     }
 
     /// Create a new `MessageParam` with a string content.

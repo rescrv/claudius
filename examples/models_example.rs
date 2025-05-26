@@ -1,5 +1,5 @@
 /// Example demonstrating how to use the Models API
-/// 
+///
 /// This example shows how to:
 /// - List available models with pagination
 /// - Retrieve information about a specific model
@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nListing first 5 models:");
     let params = ModelListParams::new().with_limit(5);
     let models_response = client.list_models(Some(params)).await?;
-    
+
     for model in models_response.models() {
         println!("- {} ({})", model.display_name, model.id);
     }

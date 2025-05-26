@@ -12,7 +12,6 @@ impl SignatureDelta {
     pub fn new(signature: String) -> Self {
         Self { signature }
     }
-
 }
 
 impl std::str::FromStr for SignatureDelta {

@@ -13,7 +13,6 @@ impl InputJsonDelta {
     pub fn new(partial_json: String) -> Self {
         Self { partial_json }
     }
-
 }
 
 impl std::str::FromStr for InputJsonDelta {

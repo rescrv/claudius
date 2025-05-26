@@ -69,8 +69,8 @@ impl ModelListResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use time::macros::datetime;
     use crate::types::ModelType;
+    use time::macros::datetime;
 
     #[test]
     fn model_list_response_serialization() {
@@ -134,12 +134,8 @@ mod tests {
             r#type: ModelType::Model,
         };
 
-        let response = ModelListResponse::new(
-            vec![model_info],
-            true,
-            None,
-            Some("last_id".to_string()),
-        );
+        let response =
+            ModelListResponse::new(vec![model_info], true, None, Some("last_id".to_string()));
 
         assert_eq!(response.models().len(), 1);
         assert!(response.has_more());

@@ -12,7 +12,6 @@ impl TextDelta {
     pub fn new(text: String) -> Self {
         Self { text }
     }
-
 }
 
 impl std::str::FromStr for TextDelta {

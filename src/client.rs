@@ -1,8 +1,8 @@
 use bytes::Bytes;
-use futures::stream::{self, StreamExt};
 use futures::Stream;
+use futures::stream::{self, StreamExt};
 use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{header, Client as ReqwestClient, Response};
+use reqwest::{Client as ReqwestClient, Response, header};
 use serde::Deserialize;
 use std::env;
 use std::time::Duration;
@@ -613,8 +613,8 @@ fn extract_event(buffer: &str) -> Option<(Result<MessageStreamEvent>, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[tokio::test]
     async fn retry_logic_with_backoff() {

@@ -12,7 +12,6 @@ impl ThinkingDelta {
     pub fn new(thinking: String) -> Self {
         Self { thinking }
     }
-
 }
 
 impl std::str::FromStr for ThinkingDelta {

@@ -175,7 +175,6 @@ mod tests {
 
     #[test]
     fn message_count_tokens_params_with_tools() {
-
         let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
 
         let tool = ToolUnionParam::new_custom_tool(
