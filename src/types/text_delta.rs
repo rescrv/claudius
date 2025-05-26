@@ -29,7 +29,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_text_delta_serialization() {
+    fn text_delta_serialization() {
         let delta = TextDelta::new("Hello world".to_string());
         let json = to_value(&delta).unwrap();
 
@@ -42,7 +42,7 @@ mod tests {
     }
 
     #[test]
-    fn test_text_delta_deserialization() {
+    fn text_delta_deserialization() {
         let json = json!({
             "text": "Hello world"
         });
@@ -52,7 +52,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_str() {
+    fn from_str() {
         let delta = "Hello world".parse::<TextDelta>().unwrap();
         assert_eq!(delta.text, "Hello world");
     }

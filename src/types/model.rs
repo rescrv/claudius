@@ -177,7 +177,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_known_model_serialization() {
+    fn known_model_serialization() {
         let model = Model::Known(KnownModel::Claude37SonnetLatest);
         let json = serde_json::to_string(&model).unwrap();
         assert_eq!(json, r#""claude-3-7-sonnet-latest""#);
@@ -188,14 +188,14 @@ mod tests {
     }
 
     #[test]
-    fn test_custom_model_serialization() {
+    fn custom_model_serialization() {
         let model = Model::Custom("claude-4-custom".to_string());
         let json = serde_json::to_string(&model).unwrap();
         assert_eq!(json, r#""claude-4-custom""#);
     }
 
     #[test]
-    fn test_model_deserialization() {
+    fn model_deserialization() {
         let json = r#""claude-3-7-sonnet-latest""#;
         let model: Model = serde_json::from_str(json).unwrap();
         assert_eq!(model, Model::Known(KnownModel::Claude37SonnetLatest));
@@ -206,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn test_claude_4_models() {
+    fn claude_4_models() {
         // Test Claude 4 Sonnet models
         let model = Model::Known(KnownModel::ClaudeSonnet420250514);
         assert_eq!(model.to_string(), "claude-sonnet-4-20250514");
@@ -234,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn test_display() {
+    fn display() {
         let model = Model::Known(KnownModel::Claude37SonnetLatest);
         assert_eq!(model.to_string(), "claude-3-7-sonnet-latest");
 

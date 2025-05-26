@@ -617,7 +617,7 @@ mod tests {
     use std::sync::Arc;
 
     #[tokio::test]
-    async fn test_retry_logic_with_backoff() {
+    async fn retry_logic_with_backoff() {
         let client = Anthropic {
             api_key: "test".to_string(),
             client: ReqwestClient::new(),
@@ -650,7 +650,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_retry_logic_with_non_retryable_error() {
+    async fn retry_logic_with_non_retryable_error() {
         let client = Anthropic {
             api_key: "test".to_string(),
             client: ReqwestClient::new(),
@@ -681,7 +681,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_retry_logic_max_retries_exceeded() {
+    async fn retry_logic_max_retries_exceeded() {
         let client = Anthropic {
             api_key: "test".to_string(),
             client: ReqwestClient::new(),

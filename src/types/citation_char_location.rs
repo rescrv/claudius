@@ -52,7 +52,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialization() {
+    fn serialization() {
         let location = CitationCharLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -68,7 +68,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialization_without_title() {
+    fn serialization_without_title() {
         let location = CitationCharLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -84,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = r#"{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0,"type":"char_location"}"#;
         let location: CitationCharLocation = serde_json::from_str(json).unwrap();
 
@@ -96,7 +96,7 @@ mod tests {
     }
 
     #[test]
-    fn test_length() {
+    fn length() {
         let location = CitationCharLocation {
             cited_text: "example text".to_string(),
             document_index: 0,

@@ -74,14 +74,14 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_system_prompt_string() {
+    fn system_prompt_string() {
         let prompt = SystemPrompt::String("You are a helpful assistant.".to_string());
         let json = to_value(&prompt).unwrap();
         assert_eq!(json, json!("You are a helpful assistant."));
     }
 
     #[test]
-    fn test_system_prompt_blocks() {
+    fn system_prompt_blocks() {
         let blocks = vec![TextBlock::new("You are a helpful assistant.".to_string())];
         let prompt = SystemPrompt::from_blocks(blocks);
         let json = to_value(&prompt).unwrap();
@@ -95,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_string() {
+    fn from_string() {
         let prompt = SystemPrompt::from_string("Hello".to_string());
         assert_eq!(prompt, SystemPrompt::String("Hello".to_string()));
 
@@ -107,7 +107,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_blocks() {
+    fn from_blocks() {
         let blocks = vec![TextBlock::new("Hello".to_string())];
         let prompt = SystemPrompt::from_blocks(blocks.clone());
         let expected_blocks = vec![SystemTextBlock {

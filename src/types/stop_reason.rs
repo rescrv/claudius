@@ -74,7 +74,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialization() {
+    fn serialization() {
         let reason = StopReason::EndTurn;
         let json = serde_json::to_string(&reason).unwrap();
         assert_eq!(json, r#""end_turn""#);
@@ -85,7 +85,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = r#""end_turn""#;
         let reason: StopReason = serde_json::from_str(json).unwrap();
         assert_eq!(reason, StopReason::EndTurn);
@@ -96,7 +96,7 @@ mod tests {
     }
 
     #[test]
-    fn test_display() {
+    fn display() {
         let reason = StopReason::EndTurn;
         assert_eq!(reason.to_string(), "end_turn");
 

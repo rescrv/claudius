@@ -73,7 +73,7 @@ mod tests {
     use crate::types::ModelType;
 
     #[test]
-    fn test_model_list_response_serialization() {
+    fn model_list_response_serialization() {
         let model_info = ModelInfo {
             id: "claude-3-7-sonnet-20250219".to_string(),
             created_at: datetime!(2025-02-19 0:00:00 UTC),
@@ -104,7 +104,7 @@ mod tests {
     }
 
     #[test]
-    fn test_model_list_response_deserialization() {
+    fn model_list_response_deserialization() {
         let json = serde_json::json!({
             "data": [{
                 "id": "claude-3-7-sonnet-20250219",
@@ -126,7 +126,7 @@ mod tests {
     }
 
     #[test]
-    fn test_model_list_response_accessors() {
+    fn model_list_response_accessors() {
         let model_info = ModelInfo {
             id: "claude-3-7-sonnet-20250219".to_string(),
             created_at: datetime!(2025-02-19 0:00:00 UTC),

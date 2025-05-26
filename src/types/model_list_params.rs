@@ -83,7 +83,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_model_list_params() {
+    fn default_model_list_params() {
         let params = ModelListParams::default();
         assert_eq!(params.after_id, None);
         assert_eq!(params.before_id, None);
@@ -92,7 +92,7 @@ mod tests {
     }
 
     #[test]
-    fn test_model_list_params_builder() {
+    fn model_list_params_builder() {
         let params = ModelListParams::new()
             .with_after_id("model_123")
             .with_limit(50)
@@ -108,7 +108,7 @@ mod tests {
     }
 
     #[test]
-    fn test_model_list_params_serialization() {
+    fn model_list_params_serialization() {
         let params = ModelListParams::new()
             .with_limit(50)
             .with_beta("token-counting-2024-11-01".to_string());
@@ -122,7 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn test_model_list_params_deserialization() {
+    fn model_list_params_deserialization() {
         let json = serde_json::json!({
             "after_id": "model_123",
             "limit": 50,

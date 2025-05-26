@@ -26,7 +26,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialization() {
+    fn serialization() {
         let source = UrlPdfSource {
             url: "https://example.com/document.pdf".to_string(),
         };
@@ -38,7 +38,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = serde_json::json!({"url": "https://example.com/document.pdf"});
         let source: UrlPdfSource = serde_json::from_value(json).unwrap();
 
@@ -46,7 +46,7 @@ mod tests {
     }
 
     #[test]
-    fn test_has_pdf_extension() {
+    fn has_pdf_extension() {
         let source = UrlPdfSource::new("https://example.com/document.pdf");
         assert!(source.has_pdf_extension());
 

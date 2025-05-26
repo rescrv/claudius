@@ -23,7 +23,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_message_stop_event_serialization() {
+    fn message_stop_event_serialization() {
         let event = MessageStopEvent::new();
 
         let json = to_value(&event).unwrap();
@@ -31,7 +31,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_stop_event_deserialization() {
+    fn message_stop_event_deserialization() {
         let json = json!({});
 
         let event: MessageStopEvent = serde_json::from_value(json).unwrap();

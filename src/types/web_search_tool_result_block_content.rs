@@ -71,7 +71,7 @@ mod tests {
     use serde_json::Value;
 
     #[test]
-    fn test_results_serialization() {
+    fn results_serialization() {
         let results = vec![
             WebSearchResultBlock {
                 encrypted_content: "encrypted-data-1".to_string(),
@@ -97,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_serialization() {
+    fn error_serialization() {
         let error = WebSearchToolResultError {
             error_code: WebSearchErrorCode::InvalidToolInput,
         };
@@ -113,7 +113,7 @@ mod tests {
     }
 
     #[test]
-    fn test_results_deserialization() {
+    fn results_deserialization() {
         let json = r#"[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","url":"https://example.com/page1"},{"encrypted_content":"encrypted-data-2","title":"Example Page 2","url":"https://example.com/page2"}]"#;
         let content: WebSearchToolResultBlockContent = serde_json::from_str(json).unwrap();
 
@@ -129,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_deserialization() {
+    fn error_deserialization() {
         let json = r#"{"error_code":"invalid_tool_input"}"#;
         let content: WebSearchToolResultBlockContent = serde_json::from_str(json).unwrap();
 
@@ -141,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn test_result_count() {
+    fn result_count() {
         let results = vec![
             WebSearchResultBlock {
                 encrypted_content: "encrypted-data-1".to_string(),

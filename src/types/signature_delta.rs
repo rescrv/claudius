@@ -29,7 +29,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_signature_delta_serialization() {
+    fn signature_delta_serialization() {
         let delta = SignatureDelta::new("Robert Paulson".to_string());
         let json = to_value(&delta).unwrap();
 
@@ -42,7 +42,7 @@ mod tests {
     }
 
     #[test]
-    fn test_signature_delta_deserialization() {
+    fn signature_delta_deserialization() {
         let json = json!({
             "signature": "Robert Paulson"
         });
@@ -52,7 +52,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_str() {
+    fn from_str() {
         let delta = "Robert Paulson".parse::<SignatureDelta>().unwrap();
         assert_eq!(delta.signature, "Robert Paulson");
     }

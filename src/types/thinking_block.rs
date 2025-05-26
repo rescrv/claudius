@@ -33,7 +33,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_thinking_block_serialization() {
+    fn thinking_block_serialization() {
         let thinking_block = ThinkingBlock::new(
             "Let me think through this problem step by step...",
             "abc123signature",
@@ -46,7 +46,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = r#"{"signature":"abc123signature","thinking":"Let me think through this problem step by step...","type":"thinking"}"#;
         let thinking_block: ThinkingBlock = serde_json::from_str(json).unwrap();
 
@@ -58,7 +58,7 @@ mod tests {
     }
 
     #[test]
-    fn test_thinking_block_with_string_references() {
+    fn thinking_block_with_string_references() {
         let block = ThinkingBlock::new("Let me think about this...", "Signature");
         let json = to_value(&block).unwrap();
 
@@ -72,7 +72,7 @@ mod tests {
     }
 
     #[test]
-    fn test_thinking_block_from_str() {
+    fn thinking_block_from_str() {
         let block = ThinkingBlock::from_str("Signature", "Let me think about this...");
         let json = to_value(&block).unwrap();
 

@@ -62,7 +62,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_server_tool_use_block_serialization() {
+    fn server_tool_use_block_serialization() {
         let input_json = serde_json::json!({
             "query": "weather in San Francisco"
         });
@@ -77,7 +77,7 @@ mod tests {
     }
 
     #[test]
-    fn test_new_web_search() {
+    fn new_web_search() {
         let block = ServerToolUseBlock::new_web_search("tool_123", "weather in San Francisco");
 
         let json = serde_json::to_string(&block).unwrap();
@@ -88,7 +88,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json =
             r#"{"id":"tool_123","input":{"query":"weather in San Francisco"},"name":"web_search"}"#;
         let block: ServerToolUseBlock = serde_json::from_str(json).unwrap();
@@ -103,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    fn test_server_tool_use_block_with_cache_control() {
+    fn server_tool_use_block_with_cache_control() {
         let input = json!({
             "query": "weather in San Francisco"
         });

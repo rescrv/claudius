@@ -42,7 +42,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_plain_text_source_serialization() {
+    fn plain_text_source_serialization() {
         let source = PlainTextSource::new("Sample text content".to_string());
         let json = to_value(&source).unwrap();
 
@@ -56,14 +56,14 @@ mod tests {
     }
 
     #[test]
-    fn test_plain_text_source_from_string_ref() {
+    fn plain_text_source_from_string_ref() {
         let source = PlainTextSource::from_string_ref("Sample text content");
         assert_eq!(source.data, "Sample text content");
         assert_eq!(source.media_type, "text/plain");
     }
 
     #[test]
-    fn test_from_str() {
+    fn from_str() {
         let source = "Sample text content".parse::<PlainTextSource>().unwrap();
         assert_eq!(source.data, "Sample text content");
         assert_eq!(source.media_type, "text/plain");

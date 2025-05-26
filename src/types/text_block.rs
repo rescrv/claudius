@@ -85,7 +85,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_text_block_serialization() {
+    fn text_block_serialization() {
         let text_block = TextBlock::new("This is some text content.");
 
         let json = serde_json::to_value(&text_block).unwrap();
@@ -95,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn test_text_block_with_citations_serialization() {
+    fn text_block_with_citations_serialization() {
         let char_location = CitationCharLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -154,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = serde_json::json!({
             "text": "This is some text content.",
             "type": "text"
@@ -166,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn test_helper_methods() {
+    fn helper_methods() {
         let text_block = TextBlock::new("Simple text");
         assert_eq!(text_block.citation_count(), 0);
         assert!(!text_block.has_citations());
@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn test_text_block_with_cache_control() {
+    fn text_block_with_cache_control() {
         let cache_control = CacheControlEphemeral::new();
         let text_block = TextBlock::new("Sample text content").with_cache_control(cache_control);
 
@@ -206,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn test_text_block_with_citation() {
+    fn text_block_with_citation() {
         let citation = TextCitation::CharLocation(CitationCharLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -238,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_str() {
+    fn from_str() {
         let text_block = "Sample text content".parse::<TextBlock>().unwrap();
         assert_eq!(text_block.text, "Sample text content");
     }

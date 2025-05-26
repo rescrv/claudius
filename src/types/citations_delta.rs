@@ -64,7 +64,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_char_location_serialization() {
+    fn char_location_serialization() {
         let char_location = CitationCharLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -82,7 +82,7 @@ mod tests {
     }
 
     #[test]
-    fn test_page_location_serialization() {
+    fn page_location_serialization() {
         let page_location = CitationPageLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -100,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn test_content_block_location_serialization() {
+    fn content_block_location_serialization() {
         let content_block_location = CitationContentBlockLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -118,7 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn test_web_search_result_location_serialization() {
+    fn web_search_result_location_serialization() {
         let web_search_result_location = CitationWebSearchResultLocation {
             cited_text: "example text".to_string(),
             encrypted_index: "abc123".to_string(),
@@ -135,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let char_location_json = r#"{"citation":{"type":"char_location","cited_text":"example text","document_index":0,"document_title":"Document Title","end_char_index":12,"start_char_index":0}}"#;
         let delta: CitationsDelta = serde_json::from_str(char_location_json).unwrap();
 

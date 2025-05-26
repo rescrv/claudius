@@ -63,7 +63,7 @@ mod tests {
     use serde_json::{from_value, json, to_value};
 
     #[test]
-    fn test_text_delta_serialization() {
+    fn text_delta_serialization() {
         let text_delta = TextDelta::new("Hello world".to_string());
         let delta = ContentBlockDelta::TextDelta(text_delta);
 
@@ -78,7 +78,7 @@ mod tests {
     }
 
     #[test]
-    fn test_input_json_delta_serialization() {
+    fn input_json_delta_serialization() {
         let input_json_delta = InputJsonDelta::new(r#"{"key":"#.to_string());
         let delta = ContentBlockDelta::InputJsonDelta(input_json_delta);
 
@@ -93,7 +93,7 @@ mod tests {
     }
 
     #[test]
-    fn test_citations_delta_serialization() {
+    fn citations_delta_serialization() {
         let char_location = crate::types::CitationCharLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -123,7 +123,7 @@ mod tests {
     }
 
     #[test]
-    fn test_thinking_delta_serialization() {
+    fn thinking_delta_serialization() {
         let thinking_delta = ThinkingDelta::new("Let me think about this...".to_string());
         let delta = ContentBlockDelta::ThinkingDelta(thinking_delta);
 
@@ -138,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn test_signature_delta_serialization() {
+    fn signature_delta_serialization() {
         let signature_delta = SignatureDelta::new("Robert Paulson".to_string());
         let delta = ContentBlockDelta::SignatureDelta(signature_delta);
 
@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = json!({
             "text": "Hello world",
             "type": "text_delta"

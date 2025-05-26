@@ -176,7 +176,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_user_location_serialization() {
+    fn user_location_serialization() {
         let user_location = UserLocation::new()
             .with_city("San Francisco")
             .with_country("US")
@@ -190,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn test_user_location_deserialization() {
+    fn user_location_deserialization() {
         let json = r#"{
             "type": "approximate",
             "city": "San Francisco",
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn test_web_search_tool_serialization() {
+    fn web_search_tool_serialization() {
         let user_location = UserLocation::new()
             .with_city("San Francisco")
             .with_country("US");
@@ -230,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn test_web_search_tool_deserialization() {
+    fn web_search_tool_deserialization() {
         let json = r#"{
             "name": "web_search",
             "allowed_domains": ["example.com", "example.org"],
@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn test_allowed_blocked_domains_mutual_exclusivity() {
+    fn allowed_blocked_domains_mutual_exclusivity() {
         // Test that setting allowed_domains clears blocked_domains
         let mut web_search_tool =
             WebSearchTool20250305::new().with_blocked_domains(vec!["blocked.com".to_string()]);

@@ -66,7 +66,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_message_delta_empty() {
+    fn message_delta_empty() {
         let delta = MessageDelta::new();
         let json = to_value(&delta).unwrap();
 
@@ -74,7 +74,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_delta_with_values() {
+    fn message_delta_with_values() {
         let delta = MessageDelta::new()
             .with_stop_reason(StopReason::EndTurn)
             .with_stop_sequence("###".to_string());
@@ -91,7 +91,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_delta_event_serialization() {
+    fn message_delta_event_serialization() {
         let delta = MessageDelta::new().with_stop_reason(StopReason::EndTurn);
 
         let usage = MessageDeltaUsage::new(100).with_input_tokens(50);
@@ -114,7 +114,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_delta_event_deserialization() {
+    fn message_delta_event_deserialization() {
         let json = json!({
             "delta": {
                 "stop_reason": "end_turn",

@@ -23,7 +23,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_message_start_event_serialization() {
+    fn message_start_event_serialization() {
         let text_block = TextBlock::new("Hello, I'm Claude.".to_string());
         let content = vec![ContentBlock::Text(text_block)];
         let model = Model::Known(crate::types::KnownModel::Claude37Sonnet20250219);
@@ -58,7 +58,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_start_event_deserialization() {
+    fn message_start_event_deserialization() {
         let json = json!({
             "message": {
                 "id": "msg_012345",

@@ -21,7 +21,7 @@ mod tests {
     use serde_json::{from_value, json, to_value};
 
     #[test]
-    fn test_message_tokens_count_serialization() {
+    fn message_tokens_count_serialization() {
         let count = MessageTokensCount::new(123);
 
         let json = to_value(&count).unwrap();
@@ -34,7 +34,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_tokens_count_deserialization() {
+    fn message_tokens_count_deserialization() {
         let json = json!({
             "input_tokens": 456
         });

@@ -51,7 +51,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialization() {
+    fn serialization() {
         let location = CitationContentBlockLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -67,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialization_without_title() {
+    fn serialization_without_title() {
         let location = CitationContentBlockLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -83,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = r#"{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_block_index":3,"start_block_index":1,"type":"content_block_location"}"#;
         let location: CitationContentBlockLocation = serde_json::from_str(json).unwrap();
 
@@ -95,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn test_block_count() {
+    fn block_count() {
         let location = CitationContentBlockLocation {
             cited_text: "example text".to_string(),
             document_index: 0,

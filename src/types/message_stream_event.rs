@@ -44,7 +44,7 @@ mod tests {
     use serde_json::{from_value, json};
 
     #[test]
-    fn test_message_stream_event_deserialization_message_start() {
+    fn message_stream_event_deserialization_message_start() {
         let json = json!({
             "type": "message_start",
             "message": {
@@ -68,7 +68,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_stream_event_deserialization_message_delta() {
+    fn message_stream_event_deserialization_message_delta() {
         let json = json!({
             "type": "message_delta",
             "delta": {
@@ -88,7 +88,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_stream_event_deserialization_message_stop() {
+    fn message_stream_event_deserialization_message_stop() {
         let json = json!({
             "type": "message_stop"
         });
@@ -101,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_stream_event_deserialization_content_block_start() {
+    fn message_stream_event_deserialization_content_block_start() {
         let json = json!({
             "type": "content_block_start",
             "content_block": {
@@ -119,7 +119,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_stream_event_deserialization_content_block_delta() {
+    fn message_stream_event_deserialization_content_block_delta() {
         let json = json!({
             "type": "content_block_delta",
             "delta": {
@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_stream_event_deserialization_content_block_stop() {
+    fn message_stream_event_deserialization_content_block_stop() {
         let json = json!({
             "type": "content_block_stop",
             "index": 0

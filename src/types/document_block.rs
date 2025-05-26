@@ -112,7 +112,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_document_block_with_base64_pdf() {
+    fn document_block_with_base64_pdf() {
         let base64_source =
             Base64PdfSource::new("data:application/pdf;base64,JVBERi0xLjcKJeLjz9MKN".to_string());
 
@@ -132,7 +132,7 @@ mod tests {
     }
 
     #[test]
-    fn test_document_block_with_plain_text() {
+    fn document_block_with_plain_text() {
         let text_source = PlainTextSource::new("Sample text content".to_string());
 
         let document_block = DocumentBlock::new_with_plain_text(text_source);
@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn test_document_block_with_content_block() {
+    fn document_block_with_content_block() {
         let content_source = ContentBlockSourceParam::from_string_ref("Sample content");
 
         let document_block = DocumentBlock::new_with_content_block(content_source);
@@ -169,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn test_document_block_with_url_pdf() {
+    fn document_block_with_url_pdf() {
         let url_source = UrlPdfSource::new("https://example.com/document.pdf".to_string());
 
         let document_block = DocumentBlock::new_with_url_pdf(url_source);
@@ -187,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn test_document_block_with_all_fields() {
+    fn document_block_with_all_fields() {
         let url_source = UrlPdfSource::new("https://example.com/document.pdf".to_string());
         let cache_control = CacheControlEphemeral::new();
         let citations = CitationsConfig::enabled();

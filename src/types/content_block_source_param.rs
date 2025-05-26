@@ -63,7 +63,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_content_block_source_param_with_string() {
+    fn content_block_source_param_with_string() {
         let source = ContentBlockSourceParam::new_with_string("Sample content".to_string());
         let json = to_value(&source).unwrap();
 
@@ -77,7 +77,7 @@ mod tests {
     }
 
     #[test]
-    fn test_content_block_source_param_with_array() {
+    fn content_block_source_param_with_array() {
         let text_param = TextBlock::new("Sample text content".to_string());
         let url_source = UrlImageSource::new("https://example.com/image.jpg".to_string());
         let image_param = ImageBlock::new_with_url(url_source);
@@ -109,7 +109,7 @@ mod tests {
     }
 
     #[test]
-    fn test_content_block_source_param_with_item() {
+    fn content_block_source_param_with_item() {
         let text_param = TextBlock::new("Sample text content".to_string());
         let source = ContentBlockSourceParam::new_with_item(Content::Text(text_param));
 
@@ -130,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_string_ref() {
+    fn from_string_ref() {
         let source = ContentBlockSourceParam::from_string_ref("Sample content");
 
         match &source.content {
@@ -142,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_str() {
+    fn from_str() {
         let source = "Sample content".parse::<ContentBlockSourceParam>().unwrap();
 
         match &source.content {

@@ -107,7 +107,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn test_char_location_serialization() {
+    fn char_location_serialization() {
         let char_location = CitationCharLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -132,7 +132,7 @@ mod tests {
     }
 
     #[test]
-    fn test_page_location_serialization() {
+    fn page_location_serialization() {
         let page_location = CitationPageLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -157,7 +157,7 @@ mod tests {
     }
 
     #[test]
-    fn test_content_block_location_serialization() {
+    fn content_block_location_serialization() {
         let content_block_location = CitationContentBlockLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -182,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn test_web_search_result_location_serialization() {
+    fn web_search_result_location_serialization() {
         let web_search_location = CitationWebSearchResultLocation {
             cited_text: "example text".to_string(),
             encrypted_index: "abc123".to_string(),
@@ -205,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = serde_json::json!({
             "type": "char_location",
             "cited_text": "example text",
@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn test_char_location_method() {
+    fn char_location_method() {
         let citation = TextCitation::char_location(
             "example text".to_string(),
             0,
@@ -252,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn test_page_location_method() {
+    fn page_location_method() {
         let citation = TextCitation::page_location(
             "example text".to_string(),
             0,
@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn test_content_block_location_method() {
+    fn content_block_location_method() {
         let citation = TextCitation::content_block_location(
             "example text".to_string(),
             0,
@@ -298,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn test_web_search_result_location_method() {
+    fn web_search_result_location_method() {
         let citation = TextCitation::web_search_result_location(
             "example text".to_string(),
             "encrypted123".to_string(),
@@ -319,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn test_optional_fields_are_omitted() {
+    fn optional_fields_are_omitted() {
         let citation = TextCitation::char_location("example text".to_string(), 0, 0, 12, None);
 
         let json_value = serde_json::to_value(&citation).unwrap();

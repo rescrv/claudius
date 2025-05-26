@@ -108,7 +108,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_tool_choice_auto() {
+    fn tool_choice_auto() {
         let param = ToolChoice::auto();
         let json = to_value(&param).unwrap();
 
@@ -121,7 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_choice_any() {
+    fn tool_choice_any() {
         let param = ToolChoice::any();
         let json = to_value(&param).unwrap();
 
@@ -134,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_choice_tool() {
+    fn tool_choice_tool() {
         let param = ToolChoice::tool("my_tool");
         let json = to_value(&param).unwrap();
 
@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_choice_none() {
+    fn tool_choice_none() {
         let param = ToolChoice::none();
         let json = to_value(&param).unwrap();
 
@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_choice_auto_with_disable_parallel() {
+    fn tool_choice_auto_with_disable_parallel() {
         let param = ToolChoice::auto_with_disable_parallel(true);
         let json = to_value(&param).unwrap();
 
@@ -175,7 +175,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_choice_deserialization_auto() {
+    fn tool_choice_deserialization_auto() {
         let json = json!({
             "type": "auto",
             "disable_parallel_tool_use": true
@@ -193,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_choice_deserialization_tool() {
+    fn tool_choice_deserialization_tool() {
         let json = json!({
             "name": "my_tool",
             "type": "tool",

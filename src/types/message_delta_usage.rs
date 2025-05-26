@@ -71,7 +71,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_message_delta_usage_minimal() {
+    fn message_delta_usage_minimal() {
         let usage = MessageDeltaUsage::new(100);
         let json = to_value(&usage).unwrap();
 
@@ -84,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_delta_usage_complete() {
+    fn message_delta_usage_complete() {
         let server_tool_use = ServerToolUsage::new(5);
         let usage = MessageDeltaUsage::new(100)
             .with_cache_creation_input_tokens(20)
@@ -109,7 +109,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_delta_usage_deserialization() {
+    fn message_delta_usage_deserialization() {
         let json = json!({
             "cache_creation_input_tokens": 20,
             "cache_read_input_tokens": 30,

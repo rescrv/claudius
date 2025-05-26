@@ -92,7 +92,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_with_exponential_backoff() {
+    fn with_exponential_backoff() {
         let exp_backoff = ExponentialBackoff::new(1_000.0, 100.0);
         assert!(exp_backoff.next() < Duration::from_secs(1));
         assert!(exp_backoff.next() < Duration::from_secs(1));

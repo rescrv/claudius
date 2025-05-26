@@ -43,7 +43,7 @@ mod tests {
     use time::macros::datetime;
 
     #[test]
-    fn test_model_info_serialization() {
+    fn model_info_serialization() {
         let model_info = ModelInfo {
             id: "claude-3-7-sonnet-20250219".to_string(),
             created_at: datetime!(2025-02-19 0:00:00 UTC),
@@ -62,7 +62,7 @@ mod tests {
     }
 
     #[test]
-    fn test_model_info_deserialization() {
+    fn model_info_deserialization() {
         let json = serde_json::json!({
             "id": "claude-3-7-sonnet-20250219",
             "created_at": "2025-02-19T00:00:00Z",

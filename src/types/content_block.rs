@@ -140,7 +140,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_text_block_serialization() {
+    fn text_block_serialization() {
         let text_block = TextBlock::new("This is some text content.");
         let content_block = ContentBlock::from(text_block);
 
@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_use_block_serialization() {
+    fn tool_use_block_serialization() {
         let input_json = serde_json::json!({
             "query": "weather in San Francisco",
             "limit": 5
@@ -167,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn test_server_tool_use_block_serialization() {
+    fn server_tool_use_block_serialization() {
         let server_block =
             ServerToolUseBlock::new_web_search("tool_123", "weather in San Francisco");
         let content_block = ContentBlock::from(server_block);
@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn test_thinking_block_serialization() {
+    fn thinking_block_serialization() {
         let thinking_block = ThinkingBlock::new(
             "Let me think through this problem step by step...",
             "abc123signature",
@@ -193,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn test_redacted_thinking_block_serialization() {
+    fn redacted_thinking_block_serialization() {
         let redacted_block = RedactedThinkingBlock::new("encoded-thinking-data-123");
         let content_block = ContentBlock::from(redacted_block);
 
@@ -204,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = r#"{"text":"This is some text content.","type":"text"}"#;
         let content_block: ContentBlock = serde_json::from_str(json).unwrap();
 
@@ -232,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn test_as_methods() {
+    fn as_methods() {
         let text_block = TextBlock::new("This is some text content.");
         let content_block = ContentBlock::from(text_block);
 

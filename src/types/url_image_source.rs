@@ -21,7 +21,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialization() {
+    fn serialization() {
         let source = UrlImageSource {
             url: "https://example.com/image.jpg".to_string(),
         };
@@ -33,7 +33,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = serde_json::json!({"url": "https://example.com/image.jpg"});
         let source: UrlImageSource = serde_json::from_value(json).unwrap();
 

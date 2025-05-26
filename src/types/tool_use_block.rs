@@ -46,7 +46,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_tool_use_block_serialization() {
+    fn tool_use_block_serialization() {
         let input_json = json!({
             "query": "weather in San Francisco",
             "limit": 5
@@ -65,7 +65,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_use_block_with_cache_control() {
+    fn tool_use_block_with_cache_control() {
         let input_json = json!({
             "query": "weather in San Francisco",
             "limit": 5
@@ -93,7 +93,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = serde_json::json!({
             "id": "tool_123",
             "input": {

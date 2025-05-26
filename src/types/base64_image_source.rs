@@ -78,7 +78,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialization() {
+    fn serialization() {
         let source = Base64ImageSource {
             data: "SGVsbG8gV29ybGQ=".to_string(), // "Hello World" in base64
             media_type: ImageMediaType::Jpeg,
@@ -94,7 +94,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = serde_json::json!({
             "data": "SGVsbG8gV29ybGQ=",
             "media_type": "image/png"

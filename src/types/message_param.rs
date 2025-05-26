@@ -179,7 +179,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_message_param_with_string() {
+    fn message_param_with_string() {
         let message = MessageParam::user("Hello, Claude!".to_string());
         let json = to_value(&message).unwrap();
 
@@ -193,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_param_with_blocks() {
+    fn message_param_with_blocks() {
         let text_block = TextBlock::new("Hello, Claude!".to_string());
         let blocks = vec![MessageContentBlock::Text(text_block)];
 
@@ -215,7 +215,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_param_with_mixed_blocks() {
+    fn message_param_with_mixed_blocks() {
         let text_block = TextBlock::new("Check out this image:".to_string());
 
         let image_source =
@@ -252,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_param_deserialization() {
+    fn message_param_deserialization() {
         let json = json!({
             "content": "Hello, Claude!",
             "role": "user"

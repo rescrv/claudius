@@ -29,7 +29,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_content_block_start_event_serialization() {
+    fn content_block_start_event_serialization() {
         let text_block = TextBlock::new("Hello world".to_string());
         let content_block = ContentBlock::Text(text_block);
         let event = ContentBlockStartEvent::new(content_block, 0);
@@ -48,7 +48,7 @@ mod tests {
     }
 
     #[test]
-    fn test_content_block_start_event_deserialization() {
+    fn content_block_start_event_deserialization() {
         let json = json!({
             "content_block": {
                 "text": "Hello world",

@@ -30,7 +30,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_input_json_delta_serialization() {
+    fn input_json_delta_serialization() {
         let delta = InputJsonDelta::new(r#"{"key":"#.to_string());
         let json = to_value(&delta).unwrap();
 
@@ -43,7 +43,7 @@ mod tests {
     }
 
     #[test]
-    fn test_input_json_delta_deserialization() {
+    fn input_json_delta_deserialization() {
         let json = json!({
             "partial_json": r#"{"key":"#
         });
@@ -53,7 +53,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_str() {
+    fn from_str() {
         let delta = "partial json".parse::<InputJsonDelta>().unwrap();
         assert_eq!(delta.partial_json, "partial json");
     }

@@ -20,7 +20,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_content_block_stop_event_serialization() {
+    fn content_block_stop_event_serialization() {
         let event = ContentBlockStopEvent::new(0);
 
         let json = to_value(&event).unwrap();
@@ -33,7 +33,7 @@ mod tests {
     }
 
     #[test]
-    fn test_content_block_stop_event_deserialization() {
+    fn content_block_stop_event_deserialization() {
         let json = json!({
             "index": 0
         });

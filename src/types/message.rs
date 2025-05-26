@@ -79,7 +79,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_message_serialization() {
+    fn message_serialization() {
         let text_block = TextBlock::new("Hello, I'm Claude.".to_string());
         let content = vec![ContentBlock::Text(text_block)];
         let model = Model::Known(crate::types::KnownModel::Claude37Sonnet20250219);
@@ -110,7 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_with_stop_reason() {
+    fn message_with_stop_reason() {
         let text_block = TextBlock::new("Hello, I'm Claude.".to_string());
         let content = vec![ContentBlock::Text(text_block)];
         let model = Model::Known(crate::types::KnownModel::Claude37Sonnet20250219);
@@ -143,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_deserialization() {
+    fn message_deserialization() {
         let json = json!({
             "id": "msg_012345",
             "content": [

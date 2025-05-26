@@ -77,7 +77,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialization() {
+    fn serialization() {
         let error = WebSearchToolResultError {
             error_code: WebSearchErrorCode::InvalidToolInput,
         };
@@ -89,7 +89,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = r#"{"error_code":"max_uses_exceeded"}"#;
         let error: WebSearchToolResultError = serde_json::from_str(json).unwrap();
 
@@ -97,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_code_helpers() {
+    fn error_code_helpers() {
         let error = WebSearchToolResultError::new(WebSearchErrorCode::InvalidToolInput);
         assert!(error.is_invalid_input());
         assert!(!error.is_unavailable());

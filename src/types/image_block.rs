@@ -59,7 +59,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_image_block_with_base64() {
+    fn image_block_with_base64() {
         let base64_source = Base64ImageSource::new(
             "data:image/jpeg;base64,SGVsbG8gd29ybGQ=".to_string(),
             ImageMediaType::Jpeg,
@@ -81,7 +81,7 @@ mod tests {
     }
 
     #[test]
-    fn test_image_block_with_url() {
+    fn image_block_with_url() {
         let url_source = UrlImageSource::new("https://example.com/image.jpg".to_string());
 
         let image_block = ImageBlock::new_with_url(url_source);
@@ -99,7 +99,7 @@ mod tests {
     }
 
     #[test]
-    fn test_image_block_with_cache_control() {
+    fn image_block_with_cache_control() {
         let url_source = UrlImageSource::new("https://example.com/image.jpg".to_string());
         let cache_control = CacheControlEphemeral::new();
 

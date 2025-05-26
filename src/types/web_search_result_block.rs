@@ -53,7 +53,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialization() {
+    fn serialization() {
         let block = WebSearchResultBlock {
             encrypted_content: "encrypted-data-123".to_string(),
             page_age: Some("2 days ago".to_string()),
@@ -68,7 +68,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialization_without_page_age() {
+    fn serialization_without_page_age() {
         let block = WebSearchResultBlock {
             encrypted_content: "encrypted-data-123".to_string(),
             page_age: None,
@@ -83,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = r#"{"encrypted_content":"encrypted-data-123","page_age":"2 days ago","title":"Example Page Title","url":"https://example.com/page"}"#;
         let block: WebSearchResultBlock = serde_json::from_str(json).unwrap();
 
@@ -94,7 +94,7 @@ mod tests {
     }
 
     #[test]
-    fn test_domain() {
+    fn domain() {
         let block = WebSearchResultBlock::new(
             "encrypted-data-123",
             "Example Page Title",

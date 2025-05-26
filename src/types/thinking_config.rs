@@ -50,7 +50,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_thinking_config_enabled_serialization() {
+    fn thinking_config_enabled_serialization() {
         let config = ThinkingConfig::enabled(2048);
         let json = to_value(&config).unwrap();
 
@@ -64,7 +64,7 @@ mod tests {
     }
 
     #[test]
-    fn test_thinking_config_disabled_serialization() {
+    fn thinking_config_disabled_serialization() {
         let config = ThinkingConfig::disabled();
         let json = to_value(&config).unwrap();
 
@@ -77,7 +77,7 @@ mod tests {
     }
 
     #[test]
-    fn test_thinking_config_enabled_deserialization() {
+    fn thinking_config_enabled_deserialization() {
         let json = json!({
             "type": "enabled",
             "budget_tokens": 2048
@@ -93,7 +93,7 @@ mod tests {
     }
 
     #[test]
-    fn test_thinking_config_disabled_deserialization() {
+    fn thinking_config_disabled_deserialization() {
         let json = json!({
             "type": "disabled"
         });

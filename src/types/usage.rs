@@ -64,7 +64,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_usage_minimal() {
+    fn usage_minimal() {
         let usage = Usage::new(50, 100);
         let json = to_value(&usage).unwrap();
 
@@ -78,7 +78,7 @@ mod tests {
     }
 
     #[test]
-    fn test_usage_complete() {
+    fn usage_complete() {
         let server_tool_use = ServerToolUsage::new(5);
         let usage = Usage::new(50, 100)
             .with_cache_creation_input_tokens(20)
@@ -102,7 +102,7 @@ mod tests {
     }
 
     #[test]
-    fn test_usage_deserialization() {
+    fn usage_deserialization() {
         let json = json!({
             "cache_creation_input_tokens": 20,
             "cache_read_input_tokens": 30,

@@ -56,7 +56,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialization() {
+    fn serialization() {
         let location = CitationPageLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -72,7 +72,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialization_without_title() {
+    fn serialization_without_title() {
         let location = CitationPageLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -88,7 +88,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = r#"{"cited_text":"example text","document_index":0,"document_title":"Document Title","end_page_number":5,"start_page_number":3,"type":"page_location"}"#;
         let location: CitationPageLocation = serde_json::from_str(json).unwrap();
 
@@ -100,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn test_page_count() {
+    fn page_count() {
         let location = CitationPageLocation {
             cited_text: "example text".to_string(),
             document_index: 0,
@@ -113,7 +113,7 @@ mod tests {
     }
 
     #[test]
-    fn test_is_single_page() {
+    fn is_single_page() {
         let single_page = CitationPageLocation {
             cited_text: "example text".to_string(),
             document_index: 0,

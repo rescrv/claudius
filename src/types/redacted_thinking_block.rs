@@ -30,7 +30,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_redacted_thinking_block_serialization() {
+    fn redacted_thinking_block_serialization() {
         let block = RedactedThinkingBlock::new("encoded-thinking-data-123");
 
         let json = serde_json::to_string(&block).unwrap();
@@ -40,7 +40,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = r#"{"data":"encoded-thinking-data-123","type":"redacted_thinking"}"#;
         let block: RedactedThinkingBlock = serde_json::from_str(json).unwrap();
 
@@ -48,7 +48,7 @@ mod tests {
     }
 
     #[test]
-    fn test_new_with_str() {
+    fn new_with_str() {
         let block = RedactedThinkingBlock::new("Redacted thinking content");
         let json = to_value(&block).unwrap();
 
@@ -61,7 +61,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_str() {
+    fn from_str() {
         let block = "Redacted thinking content"
             .parse::<RedactedThinkingBlock>()
             .unwrap();

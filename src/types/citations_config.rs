@@ -38,21 +38,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialization_enabled() {
+    fn serialization_enabled() {
         let config = CitationsConfig::enabled();
         let json = serde_json::to_value(&config).unwrap();
         assert_eq!(json, serde_json::json!({"enabled": true}));
     }
 
     #[test]
-    fn test_serialization_disabled() {
+    fn serialization_disabled() {
         let config = CitationsConfig::disabled();
         let json = serde_json::to_value(&config).unwrap();
         assert_eq!(json, serde_json::json!({"enabled": false}));
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = serde_json::json!({"enabled": true});
         let config: CitationsConfig = serde_json::from_value(json).unwrap();
         assert!(config.enabled);

@@ -35,7 +35,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialization() {
+    fn serialization() {
         let cache_control = CacheControlEphemeral::new();
 
         let json = serde_json::to_value(&cache_control).unwrap();
@@ -45,7 +45,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = serde_json::json!({"type": "ephemeral"});
         let cache_control: CacheControlEphemeral = serde_json::from_value(json).unwrap();
 

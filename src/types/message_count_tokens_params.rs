@@ -124,7 +124,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_message_count_tokens_params_serialization() {
+    fn message_count_tokens_params_serialization() {
         let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
 
         let params = MessageCountTokensParams::new(
@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_count_tokens_params_with_system() {
+    fn message_count_tokens_params_with_system() {
         let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
 
         let params = MessageCountTokensParams::new(
@@ -174,7 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_count_tokens_params_with_tools() {
+    fn message_count_tokens_params_with_tools() {
 
         let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
 

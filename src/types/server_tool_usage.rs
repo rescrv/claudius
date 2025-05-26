@@ -22,7 +22,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_server_tool_usage_serialization() {
+    fn server_tool_usage_serialization() {
         let usage = ServerToolUsage::new(5);
         let json = to_value(&usage).unwrap();
 
@@ -35,7 +35,7 @@ mod tests {
     }
 
     #[test]
-    fn test_server_tool_usage_deserialization() {
+    fn server_tool_usage_deserialization() {
         let json = json!({
             "web_search_requests": 5
         });

@@ -60,7 +60,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_custom_tool() {
+    fn custom_tool() {
         let input_schema = json!({
             "type": "object",
             "properties": {
@@ -101,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bash_tool() {
+    fn bash_tool() {
         let bash_tool = ToolBash20250124::new().with_ephemeral_cache_control();
         let tool = ToolUnionParam::Bash20250124(bash_tool);
 
@@ -119,7 +119,7 @@ mod tests {
     }
 
     #[test]
-    fn test_text_editor_tool() {
+    fn text_editor_tool() {
         let text_editor_tool = ToolTextEditor20250124::new().with_ephemeral_cache_control();
         let tool = ToolUnionParam::TextEditor20250124(text_editor_tool);
 
@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn test_web_search_tool() {
+    fn web_search_tool() {
         let user_location = UserLocation::new()
             .with_city("San Francisco")
             .with_country("US");
@@ -171,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         // Test custom tool deserialization
         let json = json!({
             "input_schema": {

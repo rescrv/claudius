@@ -29,7 +29,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_thinking_delta_serialization() {
+    fn thinking_delta_serialization() {
         let delta = ThinkingDelta::new("Let me think about this...".to_string());
         let json = to_value(&delta).unwrap();
 
@@ -42,7 +42,7 @@ mod tests {
     }
 
     #[test]
-    fn test_thinking_delta_deserialization() {
+    fn thinking_delta_deserialization() {
         let json = json!({
             "thinking": "Let me think about this..."
         });
@@ -52,7 +52,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_str() {
+    fn from_str() {
         let delta = "Let me think about this..."
             .parse::<ThinkingDelta>()
             .unwrap();

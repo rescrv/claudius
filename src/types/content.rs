@@ -33,7 +33,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_content_text_serialization() {
+    fn content_text_serialization() {
         let text_block = TextBlock::new("Sample text content".to_string());
         let content = Content::Text(text_block);
 
@@ -48,7 +48,7 @@ mod tests {
     }
 
     #[test]
-    fn test_content_image_serialization() {
+    fn content_image_serialization() {
         let base64_source = crate::types::Base64ImageSource::new(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==".to_string(),
             crate::types::ImageMediaType::Png,
@@ -71,7 +71,7 @@ mod tests {
     }
 
     #[test]
-    fn test_content_deserialization() {
+    fn content_deserialization() {
         // Test text deserialization
         let json = json!({
             "text": "Sample text content",
@@ -106,7 +106,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_text_block() {
+    fn from_text_block() {
         let text_block = TextBlock::new("Test content".to_string());
         let content = Content::from(text_block.clone());
 
@@ -119,7 +119,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_image_block() {
+    fn from_image_block() {
         let base64_source = crate::types::Base64ImageSource::new(
             "data".to_string(),
             crate::types::ImageMediaType::Png,

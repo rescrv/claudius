@@ -94,7 +94,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_tool_result_block_with_string_content() {
+    fn tool_result_block_with_string_content() {
         let block = ToolResultBlock::new("tool_1".to_string())
             .with_string_content("Result of tool execution".to_string());
 
@@ -110,7 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_result_block_with_array_content() {
+    fn tool_result_block_with_array_content() {
         let text_param = crate::types::TextBlock::new("Sample text content".to_string());
         let content = vec![Content::Text(text_param)];
 
@@ -133,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_result_block_with_error() {
+    fn tool_result_block_with_error() {
         let block = ToolResultBlock::new("tool_1".to_string())
             .with_string_content("Error executing tool".to_string())
             .with_error(true);
@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_result_block_deserialization() {
+    fn tool_result_block_deserialization() {
         let json = json!({
             "tool_use_id": "tool_1",
             "type": "tool_result",

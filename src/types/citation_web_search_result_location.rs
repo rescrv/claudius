@@ -48,7 +48,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialization() {
+    fn serialization() {
         let location = CitationWebSearchResultLocation {
             cited_text: "example text".to_string(),
             encrypted_index: "abc123".to_string(),
@@ -63,7 +63,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialization_without_title() {
+    fn serialization_without_title() {
         let location = CitationWebSearchResultLocation {
             cited_text: "example text".to_string(),
             encrypted_index: "abc123".to_string(),
@@ -78,7 +78,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = r#"{"cited_text":"example text","encrypted_index":"abc123","title":"Example Website","type":"web_search_result_location","url":"https://example.com/page"}"#;
         let location: CitationWebSearchResultLocation = serde_json::from_str(json).unwrap();
 
@@ -89,7 +89,7 @@ mod tests {
     }
 
     #[test]
-    fn test_domain() {
+    fn domain() {
         let location = CitationWebSearchResultLocation {
             cited_text: "example text".to_string(),
             encrypted_index: "abc123".to_string(),

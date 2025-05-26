@@ -33,21 +33,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_empty_metadata_serialization() {
+    fn empty_metadata_serialization() {
         let metadata = Metadata::new();
         let json = serde_json::to_string(&metadata).unwrap();
         assert_eq!(json, "{}");
     }
 
     #[test]
-    fn test_with_user_id_serialization() {
+    fn with_user_id_serialization() {
         let metadata = Metadata::with_user_id("user-123");
         let json = serde_json::to_value(&metadata).unwrap();
         assert_eq!(json, serde_json::json!({"user_id":"user-123"}));
     }
 
     #[test]
-    fn test_deserialization() {
+    fn deserialization() {
         let json = serde_json::json!({"user_id":"user-123"});
         let metadata: Metadata = serde_json::from_value(json).unwrap();
         assert_eq!(metadata.user_id, Some("user-123".to_string()));

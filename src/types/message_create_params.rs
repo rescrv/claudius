@@ -243,7 +243,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_message_create_params_non_streaming() {
+    fn message_create_params_non_streaming() {
         let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
 
         let params = MessageCreateParams::new(
@@ -276,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_create_params_streaming() {
+    fn message_create_params_streaming() {
         let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
 
         let params = MessageCreateParams::new_streaming(
@@ -305,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_create_params_with_stream() {
+    fn message_create_params_with_stream() {
         let message = MessageParam::new_with_string("Hello, Claude".to_string(), MessageRole::User);
 
         let params = MessageCreateParams::new(

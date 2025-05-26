@@ -60,7 +60,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_tool_param_complete() {
+    fn tool_param_complete() {
         let input_schema = json!({
             "type": "object",
             "properties": {

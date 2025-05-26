@@ -51,7 +51,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_tool_bash_param_minimal() {
+    fn tool_bash_param_minimal() {
         let param = ToolBash20250124::new();
         let json = to_value(&param).unwrap();
 
@@ -64,7 +64,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_bash_param_with_cache_control() {
+    fn tool_bash_param_with_cache_control() {
         let param = ToolBash20250124::new().with_ephemeral_cache_control();
 
         let json = to_value(&param).unwrap();
@@ -80,7 +80,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_bash_param_deserialization() {
+    fn tool_bash_param_deserialization() {
         let json = json!({
             "name": "bash",
             "cache_control": {

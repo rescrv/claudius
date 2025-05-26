@@ -26,7 +26,7 @@ mod tests {
     use serde_json::{json, to_value};
 
     #[test]
-    fn test_content_block_delta_event_serialization() {
+    fn content_block_delta_event_serialization() {
         let text_delta = TextDelta::new("Hello world".to_string());
         let delta = ContentBlockDelta::TextDelta(text_delta);
         let event = ContentBlockDeltaEvent::new(delta, 0);
@@ -45,7 +45,7 @@ mod tests {
     }
 
     #[test]
-    fn test_content_block_delta_event_deserialization() {
+    fn content_block_delta_event_deserialization() {
         let json = json!({
             "delta": {
                 "text": "Hello world",
