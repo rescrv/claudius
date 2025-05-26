@@ -13,7 +13,8 @@ use crate::error::{Error, Result};
 use crate::types::{
     ContentBlockDeltaEvent, ContentBlockStartEvent, ContentBlockStopEvent, Message,
     MessageCountTokensParams, MessageCreateParams, MessageDeltaEvent, MessageStartEvent,
-    MessageStopEvent, MessageStreamEvent, MessageTokensCount,
+    MessageStopEvent, MessageStreamEvent, MessageTokensCount, ModelInfo, ModelListParams,
+    ModelListResponse,
 };
 
 const DEFAULT_API_URL: &str = "https://api.anthropic.com/v1/";
@@ -399,6 +400,98 @@ impl Anthropic {
             }
 
             response.json::<MessageTokensCount>().await.map_err(|e| {
+                Error::serialization(
+                    format!("Failed to parse response: {}", e),
+                    Some(Box::new(e)),
+                )
+            })
+        })
+        .await
+    }
+
+    /// List available models from the API.
+    ///
+    /// Returns a paginated list of all available models. Use the parameters to control
+    /// pagination and filter results.
+    pub async fn list_models(&self, params: Option<ModelListParams>) -> Result<ModelListResponse> {
+        self.retry_with_backoff(|| async {
+            let url = format!("{}models", self.base_url);
+            let mut request = self.client.get(&url).headers(self.default_headers());
+
+            // Add query parameters if provided
+            if let Some(ref params) = params {
+                if let Some(ref after_id) = params.after_id {
+                    request = request.query(&[("after_id", after_id)]);
+                }
+                if let Some(ref before_id) = params.before_id {
+                    request = request.query(&[("before_id", before_id)]);
+                }
+                if let Some(limit) = params.limit {
+                    request = request.query(&[("limit", limit.to_string())]);
+                }
+                // Note: betas parameter is typically sent as a header, not query param
+                // but we'll follow the API specification here
+            }
+
+            let response = request.send().await.map_err(|e| {
+                if e.is_timeout() {
+                    Error::timeout(
+                        format!("Request timed out: {}", e),
+                        Some(self.timeout.as_secs_f64()),
+                    )
+                } else if e.is_connect() {
+                    Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
+                } else {
+                    Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
+                }
+            })?;
+
+            if !response.status().is_success() {
+                return Err(Self::process_error_response(response).await);
+            }
+
+            response.json::<ModelListResponse>().await.map_err(|e| {
+                Error::serialization(
+                    format!("Failed to parse response: {}", e),
+                    Some(Box::new(e)),
+                )
+            })
+        })
+        .await
+    }
+
+    /// Retrieve information about a specific model.
+    ///
+    /// Returns detailed information about the specified model, including its
+    /// ID, creation date, display name, and type.
+    pub async fn get_model(&self, model_id: &str) -> Result<ModelInfo> {
+        self.retry_with_backoff(|| async {
+            let url = format!("{}models/{}", self.base_url, model_id);
+
+            let response = self
+                .client
+                .get(&url)
+                .headers(self.default_headers())
+                .send()
+                .await
+                .map_err(|e| {
+                    if e.is_timeout() {
+                        Error::timeout(
+                            format!("Request timed out: {}", e),
+                            Some(self.timeout.as_secs_f64()),
+                        )
+                    } else if e.is_connect() {
+                        Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
+                    } else {
+                        Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
+                    }
+                })?;
+
+            if !response.status().is_success() {
+                return Err(Self::process_error_response(response).await);
+            }
+
+            response.json::<ModelInfo>().await.map_err(|e| {
                 Error::serialization(
                     format!("Failed to parse response: {}", e),
                     Some(Box::new(e)),
