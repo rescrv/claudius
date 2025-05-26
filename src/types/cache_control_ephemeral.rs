@@ -38,16 +38,16 @@ mod tests {
     fn test_serialization() {
         let cache_control = CacheControlEphemeral::new();
 
-        let json = serde_json::to_string(&cache_control).unwrap();
-        let expected = r#"{"type":"ephemeral"}"#;
+        let json = serde_json::to_value(&cache_control).unwrap();
+        let expected = serde_json::json!({"type": "ephemeral"});
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"type":"ephemeral"}"#;
-        let cache_control: CacheControlEphemeral = serde_json::from_str(json).unwrap();
+        let json = serde_json::json!({"type": "ephemeral"});
+        let cache_control: CacheControlEphemeral = serde_json::from_value(json).unwrap();
 
         assert_eq!(cache_control.r#type, "ephemeral");
     }

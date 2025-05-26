@@ -52,10 +52,14 @@ mod tests {
             "limit": 5
         });
 
-        let block = ToolUseBlock::new("tool_123", "search", input_json);
+        let block = ToolUseBlock::new("tool_123", "search", input_json.clone());
 
-        let json = serde_json::to_string(&block).unwrap();
-        let expected = r#"{"id":"tool_123","input":{"limit":5,"query":"weather in San Francisco"},"name":"search"}"#;
+        let json = serde_json::to_value(&block).unwrap();
+        let expected = serde_json::json!({
+            "id": "tool_123",
+            "input": input_json,
+            "name": "search"
+        });
 
         assert_eq!(json, expected);
     }
@@ -90,8 +94,15 @@ mod tests {
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"id":"tool_123","input":{"query":"weather in San Francisco","limit":5},"name":"search"}"#;
-        let block: ToolUseBlock = serde_json::from_str(json).unwrap();
+        let json = serde_json::json!({
+            "id": "tool_123",
+            "input": {
+                "query": "weather in San Francisco",
+                "limit": 5
+            },
+            "name": "search"
+        });
+        let block: ToolUseBlock = serde_json::from_value(json).unwrap();
 
         assert_eq!(block.id, "tool_123");
         assert_eq!(block.name, "search");

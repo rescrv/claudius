@@ -31,16 +31,16 @@ mod tests {
             url: "https://example.com/document.pdf".to_string(),
         };
 
-        let json = serde_json::to_string(&source).unwrap();
-        let expected = r#"{"url":"https://example.com/document.pdf"}"#;
+        let json = serde_json::to_value(&source).unwrap();
+        let expected = serde_json::json!({"url": "https://example.com/document.pdf"});
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"url":"https://example.com/document.pdf"}"#;
-        let source: UrlPdfSource = serde_json::from_str(json).unwrap();
+        let json = serde_json::json!({"url": "https://example.com/document.pdf"});
+        let source: UrlPdfSource = serde_json::from_value(json).unwrap();
 
         assert_eq!(source.url, "https://example.com/document.pdf");
     }

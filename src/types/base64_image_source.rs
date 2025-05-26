@@ -84,16 +84,22 @@ mod tests {
             media_type: ImageMediaType::Jpeg,
         };
 
-        let json = serde_json::to_string(&source).unwrap();
-        let expected = r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"image/jpeg"}"#;
+        let json = serde_json::to_value(&source).unwrap();
+        let expected = serde_json::json!({
+            "data": "SGVsbG8gV29ybGQ=",
+            "media_type": "image/jpeg"
+        });
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"data":"SGVsbG8gV29ybGQ=","media_type":"image/png"}"#;
-        let source: Base64ImageSource = serde_json::from_str(json).unwrap();
+        let json = serde_json::json!({
+            "data": "SGVsbG8gV29ybGQ=",
+            "media_type": "image/png"
+        });
+        let source: Base64ImageSource = serde_json::from_value(json).unwrap();
 
         assert_eq!(source.data, "SGVsbG8gV29ybGQ=");
         matches!(source.media_type, ImageMediaType::Png);

@@ -88,15 +88,35 @@ mod tests {
             Some("last_id".to_string()),
         );
 
-        let json = serde_json::to_string(&response).unwrap();
-        let expected = r#"{"data":[{"id":"claude-3-7-sonnet-20250219","created_at":"2025-02-19T00:00:00Z","display_name":"Claude 3.7 Sonnet","type":"model"}],"has_more":false,"first_id":"first_id","last_id":"last_id"}"#;
+        let json = serde_json::to_value(&response).unwrap();
+        let expected = serde_json::json!({
+            "data": [{
+                "id": "claude-3-7-sonnet-20250219",
+                "created_at": "2025-02-19T00:00:00Z",
+                "display_name": "Claude 3.7 Sonnet",
+                "type": "model"
+            }],
+            "has_more": false,
+            "first_id": "first_id",
+            "last_id": "last_id"
+        });
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_model_list_response_deserialization() {
-        let json = r#"{"data":[{"id":"claude-3-7-sonnet-20250219","created_at":"2025-02-19T00:00:00Z","display_name":"Claude 3.7 Sonnet","type":"model"}],"has_more":false,"first_id":"first_id","last_id":"last_id"}"#;
-        let response: ModelListResponse = serde_json::from_str(json).unwrap();
+        let json = serde_json::json!({
+            "data": [{
+                "id": "claude-3-7-sonnet-20250219",
+                "created_at": "2025-02-19T00:00:00Z",
+                "display_name": "Claude 3.7 Sonnet",
+                "type": "model"
+            }],
+            "has_more": false,
+            "first_id": "first_id",
+            "last_id": "last_id"
+        });
+        let response: ModelListResponse = serde_json::from_value(json).unwrap();
 
         assert_eq!(response.data.len(), 1);
         assert_eq!(response.data[0].id, "claude-3-7-sonnet-20250219");

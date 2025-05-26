@@ -88,8 +88,8 @@ mod tests {
     fn test_text_block_serialization() {
         let text_block = TextBlock::new("This is some text content.");
 
-        let json = serde_json::to_string(&text_block).unwrap();
-        let expected = r#"{"text":"This is some text content."}"#;
+        let json = serde_json::to_value(&text_block).unwrap();
+        let expected = serde_json::json!({"text": "This is some text content."});
 
         assert_eq!(json, expected);
     }
@@ -155,8 +155,11 @@ mod tests {
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"text":"This is some text content.","type":"text"}"#;
-        let text_block: TextBlock = serde_json::from_str(json).unwrap();
+        let json = serde_json::json!({
+            "text": "This is some text content.",
+            "type": "text"
+        });
+        let text_block: TextBlock = serde_json::from_value(json).unwrap();
 
         assert_eq!(text_block.text, "This is some text content.");
         assert!(text_block.citations.is_none());

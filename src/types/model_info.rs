@@ -51,15 +51,25 @@ mod tests {
             r#type: ModelType::Model,
         };
 
-        let json = serde_json::to_string(&model_info).unwrap();
-        let expected = r#"{"id":"claude-3-7-sonnet-20250219","created_at":"2025-02-19T00:00:00Z","display_name":"Claude 3.7 Sonnet","type":"model"}"#;
+        let json = serde_json::to_value(&model_info).unwrap();
+        let expected = serde_json::json!({
+            "id": "claude-3-7-sonnet-20250219",
+            "created_at": "2025-02-19T00:00:00Z",
+            "display_name": "Claude 3.7 Sonnet",
+            "type": "model"
+        });
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_model_info_deserialization() {
-        let json = r#"{"id":"claude-3-7-sonnet-20250219","created_at":"2025-02-19T00:00:00Z","display_name":"Claude 3.7 Sonnet","type":"model"}"#;
-        let model_info: ModelInfo = serde_json::from_str(json).unwrap();
+        let json = serde_json::json!({
+            "id": "claude-3-7-sonnet-20250219",
+            "created_at": "2025-02-19T00:00:00Z",
+            "display_name": "Claude 3.7 Sonnet",
+            "type": "model"
+        });
+        let model_info: ModelInfo = serde_json::from_value(json).unwrap();
 
         assert_eq!(model_info.id, "claude-3-7-sonnet-20250219");
         assert_eq!(model_info.created_at, datetime!(2025-02-19 0:00:00 UTC));

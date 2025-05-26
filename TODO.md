@@ -5,7 +5,17 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
 
 ## Recent Completed Work
 
-### Type System Consolidation (Latest)
+### Models API Implementation (Latest)
+- [X] Implemented complete Models API with list and retrieve endpoints
+- [X] Added `list_models()` method with pagination support via `ModelListParams`
+- [X] Added `get_model()` method for retrieving specific model information
+- [X] Created `ModelListResponse` type for paginated model listings
+- [X] Integrated proper error handling and retry logic for Models API
+- [X] Added comprehensive test coverage for all new model types
+- [X] Created example demonstrating Models API usage patterns
+- [X] All 238 tests now passing with Models API functionality
+
+### Type System Consolidation
 - [X] Fixed all failing tests for serialization format compatibility
 - [X] Consolidated duplicate content types (`ContentBlockSourceContentParam` and `ToolResultContent`) into unified `Content` enum
 - [X] Renamed `TextOrImage` to `Content` for better semantic meaning and future extensibility
@@ -18,7 +28,7 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
 - [X] Consolidated duplicate `SystemPrompt` types with unified implementation
 - [X] Replaced `MessageCountTokensToolParam` with existing `ToolUnionParam`
 - [X] Added Claude 4 model support from Python SDK reference
-- [X] All 228 tests now passing with proper serialization format expectations
+- [X] All tests passing with proper serialization format expectations
 
 ## Phase 1: Core Infrastructure
 
@@ -165,9 +175,9 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
   - [X] Create messages (with streaming and non-streaming variants)
   - [X] Stream messages with proper event handling
   - [X] Count tokens
-- [ ] Implement Models API
-  - [ ] List models
-  - [ ] Retrieve model information
+- [X] Implement Models API
+  - [X] List models
+  - [X] Retrieve model information
 - [X] Use type-safe request/response parameters
 
 

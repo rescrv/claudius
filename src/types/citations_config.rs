@@ -40,25 +40,25 @@ mod tests {
     #[test]
     fn test_serialization_enabled() {
         let config = CitationsConfig::enabled();
-        let json = serde_json::to_string(&config).unwrap();
-        assert_eq!(json, r#"{"enabled":true}"#);
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(json, serde_json::json!({"enabled": true}));
     }
 
     #[test]
     fn test_serialization_disabled() {
         let config = CitationsConfig::disabled();
-        let json = serde_json::to_string(&config).unwrap();
-        assert_eq!(json, r#"{"enabled":false}"#);
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(json, serde_json::json!({"enabled": false}));
     }
 
     #[test]
     fn test_deserialization() {
-        let json = r#"{"enabled":true}"#;
-        let config: CitationsConfig = serde_json::from_str(json).unwrap();
+        let json = serde_json::json!({"enabled": true});
+        let config: CitationsConfig = serde_json::from_value(json).unwrap();
         assert!(config.enabled);
 
-        let json = r#"{"enabled":false}"#;
-        let config: CitationsConfig = serde_json::from_str(json).unwrap();
+        let json = serde_json::json!({"enabled": false});
+        let config: CitationsConfig = serde_json::from_value(json).unwrap();
         assert!(!config.enabled);
     }
 }

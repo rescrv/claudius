@@ -113,16 +113,22 @@ mod tests {
             .with_limit(50)
             .with_beta("token-counting-2024-11-01".to_string());
 
-        let json = serde_json::to_string(&params).unwrap();
-        let expected = r#"{"limit":50,"anthropic-beta":["token-counting-2024-11-01"]}"#;
+        let json = serde_json::to_value(&params).unwrap();
+        let expected = serde_json::json!({
+            "limit": 50,
+            "anthropic-beta": ["token-counting-2024-11-01"]
+        });
         assert_eq!(json, expected);
     }
 
     #[test]
     fn test_model_list_params_deserialization() {
-        let json =
-            r#"{"after_id":"model_123","limit":50,"anthropic-beta":["token-counting-2024-11-01"]}"#;
-        let params: ModelListParams = serde_json::from_str(json).unwrap();
+        let json = serde_json::json!({
+            "after_id": "model_123",
+            "limit": 50,
+            "anthropic-beta": ["token-counting-2024-11-01"]
+        });
+        let params: ModelListParams = serde_json::from_value(json).unwrap();
 
         assert_eq!(params.after_id, Some("model_123".to_string()));
         assert_eq!(params.limit, Some(50));
