@@ -1,9 +1,11 @@
 [package]
 name = "claudius"
-version = "0.5.0"
+version = "0.6.0"
+authors = ["Robert Escriva <robert@rescrv.net>"]
 edition = "2024"
 description = "SDK for the Anthropic API"
 license = "Apache-2.0"
+repository = "https://github.com/rescrv/claudius"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
