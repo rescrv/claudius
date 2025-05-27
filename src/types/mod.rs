@@ -86,7 +86,7 @@ pub use message_count_tokens_params::MessageCountTokensParams;
 pub use message_create_params::MessageCreateParams;
 pub use message_delta_event::{MessageDelta, MessageDeltaEvent};
 pub use message_delta_usage::MessageDeltaUsage;
-pub use message_param::{MessageContentBlock, MessageParam, MessageParamContent, MessageRole};
+pub use message_param::{MessageParam, MessageParamContent, MessageRole};
 pub use message_start_event::MessageStartEvent;
 pub use message_stop_event::MessageStopEvent;
 pub use message_stream_event::MessageStreamEvent;

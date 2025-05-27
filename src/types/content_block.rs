@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    RedactedThinkingBlock, ServerToolUseBlock, TextBlock, ThinkingBlock, ToolUseBlock,
+    DocumentBlock, ImageBlock, RedactedThinkingBlock, ServerToolUseBlock, TextBlock,
+    ThinkingBlock, ToolResultBlock, ToolUseBlock, WebSearchToolResultBlock,
 };
 
 /// A block of content in a message.
@@ -15,6 +16,10 @@ pub enum ContentBlock {
     #[serde(rename = "text")]
     Text(TextBlock),
 
+    /// An image block
+    #[serde(rename = "image")]
+    Image(ImageBlock),
+
     /// A block representing a tool use request
     #[serde(rename = "tool_use")]
     ToolUse(ToolUseBlock),
@@ -22,6 +27,18 @@ pub enum ContentBlock {
     /// A block representing a server-side tool use request
     #[serde(rename = "server_tool_use")]
     ServerToolUse(ServerToolUseBlock),
+
+    /// A web search tool result block
+    #[serde(rename = "web_search_tool_result")]
+    WebSearchToolResult(WebSearchToolResultBlock),
+
+    /// A tool result block
+    #[serde(rename = "tool_result")]
+    ToolResult(ToolResultBlock),
+
+    /// A document block
+    #[serde(rename = "document")]
+    Document(DocumentBlock),
 
     /// A block containing model thinking
     #[serde(rename = "thinking")]
@@ -38,6 +55,11 @@ impl ContentBlock {
         matches!(self, ContentBlock::Text(_))
     }
 
+    /// Returns true if this block is an image block
+    pub fn is_image(&self) -> bool {
+        matches!(self, ContentBlock::Image(_))
+    }
+
     /// Returns true if this block is a tool use block
     pub fn is_tool_use(&self) -> bool {
         matches!(self, ContentBlock::ToolUse(_))
@@ -46,6 +68,21 @@ impl ContentBlock {
     /// Returns true if this block is a server tool use block
     pub fn is_server_tool_use(&self) -> bool {
         matches!(self, ContentBlock::ServerToolUse(_))
+    }
+
+    /// Returns true if this block is a web search tool result block
+    pub fn is_web_search_tool_result(&self) -> bool {
+        matches!(self, ContentBlock::WebSearchToolResult(_))
+    }
+
+    /// Returns true if this block is a tool result block
+    pub fn is_tool_result(&self) -> bool {
+        matches!(self, ContentBlock::ToolResult(_))
+    }
+
+    /// Returns true if this block is a document block
+    pub fn is_document(&self) -> bool {
+        matches!(self, ContentBlock::Document(_))
     }
 
     /// Returns true if this block is a thinking block
@@ -67,6 +104,15 @@ impl ContentBlock {
         }
     }
 
+    /// Returns a reference to the inner ImageBlock if this is an Image variant,
+    /// or None otherwise.
+    pub fn as_image(&self) -> Option<&ImageBlock> {
+        match self {
+            ContentBlock::Image(block) => Some(block),
+            _ => None,
+        }
+    }
+
     /// Returns a reference to the inner ToolUseBlock if this is a ToolUse variant,
     /// or None otherwise.
     pub fn as_tool_use(&self) -> Option<&ToolUseBlock> {
@@ -81,6 +127,33 @@ impl ContentBlock {
     pub fn as_server_tool_use(&self) -> Option<&ServerToolUseBlock> {
         match self {
             ContentBlock::ServerToolUse(block) => Some(block),
+            _ => None,
+        }
+    }
+
+    /// Returns a reference to the inner WebSearchToolResultBlock if this is a WebSearchToolResult variant,
+    /// or None otherwise.
+    pub fn as_web_search_tool_result(&self) -> Option<&WebSearchToolResultBlock> {
+        match self {
+            ContentBlock::WebSearchToolResult(block) => Some(block),
+            _ => None,
+        }
+    }
+
+    /// Returns a reference to the inner ToolResultBlock if this is a ToolResult variant,
+    /// or None otherwise.
+    pub fn as_tool_result(&self) -> Option<&ToolResultBlock> {
+        match self {
+            ContentBlock::ToolResult(block) => Some(block),
+            _ => None,
+        }
+    }
+
+    /// Returns a reference to the inner DocumentBlock if this is a Document variant,
+    /// or None otherwise.
+    pub fn as_document(&self) -> Option<&DocumentBlock> {
+        match self {
+            ContentBlock::Document(block) => Some(block),
             _ => None,
         }
     }
@@ -111,6 +184,12 @@ impl From<TextBlock> for ContentBlock {
     }
 }
 
+impl From<ImageBlock> for ContentBlock {
+    fn from(block: ImageBlock) -> Self {
+        ContentBlock::Image(block)
+    }
+}
+
 impl From<ToolUseBlock> for ContentBlock {
     fn from(block: ToolUseBlock) -> Self {
         ContentBlock::ToolUse(block)
@@ -120,6 +199,24 @@ impl From<ToolUseBlock> for ContentBlock {
 impl From<ServerToolUseBlock> for ContentBlock {
     fn from(block: ServerToolUseBlock) -> Self {
         ContentBlock::ServerToolUse(block)
+    }
+}
+
+impl From<WebSearchToolResultBlock> for ContentBlock {
+    fn from(block: WebSearchToolResultBlock) -> Self {
+        ContentBlock::WebSearchToolResult(block)
+    }
+}
+
+impl From<ToolResultBlock> for ContentBlock {
+    fn from(block: ToolResultBlock) -> Self {
+        ContentBlock::ToolResult(block)
+    }
+}
+
+impl From<DocumentBlock> for ContentBlock {
+    fn from(block: DocumentBlock) -> Self {
+        ContentBlock::Document(block)
     }
 }
 
@@ -237,12 +334,29 @@ mod tests {
         let content_block = ContentBlock::from(text_block);
 
         assert!(content_block.as_text().is_some());
+        assert!(content_block.as_image().is_none());
         assert!(content_block.as_tool_use().is_none());
         assert!(content_block.as_server_tool_use().is_none());
+        assert!(content_block.as_web_search_tool_result().is_none());
+        assert!(content_block.as_tool_result().is_none());
+        assert!(content_block.as_document().is_none());
         assert!(content_block.as_thinking().is_none());
         assert!(content_block.as_redacted_thinking().is_none());
 
         let text_ref = content_block.as_text().unwrap();
         assert_eq!(text_ref.text, "This is some text content.");
+    }
+
+    #[test]
+    fn image_block_serialization() {
+        let image_source =
+            crate::types::UrlImageSource::new("https://example.com/image.jpg".to_string());
+        let image_block = ImageBlock::new_with_url(image_source);
+        let content_block = ContentBlock::from(image_block);
+
+        let json = serde_json::to_string(&content_block).unwrap();
+        let expected = r#"{"type":"image","source":{"type":"url","url":"https://example.com/image.jpg"}}"#;
+
+        assert_eq!(json, expected);
     }
 }

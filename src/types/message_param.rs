@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{
-    ContentBlock, DocumentBlock, ImageBlock, RedactedThinkingBlock, ServerToolUseBlock, TextBlock,
-    ThinkingBlock, ToolResultBlock, ToolUseBlock, WebSearchToolResultBlock,
-};
+use crate::types::ContentBlock;
 
 /// The content of a message, which can be either a string or an array of content blocks.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -13,53 +10,9 @@ pub enum MessageParamContent {
     String(String),
 
     /// An array of content blocks.
-    Array(Vec<MessageContentBlock>),
+    Array(Vec<ContentBlock>),
 }
 
-/// A content block that can be part of a message parameter.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type")]
-pub enum MessageContentBlock {
-    /// A text block parameter.
-    #[serde(rename = "text")]
-    Text(TextBlock),
-
-    /// An image block.
-    #[serde(rename = "image")]
-    Image(ImageBlock),
-
-    /// A tool use block parameter.
-    #[serde(rename = "tool_use")]
-    ToolUse(ToolUseBlock),
-
-    /// A server tool use block parameter.
-    #[serde(rename = "server_tool_use")]
-    ServerToolUse(ServerToolUseBlock),
-
-    /// A web search tool result block parameter.
-    #[serde(rename = "web_search_tool_result")]
-    WebSearchToolResult(WebSearchToolResultBlock),
-
-    /// A tool result block.
-    #[serde(rename = "tool_result")]
-    ToolResult(ToolResultBlock),
-
-    /// A document block.
-    #[serde(rename = "document")]
-    Document(DocumentBlock),
-
-    /// A thinking block parameter.
-    #[serde(rename = "thinking")]
-    Thinking(ThinkingBlock),
-
-    /// A redacted thinking block parameter.
-    #[serde(rename = "redacted_thinking")]
-    RedactedThinking(RedactedThinkingBlock),
-
-    /// A content block (for backward compatibility).
-    #[serde(rename = "content_block")]
-    ContentBlock(ContentBlock),
-}
 
 /// Parameters for a message.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -94,7 +47,7 @@ impl MessageParam {
     }
 
     /// Create a new `MessageParam` with an array of content blocks.
-    pub fn new_with_blocks(blocks: Vec<MessageContentBlock>, role: MessageRole) -> Self {
+    pub fn new_with_blocks(blocks: Vec<ContentBlock>, role: MessageRole) -> Self {
         Self::new(MessageParamContent::Array(blocks), role)
     }
 
@@ -109,69 +62,11 @@ impl MessageParam {
     }
 }
 
-impl From<TextBlock> for MessageContentBlock {
-    fn from(param: TextBlock) -> Self {
-        MessageContentBlock::Text(param)
-    }
-}
-
-impl From<ImageBlock> for MessageContentBlock {
-    fn from(param: ImageBlock) -> Self {
-        MessageContentBlock::Image(param)
-    }
-}
-
-impl From<ToolUseBlock> for MessageContentBlock {
-    fn from(param: ToolUseBlock) -> Self {
-        MessageContentBlock::ToolUse(param)
-    }
-}
-
-impl From<ServerToolUseBlock> for MessageContentBlock {
-    fn from(param: ServerToolUseBlock) -> Self {
-        MessageContentBlock::ServerToolUse(param)
-    }
-}
-
-impl From<WebSearchToolResultBlock> for MessageContentBlock {
-    fn from(param: WebSearchToolResultBlock) -> Self {
-        MessageContentBlock::WebSearchToolResult(param)
-    }
-}
-
-impl From<ToolResultBlock> for MessageContentBlock {
-    fn from(param: ToolResultBlock) -> Self {
-        MessageContentBlock::ToolResult(param)
-    }
-}
-
-impl From<DocumentBlock> for MessageContentBlock {
-    fn from(param: DocumentBlock) -> Self {
-        MessageContentBlock::Document(param)
-    }
-}
-
-impl From<ThinkingBlock> for MessageContentBlock {
-    fn from(param: ThinkingBlock) -> Self {
-        MessageContentBlock::Thinking(param)
-    }
-}
-
-impl From<RedactedThinkingBlock> for MessageContentBlock {
-    fn from(param: RedactedThinkingBlock) -> Self {
-        MessageContentBlock::RedactedThinking(param)
-    }
-}
-
-impl From<ContentBlock> for MessageContentBlock {
-    fn from(block: ContentBlock) -> Self {
-        MessageContentBlock::ContentBlock(block)
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{ImageBlock, TextBlock};
     use serde_json::{json, to_value};
 
     #[test]
@@ -191,7 +86,7 @@ mod tests {
     #[test]
     fn message_param_with_blocks() {
         let text_block = TextBlock::new("Hello, Claude!".to_string());
-        let blocks = vec![MessageContentBlock::Text(text_block)];
+        let blocks = vec![ContentBlock::Text(text_block)];
 
         let message = MessageParam::new_with_blocks(blocks, MessageRole::User);
         let json = to_value(&message).unwrap();
@@ -219,8 +114,8 @@ mod tests {
         let image_block = ImageBlock::new_with_url(image_source);
 
         let blocks = vec![
-            MessageContentBlock::Text(text_block),
-            MessageContentBlock::Image(image_block),
+            ContentBlock::Text(text_block),
+            ContentBlock::Image(image_block),
         ];
 
         let message = MessageParam::new_with_blocks(blocks, MessageRole::User);
@@ -276,7 +171,7 @@ mod tests {
             MessageParamContent::Array(blocks) => {
                 assert_eq!(blocks.len(), 1);
                 match &blocks[0] {
-                    MessageContentBlock::Text(text) => assert_eq!(text.text, "Hello, Claude!"),
+                    ContentBlock::Text(text) => assert_eq!(text.text, "Hello, Claude!"),
                     _ => panic!("Expected Text variant"),
                 }
             }
