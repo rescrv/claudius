@@ -63,7 +63,8 @@ mod tests {
             "encrypted-data-123",
             "Example Page Title",
             "https://example.com/page",
-        ).with_page_age("2 days ago".to_string());
+        )
+        .with_page_age("2 days ago".to_string());
 
         let json = serde_json::to_string(&block).unwrap();
         let expected = r#"{"type":"web_search_result","encrypted_content":"encrypted-data-123","page_age":"2 days ago","title":"Example Page Title","url":"https://example.com/page"}"#;

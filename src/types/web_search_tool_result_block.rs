@@ -82,11 +82,14 @@ mod tests {
 
     #[test]
     fn results_serialization() {
-        let results = vec![WebSearchResultBlock::new(
-            "encrypted-data-1",
-            "Example Page 1",
-            "https://example.com/page1",
-        ).with_page_age("2 days ago".to_string())];
+        let results = vec![
+            WebSearchResultBlock::new(
+                "encrypted-data-1",
+                "Example Page 1",
+                "https://example.com/page1",
+            )
+            .with_page_age("2 days ago".to_string()),
+        ];
 
         let content = WebSearchToolResultBlockContent::with_results(results);
         let block = WebSearchToolResultBlock::new(content, "tool-123");
@@ -136,11 +139,14 @@ mod tests {
 
     #[test]
     fn new_with_results() {
-        let results = vec![WebSearchResultBlock::new(
-            "encrypted-data-1",
-            "Example Page 1",
-            "https://example.com/page1",
-        ).with_page_age("2 days ago".to_string())];
+        let results = vec![
+            WebSearchResultBlock::new(
+                "encrypted-data-1",
+                "Example Page 1",
+                "https://example.com/page1",
+            )
+            .with_page_age("2 days ago".to_string()),
+        ];
 
         let block = WebSearchToolResultBlock::new_with_results(results, "tool-123");
 
@@ -168,11 +174,14 @@ mod tests {
 
     #[test]
     fn with_cache_control() {
-        let results = vec![WebSearchResultBlock::new(
-            "encrypted-data-1",
-            "Example Page 1",
-            "https://example.com/page1",
-        ).with_page_age("2 days ago".to_string())];
+        let results = vec![
+            WebSearchResultBlock::new(
+                "encrypted-data-1",
+                "Example Page 1",
+                "https://example.com/page1",
+            )
+            .with_page_age("2 days ago".to_string()),
+        ];
 
         let cache_control = CacheControlEphemeral::new();
         let block = WebSearchToolResultBlock::new_with_results(results, "tool-123")

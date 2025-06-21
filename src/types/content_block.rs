@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    DocumentBlock, ImageBlock, RedactedThinkingBlock, ServerToolUseBlock, TextBlock,
-    ThinkingBlock, ToolResultBlock, ToolUseBlock, WebSearchToolResultBlock,
+    DocumentBlock, ImageBlock, RedactedThinkingBlock, ServerToolUseBlock, TextBlock, ThinkingBlock,
+    ToolResultBlock, ToolUseBlock, WebSearchToolResultBlock,
 };
 
 /// A block of content in a message.
@@ -355,7 +355,8 @@ mod tests {
         let content_block = ContentBlock::from(image_block);
 
         let json = serde_json::to_string(&content_block).unwrap();
-        let expected = r#"{"type":"image","source":{"type":"url","url":"https://example.com/image.jpg"}}"#;
+        let expected =
+            r#"{"type":"image","source":{"type":"url","url":"https://example.com/image.jpg"}}"#;
 
         assert_eq!(json, expected);
     }

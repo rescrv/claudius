@@ -77,7 +77,8 @@ mod tests {
                 "encrypted-data-1",
                 "Example Page 1",
                 "https://example.com/page1",
-            ).with_page_age("2 days ago".to_string()),
+            )
+            .with_page_age("2 days ago".to_string()),
             WebSearchResultBlock::new(
                 "encrypted-data-2",
                 "Example Page 2",
@@ -145,7 +146,8 @@ mod tests {
                 "encrypted-data-1",
                 "Example Page 1",
                 "https://example.com/page1",
-            ).with_page_age("2 days ago".to_string()),
+            )
+            .with_page_age("2 days ago".to_string()),
             WebSearchResultBlock::new(
                 "encrypted-data-2",
                 "Example Page 2",

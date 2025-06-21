@@ -13,7 +13,6 @@ pub enum MessageParamContent {
     Array(Vec<ContentBlock>),
 }
 
-
 /// Parameters for a message.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MessageParam {
@@ -61,7 +60,6 @@ impl MessageParam {
         Self::new_with_string(content, MessageRole::Assistant)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
