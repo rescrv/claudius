@@ -3,7 +3,7 @@ use std::fmt;
 use std::str::FromStr;
 
 /// Reasons why the model stopped generating a response.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StopReason {
     /// The model reached the end of a generated turn

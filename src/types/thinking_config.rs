@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// Configuration for enabling Claude's extended thinking capabilities.
 ///
 /// This can be either enabled (with a token budget) or disabled.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum ThinkingConfig {
     /// Disabled thinking configuration.
@@ -20,15 +20,22 @@ pub enum ThinkingConfig {
         ///
         /// Must be ≥1024 and less than `max_tokens`.
         #[serde(rename = "budget_tokens")]
-        budget_tokens: i32,
+        budget_tokens: u32,
     },
 }
 
 impl ThinkingConfig {
+    pub fn num_tokens(&self) -> u32 {
+        match self {
+            ThinkingConfig::Disabled => 0,
+            ThinkingConfig::Enabled { budget_tokens } => *budget_tokens,
+        }
+    }
+
     /// Create a new enabled thinking configuration with the given budget tokens.
     ///
     /// Budget tokens must be ≥1024.
-    pub fn enabled(budget_tokens: i32) -> Self {
+    pub fn enabled(budget_tokens: u32) -> Self {
         Self::Enabled { budget_tokens }
     }
 
@@ -52,7 +59,7 @@ mod tests {
     #[test]
     fn thinking_config_enabled_serialization() {
         let config = ThinkingConfig::enabled(2048);
-        let json = to_value(&config).unwrap();
+        let json = to_value(config).unwrap();
 
         assert_eq!(
             json,
@@ -66,7 +73,7 @@ mod tests {
     #[test]
     fn thinking_config_disabled_serialization() {
         let config = ThinkingConfig::disabled();
-        let json = to_value(&config).unwrap();
+        let json = to_value(config).unwrap();
 
         assert_eq!(
             json,

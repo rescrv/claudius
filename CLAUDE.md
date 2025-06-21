@@ -49,3 +49,7 @@ This file contains persistent directives for Claude when working on the claudius
 ## Project Philosophy
 
 - This is a green-field project.  Don't do things for backwards compatibility.
+
+## Cargo Management
+
+- Always add dependencies with `cargo add depname`.
