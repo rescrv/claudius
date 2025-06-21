@@ -82,12 +82,11 @@ mod tests {
 
     #[test]
     fn results_serialization() {
-        let results = vec![WebSearchResultBlock {
-            encrypted_content: "encrypted-data-1".to_string(),
-            page_age: Some("2 days ago".to_string()),
-            title: "Example Page 1".to_string(),
-            url: "https://example.com/page1".to_string(),
-        }];
+        let results = vec![WebSearchResultBlock::new(
+            "encrypted-data-1",
+            "Example Page 1",
+            "https://example.com/page1",
+        ).with_page_age("2 days ago".to_string())];
 
         let content = WebSearchToolResultBlockContent::with_results(results);
         let block = WebSearchToolResultBlock::new(content, "tool-123");
@@ -98,7 +97,7 @@ mod tests {
         // This avoids issues with key ordering
         let actual: Value = serde_json::from_str(&json).unwrap();
         let expected: Value = serde_json::from_str(
-            r#"{"type":"web_search_tool_result","content":[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","url":"https://example.com/page1"}],"tool_use_id":"tool-123"}"#
+            r#"{"type":"web_search_tool_result","content":[{"type":"web_search_result","encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","url":"https://example.com/page1"}],"tool_use_id":"tool-123"}"#
         ).unwrap();
 
         assert_eq!(actual, expected);
@@ -126,7 +125,7 @@ mod tests {
 
     #[test]
     fn deserialization() {
-        let json = r#"{"content":[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","url":"https://example.com/page1"}],"tool_use_id":"tool-123","type":"web_search_tool_result"}"#;
+        let json = r#"{"content":[{"type":"web_search_result","encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","url":"https://example.com/page1"}],"tool_use_id":"tool-123","type":"web_search_tool_result"}"#;
         let block: WebSearchToolResultBlock = serde_json::from_str(json).unwrap();
 
         assert_eq!(block.tool_use_id, "tool-123");
@@ -137,12 +136,11 @@ mod tests {
 
     #[test]
     fn new_with_results() {
-        let results = vec![WebSearchResultBlock {
-            encrypted_content: "encrypted-data-1".to_string(),
-            page_age: Some("2 days ago".to_string()),
-            title: "Example Page 1".to_string(),
-            url: "https://example.com/page1".to_string(),
-        }];
+        let results = vec![WebSearchResultBlock::new(
+            "encrypted-data-1",
+            "Example Page 1",
+            "https://example.com/page1",
+        ).with_page_age("2 days ago".to_string())];
 
         let block = WebSearchToolResultBlock::new_with_results(results, "tool-123");
 
@@ -170,12 +168,11 @@ mod tests {
 
     #[test]
     fn with_cache_control() {
-        let results = vec![WebSearchResultBlock {
-            encrypted_content: "encrypted-data-1".to_string(),
-            page_age: Some("2 days ago".to_string()),
-            title: "Example Page 1".to_string(),
-            url: "https://example.com/page1".to_string(),
-        }];
+        let results = vec![WebSearchResultBlock::new(
+            "encrypted-data-1",
+            "Example Page 1",
+            "https://example.com/page1",
+        ).with_page_age("2 days ago".to_string())];
 
         let cache_control = CacheControlEphemeral::new();
         let block = WebSearchToolResultBlock::new_with_results(results, "tool-123")

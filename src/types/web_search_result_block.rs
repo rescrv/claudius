@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 /// WebSearchResultBlock represents a single result from a web search operation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WebSearchResultBlock {
+    /// The type of the block
+    #[serde(rename = "type")]
+    r#type: String,
+
     /// Encrypted content from the web search result.
     pub encrypted_content: String,
 
@@ -27,6 +31,7 @@ impl WebSearchResultBlock {
         url: S3,
     ) -> Self {
         Self {
+            r#type: "web_search_result".to_string(),
             encrypted_content: encrypted_content.into(),
             page_age: None,
             title: title.into(),
@@ -54,37 +59,35 @@ mod tests {
 
     #[test]
     fn serialization() {
-        let block = WebSearchResultBlock {
-            encrypted_content: "encrypted-data-123".to_string(),
-            page_age: Some("2 days ago".to_string()),
-            title: "Example Page Title".to_string(),
-            url: "https://example.com/page".to_string(),
-        };
+        let block = WebSearchResultBlock::new(
+            "encrypted-data-123",
+            "Example Page Title",
+            "https://example.com/page",
+        ).with_page_age("2 days ago".to_string());
 
         let json = serde_json::to_string(&block).unwrap();
-        let expected = r#"{"encrypted_content":"encrypted-data-123","page_age":"2 days ago","title":"Example Page Title","url":"https://example.com/page"}"#;
+        let expected = r#"{"type":"web_search_result","encrypted_content":"encrypted-data-123","page_age":"2 days ago","title":"Example Page Title","url":"https://example.com/page"}"#;
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn serialization_without_page_age() {
-        let block = WebSearchResultBlock {
-            encrypted_content: "encrypted-data-123".to_string(),
-            page_age: None,
-            title: "Example Page Title".to_string(),
-            url: "https://example.com/page".to_string(),
-        };
+        let block = WebSearchResultBlock::new(
+            "encrypted-data-123",
+            "Example Page Title",
+            "https://example.com/page",
+        );
 
         let json = serde_json::to_string(&block).unwrap();
-        let expected = r#"{"encrypted_content":"encrypted-data-123","title":"Example Page Title","url":"https://example.com/page"}"#;
+        let expected = r#"{"type":"web_search_result","encrypted_content":"encrypted-data-123","title":"Example Page Title","url":"https://example.com/page"}"#;
 
         assert_eq!(json, expected);
     }
 
     #[test]
     fn deserialization() {
-        let json = r#"{"encrypted_content":"encrypted-data-123","page_age":"2 days ago","title":"Example Page Title","url":"https://example.com/page"}"#;
+        let json = r#"{"type":"web_search_result","encrypted_content":"encrypted-data-123","page_age":"2 days ago","title":"Example Page Title","url":"https://example.com/page"}"#;
         let block: WebSearchResultBlock = serde_json::from_str(json).unwrap();
 
         assert_eq!(block.encrypted_content, "encrypted-data-123");

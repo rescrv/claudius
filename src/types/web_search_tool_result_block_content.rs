@@ -73,25 +73,23 @@ mod tests {
     #[test]
     fn results_serialization() {
         let results = vec![
-            WebSearchResultBlock {
-                encrypted_content: "encrypted-data-1".to_string(),
-                page_age: Some("2 days ago".to_string()),
-                title: "Example Page 1".to_string(),
-                url: "https://example.com/page1".to_string(),
-            },
-            WebSearchResultBlock {
-                encrypted_content: "encrypted-data-2".to_string(),
-                page_age: None,
-                title: "Example Page 2".to_string(),
-                url: "https://example.com/page2".to_string(),
-            },
+            WebSearchResultBlock::new(
+                "encrypted-data-1",
+                "Example Page 1",
+                "https://example.com/page1",
+            ).with_page_age("2 days ago".to_string()),
+            WebSearchResultBlock::new(
+                "encrypted-data-2",
+                "Example Page 2",
+                "https://example.com/page2",
+            ),
         ];
 
         let content = WebSearchToolResultBlockContent::with_results(results);
 
         let json = serde_json::to_string(&content).unwrap();
         let json_value: Value = serde_json::from_str(&json).unwrap();
-        let expected_value: Value = serde_json::from_str(r#"[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","url":"https://example.com/page1"},{"encrypted_content":"encrypted-data-2","title":"Example Page 2","url":"https://example.com/page2"}]"#).unwrap();
+        let expected_value: Value = serde_json::from_str(r#"[{"type":"web_search_result","encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","url":"https://example.com/page1"},{"type":"web_search_result","encrypted_content":"encrypted-data-2","title":"Example Page 2","url":"https://example.com/page2"}]"#).unwrap();
 
         assert_eq!(json_value, expected_value);
     }
@@ -114,7 +112,7 @@ mod tests {
 
     #[test]
     fn results_deserialization() {
-        let json = r#"[{"encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","url":"https://example.com/page1"},{"encrypted_content":"encrypted-data-2","title":"Example Page 2","url":"https://example.com/page2"}]"#;
+        let json = r#"[{"type":"web_search_result","encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","url":"https://example.com/page1"},{"type":"web_search_result","encrypted_content":"encrypted-data-2","title":"Example Page 2","url":"https://example.com/page2"}]"#;
         let content: WebSearchToolResultBlockContent = serde_json::from_str(json).unwrap();
 
         assert!(content.is_results());
@@ -143,18 +141,16 @@ mod tests {
     #[test]
     fn result_count() {
         let results = vec![
-            WebSearchResultBlock {
-                encrypted_content: "encrypted-data-1".to_string(),
-                page_age: Some("2 days ago".to_string()),
-                title: "Example Page 1".to_string(),
-                url: "https://example.com/page1".to_string(),
-            },
-            WebSearchResultBlock {
-                encrypted_content: "encrypted-data-2".to_string(),
-                page_age: None,
-                title: "Example Page 2".to_string(),
-                url: "https://example.com/page2".to_string(),
-            },
+            WebSearchResultBlock::new(
+                "encrypted-data-1",
+                "Example Page 1",
+                "https://example.com/page1",
+            ).with_page_age("2 days ago".to_string()),
+            WebSearchResultBlock::new(
+                "encrypted-data-2",
+                "Example Page 2",
+                "https://example.com/page2",
+            ),
         ];
 
         let content = WebSearchToolResultBlockContent::with_results(results);

@@ -2,7 +2,7 @@ use utf8path::Path;
 
 use claudius::{
     AgentLoop, Anthropic, KnownModel, MessageParam, MessageParamContent, MessageRole, Model,
-    SystemPrompt, ThinkingConfig, Tool, ToolTextEditor20250124,
+    SystemPrompt, ThinkingConfig, Tool, ToolTextEditor20250124, WebSearchTool20250305,
 };
 
 #[tokio::main]
@@ -15,7 +15,7 @@ async fn main() {
             messages: vec![MessageParam {
                 role: MessageRole::User,
                 content: MessageParamContent::String(
-                    "Change all references to \"Alice\" to \"Alyssa\"".to_string(),
+                    "Search the web for the closest Spanish name to Alice and change all references to Alice to that name.".to_string(),
                 ),
             }],
         metadata: None,
@@ -31,6 +31,7 @@ async fn main() {
         tools: vec![
             Tool::SearchFileSystem,
             Tool::TextEditor20250124(ToolTextEditor20250124::new()),
+            Tool::WebSearch20250305(WebSearchTool20250305::new()),
         ],
     };
     println!("{:#?}", agent.take_turn().await.unwrap());
