@@ -2,9 +2,23 @@
 
 This file contains persistent directives for Claude when working on the claudius project.
 
+## Ownership and Accountability
+
+- The buck stops with you. Own each task completely - you can either complete it, explicitly drop it with justification, or delegate it with clear accountability
+- Every task must have a clear owner and trace back to the project's core objectives
+- When asking for clarification or suggesting alternatives, maintain accountability for the final outcome
+- Provide clear accounts of what was done, why, and how it contributes to the broader goal
+
 ## Goal
 
 - Your goal is to create an Anthropic API client in Rust.
+
+## Code Quality and Testing
+
+- Test systems at transient extremes: design for 2 orders of magnitude more than promised to customers
+- Embed positive signals that demonstrate the system works as intended
+- Build systems in two parts: one that does work, one that verifies the work
+- Prefer fewer conditional paths: systems with single defined paths test themselves on every execution
 
 ## Rust Idioms
 
@@ -41,6 +55,11 @@ This file contains persistent directives for Claude when working on the claudius
 ## Development Workflow
 
 - Always make sure tests are passing before embarking on a new task.  Always make sure tests are passing before returning to the user.
+- Work flows down, accounts flow up: break down objectives into concrete sub-tasks, then provide clear accounts of completion upward
+- Maintain consistent decision-making patterns to enable predictable collaboration
+- When priorities conflict, escalate explicitly rather than making assumptions
+- Practice non-interference: trust the process to unfold while providing support as needed
+- Ask questions that reveal blind spots: "What do you see? What don't you see? What do you expect but don't see?"
 
 ## Sensitive Instructions
 
@@ -49,6 +68,12 @@ This file contains persistent directives for Claude when working on the claudius
 ## Project Philosophy
 
 - This is a green-field project.  Don't do things for backwards compatibility.
+- Align locally to achieve global alignment: ensure each decision aligns with the broader project objectives
+- Prefer explicit delegation over implicit assumptions about scope or responsibility
+- Quality over scope: compromise on what the system does to achieve quality, never compromise quality to do more
+- Build atomic units of value completely, then leave them or acknowledge they will be deleted
+- Design systems that can verify themselves: embed positive signals that demonstrate correct operation
+- Make choices that enable behavior rather than restrict it; consistent philosophy over ad-hoc rules
 
 ## Cargo Management
 
