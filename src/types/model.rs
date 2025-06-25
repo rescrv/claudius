@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
+use std::str::FromStr;
 
 /// Represents an Anthropic model identifier.
 ///
@@ -160,15 +161,44 @@ impl From<KnownModel> for Model {
     }
 }
 
-impl From<String> for Model {
-    fn from(model: String) -> Self {
-        Model::Custom(model)
+
+impl FromStr for KnownModel {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "claude-3-7-sonnet-latest" => Ok(KnownModel::Claude37SonnetLatest),
+            "claude-3-7-sonnet-20250219" => Ok(KnownModel::Claude37Sonnet20250219),
+            "claude-3-5-haiku-latest" => Ok(KnownModel::Claude35HaikuLatest),
+            "claude-3-5-haiku-20241022" => Ok(KnownModel::Claude35Haiku20241022),
+            "claude-sonnet-4-20250514" => Ok(KnownModel::ClaudeSonnet420250514),
+            "claude-sonnet-4-0" => Ok(KnownModel::ClaudeSonnet40),
+            "claude-4-sonnet-20250514" => Ok(KnownModel::Claude4Sonnet20250514),
+            "claude-3-5-sonnet-latest" => Ok(KnownModel::Claude35SonnetLatest),
+            "claude-3-5-sonnet-20241022" => Ok(KnownModel::Claude35Sonnet20241022),
+            "claude-3-5-sonnet-20240620" => Ok(KnownModel::Claude35Sonnet20240620),
+            "claude-opus-4-0" => Ok(KnownModel::ClaudeOpus40),
+            "claude-opus-4-20250514" => Ok(KnownModel::ClaudeOpus420250514),
+            "claude-4-opus-20250514" => Ok(KnownModel::Claude4Opus20250514),
+            "claude-3-opus-latest" => Ok(KnownModel::Claude3OpusLatest),
+            "claude-3-opus-20240229" => Ok(KnownModel::Claude3Opus20240229),
+            "claude-3-sonnet-20240229" => Ok(KnownModel::Claude3Sonnet20240229),
+            "claude-3-haiku-20240307" => Ok(KnownModel::Claude3Haiku20240307),
+            "claude-2.1" => Ok(KnownModel::Claude21),
+            "claude-2.0" => Ok(KnownModel::Claude20),
+            _ => Err(()),
+        }
     }
 }
 
-impl From<&str> for Model {
-    fn from(model: &str) -> Self {
-        Model::Custom(model.to_string())
+impl FromStr for Model {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match KnownModel::from_str(s) {
+            Ok(known_model) => Ok(Model::Known(known_model)),
+            Err(_) => Ok(Model::Custom(s.to_string())),
+        }
     }
 }
 
