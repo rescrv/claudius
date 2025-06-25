@@ -188,8 +188,8 @@ impl MessageCreateParams {
     }
 
     /// Add a system prompt.
-    pub fn with_system(mut self, system: SystemPrompt) -> Self {
-        self.system = Some(system);
+    pub fn with_system(mut self, system: impl Into<SystemPrompt>) -> Self {
+        self.system = Some(system.into());
         self
     }
 
@@ -233,6 +233,64 @@ impl MessageCreateParams {
     pub fn with_stream(mut self, stream: bool) -> Self {
         self.stream = stream;
         self
+    }
+
+    /// Create a simple message request with sensible defaults.
+    ///
+    /// This is a convenience method for creating basic message requests without
+    /// needing to specify all parameters explicitly.
+    pub fn simple(prompt: impl Into<MessageParam>, model: impl Into<Model>) -> Self {
+        Self::new(
+            1024, // Reasonable default for max_tokens
+            vec![prompt.into()],
+            model.into(),
+        )
+    }
+
+    /// Create a simple streaming message request with sensible defaults.
+    pub fn simple_streaming(prompt: impl Into<MessageParam>, model: impl Into<Model>) -> Self {
+        Self::new_streaming(
+            1024, // Reasonable default for max_tokens
+            vec![prompt.into()],
+            model.into(),
+        )
+    }
+
+    /// Add a single message to the parameters.
+    pub fn with_message(mut self, message: impl Into<MessageParam>) -> Self {
+        self.messages.push(message.into());
+        self
+    }
+
+    /// Add multiple messages to the parameters.
+    pub fn with_messages(
+        mut self,
+        messages: impl IntoIterator<Item = impl Into<MessageParam>>,
+    ) -> Self {
+        self.messages.extend(messages.into_iter().map(|m| m.into()));
+        self
+    }
+}
+
+impl Default for MessageCreateParams {
+    fn default() -> Self {
+        use crate::types::KnownModel;
+
+        Self {
+            max_tokens: 1024,
+            messages: vec![],
+            model: Model::Known(KnownModel::Claude37SonnetLatest),
+            metadata: None,
+            stop_sequences: None,
+            system: None,
+            temperature: None,
+            thinking: None,
+            tool_choice: None,
+            tools: None,
+            top_k: None,
+            top_p: None,
+            stream: false,
+        }
     }
 }
 
@@ -332,5 +390,55 @@ mod tests {
                 "stream": true
             })
         );
+    }
+
+    #[test]
+    fn message_create_params_simple() {
+        let params = MessageCreateParams::simple("Hello, world!", KnownModel::Claude37SonnetLatest);
+
+        assert_eq!(params.max_tokens, 1024);
+        assert_eq!(params.messages.len(), 1);
+        assert_eq!(params.messages[0].role, MessageRole::User);
+        assert!(!params.stream);
+    }
+
+    #[test]
+    fn message_create_params_simple_streaming() {
+        let params = MessageCreateParams::simple_streaming(
+            "Tell me a joke",
+            KnownModel::Claude37SonnetLatest,
+        );
+
+        assert_eq!(params.max_tokens, 1024);
+        assert_eq!(params.messages.len(), 1);
+        assert!(params.stream);
+    }
+
+    #[test]
+    fn message_create_params_default() {
+        let params = MessageCreateParams::default();
+
+        assert_eq!(params.max_tokens, 1024);
+        assert_eq!(params.messages.len(), 0);
+        assert!(!params.stream);
+    }
+
+    #[test]
+    fn message_create_params_with_message() {
+        let params = MessageCreateParams::default()
+            .with_message("Hello")
+            .with_message(MessageParam::assistant("Hi there"));
+
+        assert_eq!(params.messages.len(), 2);
+        assert_eq!(params.messages[0].role, MessageRole::User);
+        assert_eq!(params.messages[1].role, MessageRole::Assistant);
+    }
+
+    #[test]
+    fn message_create_params_ergonomic_system() {
+        let params = MessageCreateParams::simple("Hello", KnownModel::Claude37SonnetLatest)
+            .with_system("You are a helpful assistant.");
+
+        assert!(params.system.is_some());
     }
 }

@@ -161,7 +161,6 @@ impl From<KnownModel> for Model {
     }
 }
 
-
 impl FromStr for KnownModel {
     type Err = ();
 

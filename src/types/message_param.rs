@@ -51,13 +51,25 @@ impl MessageParam {
     }
 
     /// Create a new user `MessageParam` with a string content.
-    pub fn user(content: String) -> Self {
-        Self::new_with_string(content, MessageRole::User)
+    pub fn user(content: impl Into<String>) -> Self {
+        Self::new_with_string(content.into(), MessageRole::User)
     }
 
     /// Create a new assistant `MessageParam` with a string content.
-    pub fn assistant(content: String) -> Self {
-        Self::new_with_string(content, MessageRole::Assistant)
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self::new_with_string(content.into(), MessageRole::Assistant)
+    }
+}
+
+impl From<&str> for MessageParam {
+    fn from(content: &str) -> Self {
+        Self::user(content)
+    }
+}
+
+impl From<String> for MessageParam {
+    fn from(content: String) -> Self {
+        Self::user(content)
     }
 }
 
@@ -79,6 +91,25 @@ mod tests {
                 "role": "user"
             })
         );
+    }
+
+    #[test]
+    fn message_param_from_str() {
+        let message: MessageParam = "Hello, Claude!".into();
+        assert_eq!(message.role, MessageRole::User);
+
+        let message = MessageParam::from("Hello from string");
+        assert_eq!(message.role, MessageRole::User);
+    }
+
+    #[test]
+    fn message_param_ergonomic_constructors() {
+        // Test the improved user/assistant methods that accept &str
+        let user_msg = MessageParam::user("Hello");
+        let assistant_msg = MessageParam::assistant("Hi there");
+
+        assert_eq!(user_msg.role, MessageRole::User);
+        assert_eq!(assistant_msg.role, MessageRole::Assistant);
     }
 
     #[test]
