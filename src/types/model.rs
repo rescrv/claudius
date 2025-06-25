@@ -16,7 +16,7 @@ pub enum Model {
 }
 
 /// Known Anthropic model versions
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum KnownModel {
     /// Claude 3.7 Sonnet (latest version)
     Claude37SonnetLatest,

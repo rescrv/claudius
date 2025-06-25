@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// An event that represents the end of a message in a streaming response.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MessageStopEvent {}
 
 impl MessageStopEvent {
@@ -26,7 +26,7 @@ mod tests {
     fn message_stop_event_serialization() {
         let event = MessageStopEvent::new();
 
-        let json = to_value(&event).unwrap();
+        let json = to_value(event).unwrap();
         assert_eq!(json, json!({}));
     }
 

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Information about server tool usage for a message.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ServerToolUsage {
     /// The number of web search tool requests.
     pub web_search_requests: i32,
@@ -24,7 +24,7 @@ mod tests {
     #[test]
     fn server_tool_usage_serialization() {
         let usage = ServerToolUsage::new(5);
-        let json = to_value(&usage).unwrap();
+        let json = to_value(usage).unwrap();
 
         assert_eq!(
             json,

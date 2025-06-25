@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// An event that represents the end of a content block in a streaming response.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContentBlockStopEvent {
     /// The index of the content block that is ending.
     pub index: usize,
@@ -23,7 +23,7 @@ mod tests {
     fn content_block_stop_event_serialization() {
         let event = ContentBlockStopEvent::new(0);
 
-        let json = to_value(&event).unwrap();
+        let json = to_value(event).unwrap();
         assert_eq!(
             json,
             json!({

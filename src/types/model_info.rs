@@ -30,7 +30,7 @@ pub struct ModelInfo {
 /// Type of the model object.
 ///
 /// For model objects, this is always "model".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelType {
     /// Model type

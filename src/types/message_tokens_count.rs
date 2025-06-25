@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Count of tokens in a message.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MessageTokensCount {
     /// The total number of tokens across the provided list of messages, system prompt,
     /// and tools.
@@ -24,7 +24,7 @@ mod tests {
     fn message_tokens_count_serialization() {
         let count = MessageTokensCount::new(123);
 
-        let json = to_value(&count).unwrap();
+        let json = to_value(count).unwrap();
         assert_eq!(
             json,
             json!({

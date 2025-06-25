@@ -24,7 +24,7 @@ pub struct MessageParam {
 }
 
 /// Role type for a message parameter.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageRole {
     /// User role.

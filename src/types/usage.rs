@@ -6,7 +6,7 @@ use crate::types::ServerToolUsage;
 ///
 /// Anthropic's API bills and rate-limits by token counts, as tokens represent the
 /// underlying cost to their systems.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Usage {
     /// The number of input tokens used to create the cache entry.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -66,7 +66,7 @@ mod tests {
     #[test]
     fn usage_minimal() {
         let usage = Usage::new(50, 100);
-        let json = to_value(&usage).unwrap();
+        let json = to_value(usage).unwrap();
 
         assert_eq!(
             json,
@@ -85,7 +85,7 @@ mod tests {
             .with_cache_read_input_tokens(30)
             .with_server_tool_use(server_tool_use);
 
-        let json = to_value(&usage).unwrap();
+        let json = to_value(usage).unwrap();
 
         assert_eq!(
             json,
