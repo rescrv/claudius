@@ -64,7 +64,17 @@ pub trait Agent: Send {
         }
     }
 
-    async fn search(&mut self, _search: &str) -> Result<String, std::io::Error> {
+    async fn bash(&mut self, command: &str, restart: bool) -> Result<String, std::io::Error> {
+        let _ = command;
+        let _ = restart;
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "bash is not supported",
+        ))
+    }
+
+    async fn search(&mut self, search: &str) -> Result<String, std::io::Error> {
+        let _ = search;
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
             "search is not supported",
@@ -73,9 +83,11 @@ pub trait Agent: Send {
 
     async fn view(
         &mut self,
-        _path: &str,
-        _view_range: Option<(u32, u32)>,
+        path: &str,
+        view_range: Option<(u32, u32)>,
     ) -> Result<String, std::io::Error> {
+        let _ = path;
+        let _ = view_range;
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
             "view is not supported",
@@ -84,10 +96,13 @@ pub trait Agent: Send {
 
     async fn str_replace(
         &mut self,
-        _path: &str,
-        _old_str: &str,
-        _new_str: &str,
+        path: &str,
+        old_str: &str,
+        new_str: &str,
     ) -> Result<String, std::io::Error> {
+        let _ = path;
+        let _ = old_str;
+        let _ = new_str;
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
             "str_replace is not supported",
@@ -96,10 +111,13 @@ pub trait Agent: Send {
 
     async fn insert(
         &mut self,
-        _path: &str,
-        _insert_line: u32,
-        _new_str: &str,
+        path: &str,
+        insert_line: u32,
+        new_str: &str,
     ) -> Result<String, std::io::Error> {
+        let _ = path;
+        let _ = insert_line;
+        let _ = new_str;
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
             "insert is not supported",
@@ -247,12 +265,7 @@ pub enum Tool<A: Agent> {
         description: Option<String>,
         input_schema: serde_json::Value,
         #[allow(clippy::type_complexity)]
-        callback: Arc<
-            dyn Fn(
-                String,
-                serde_json::Value,
-            ) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>,
-        >,
+        callback: Arc<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>>,
     },
     SearchFileSystem,
     Bash20250124(ToolBash20250124),
@@ -292,29 +305,86 @@ impl JsonSchema for SearchTool {
     }
 }
 
-pub fn search_callback<A: Agent>(id: String, input: serde_json::Value) -> ToolResultApplier<A> {
+pub fn search_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A> {
     Box::new(|agent| {
         Box::pin(async move {
-            let search: SearchTool = match serde_json::from_value(input) {
+            let search: SearchTool = match serde_json::from_value(tool_use.input) {
                 Ok(input) => input,
                 Err(err) => {
                     return ControlFlow::Continue(Err(ToolResultBlock {
-                        tool_use_id: id,
+                        tool_use_id: tool_use.id,
                         content: Some(ToolResultBlockContent::String(err.to_string())),
-                        is_error: None,
+                        is_error: Some(true),
                         cache_control: None,
                     }));
                 }
             };
             match agent.search(&search.search).await {
                 Ok(answer) => ControlFlow::Continue(Ok(ToolResultBlock {
-                    tool_use_id: id,
+                    tool_use_id: tool_use.id,
                     content: Some(ToolResultBlockContent::String(answer.to_string())),
                     is_error: None,
                     cache_control: None,
                 })),
                 Err(err) => ControlFlow::Continue(Err(ToolResultBlock {
-                    tool_use_id: id,
+                    tool_use_id: tool_use.id,
+                    content: Some(ToolResultBlockContent::String(err.to_string())),
+                    is_error: Some(true),
+                    cache_control: None,
+                })),
+            }
+        })
+    })
+}
+
+#[derive(serde::Deserialize)]
+pub struct BashTool {
+    command: String,
+    restart: bool,
+}
+
+impl JsonSchema for BashTool {
+    fn json_schema() -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The command to run."
+                },
+                "restart": {
+                    "type": "boolean",
+                    "description": "Set to true to restart the bash session."
+                }
+            },
+            "required": ["search"]
+        })
+    }
+}
+
+pub fn bash_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A> {
+    Box::new(|agent| {
+        Box::pin(async move {
+            let bash: BashTool = match serde_json::from_value(tool_use.input) {
+                Ok(input) => input,
+                Err(err) => {
+                    return ControlFlow::Continue(Err(ToolResultBlock {
+                        tool_use_id: tool_use.id,
+                        content: Some(ToolResultBlockContent::String(err.to_string())),
+                        is_error: Some(true),
+                        cache_control: None,
+                    }));
+                }
+            };
+            match agent.bash(&bash.command, bash.restart).await {
+                Ok(answer) => ControlFlow::Continue(Ok(ToolResultBlock {
+                    tool_use_id: tool_use.id,
+                    content: Some(ToolResultBlockContent::String(answer.to_string())),
+                    is_error: None,
+                    cache_control: None,
+                })),
+                Err(err) => ControlFlow::Continue(Err(ToolResultBlock {
+                    tool_use_id: tool_use.id,
                     content: Some(ToolResultBlockContent::String(err.to_string())),
                     is_error: Some(true),
                     cache_control: None,
@@ -364,31 +434,75 @@ pub struct AgentLoop<A: Agent> {
     pub top_p: Option<f32>,
 }
 
+fn push_or_merge_message(messages: &mut Vec<MessageParam>, to_push: MessageParam) {
+    if let Some(last) = messages.last_mut() {
+        if last.role != to_push.role {
+            messages.push(to_push);
+        } else {
+            merge_message_content(&mut last.content, to_push.content);
+        }
+    } else {
+        messages.push(to_push);
+    }
+}
+
+fn merge_message_content(existing: &mut MessageParamContent, new: MessageParamContent) {
+    match (&mut *existing, new) {
+        (MessageParamContent::Array(existing_blocks), MessageParamContent::Array(new_blocks)) => {
+            existing_blocks.extend(new_blocks);
+        }
+        (MessageParamContent::Array(existing_blocks), MessageParamContent::String(new_string)) => {
+            existing_blocks.push(ContentBlock::Text(crate::TextBlock::new(new_string)));
+        }
+        (MessageParamContent::String(existing_string), MessageParamContent::Array(new_blocks)) => {
+            let mut combined = vec![ContentBlock::Text(crate::TextBlock::new(
+                existing_string.clone(),
+            ))];
+            combined.extend(new_blocks);
+            *existing = MessageParamContent::Array(combined);
+        }
+        (MessageParamContent::String(existing_string), MessageParamContent::String(new_string)) => {
+            existing_string.push_str(&new_string);
+        }
+    }
+}
+
 impl<A: Agent> AgentLoop<A> {
-    pub async fn take_turn(&mut self) -> Result<StopReason, Error> {
+    pub async fn take_turn(&mut self) -> Result<(StopReason, MessageParamContent), Error> {
         let mut tokens_rem = self.max_tokens;
+        let mut final_content = MessageParamContent::Array(vec![]);
+
         while tokens_rem > self.thinking.map(|t| t.num_tokens()).unwrap_or(0) {
             let req = self.create_request(tokens_rem);
             let resp = self.client.send(req).await?;
             let mut tool_results = vec![];
             eprintln!("{:#?}", resp.content);
-            self.messages.push(MessageParam {
+
+            let assistant_message = MessageParam {
                 role: MessageRole::Assistant,
                 content: MessageParamContent::Array(resp.content.clone()),
-            });
+            };
+            push_or_merge_message(&mut self.messages, assistant_message);
+
+            // Accumulate content for return value
+            merge_message_content(
+                &mut final_content,
+                MessageParamContent::Array(resp.content.clone()),
+            );
+
             tokens_rem = tokens_rem.saturating_sub(resp.usage.output_tokens as u32);
             match resp.stop_reason {
                 None | Some(StopReason::EndTurn) => {
-                    return Ok(StopReason::EndTurn);
+                    return Ok((StopReason::EndTurn, final_content));
                 }
                 Some(StopReason::MaxTokens) => {
-                    return Ok(StopReason::MaxTokens);
+                    return Ok((StopReason::MaxTokens, final_content));
                 }
                 Some(StopReason::StopSequence) => {
-                    return Ok(StopReason::StopSequence);
+                    return Ok((StopReason::StopSequence, final_content));
                 }
                 Some(StopReason::Refusal) => {
-                    return Ok(StopReason::Refusal);
+                    return Ok((StopReason::Refusal, final_content));
                 }
                 Some(StopReason::PauseTurn) => {
                     continue;
@@ -402,6 +516,9 @@ impl<A: Agent> AgentLoop<A> {
                     }
                     let tool_result_appliers = futures::future::join_all(futures).await;
                     for tool_result_applier in tool_result_appliers {
+                        let Some(tool_result_applier) = tool_result_applier else {
+                            continue;
+                        };
                         match tool_result_applier(&mut self.agent).await {
                             ControlFlow::Continue(result) => match result {
                                 Ok(block) => tool_results.push(block.into()),
@@ -415,12 +532,11 @@ impl<A: Agent> AgentLoop<A> {
                 }
             }
             eprintln!("{:#?}", tool_results);
-            self.messages.push(MessageParam::new(
-                MessageParamContent::Array(tool_results),
-                MessageRole::User,
-            ));
+            let user_message =
+                MessageParam::new(MessageParamContent::Array(tool_results), MessageRole::User);
+            push_or_merge_message(&mut self.messages, user_message);
         }
-        Ok(StopReason::MaxTokens)
+        Ok((StopReason::MaxTokens, final_content))
     }
 
     fn create_request(&self, max_tokens: u32) -> MessageCreateParams {
@@ -467,10 +583,10 @@ impl<A: Agent> AgentLoop<A> {
         }
     }
 
-    async fn process_tool_use(&self, tool_use: &ToolUseBlock) -> ToolResultApplier<A> {
+    async fn process_tool_use(&self, tool_use: &ToolUseBlock) -> Option<ToolResultApplier<A>> {
         let Some(tool) = self.tools.iter().find(|t| t.name() == tool_use.name) else {
             let id = tool_use.id.clone();
-            return Box::new(|_| {
+            return Some(Box::new(|_| {
                 Box::pin(async move {
                     ControlFlow::Continue(Err(ToolResultBlock {
                         tool_use_id: id.clone(),
@@ -481,7 +597,7 @@ impl<A: Agent> AgentLoop<A> {
                         cache_control: None,
                     }))
                 })
-            });
+            }));
         };
         match tool {
             Tool::Custom {
@@ -489,22 +605,20 @@ impl<A: Agent> AgentLoop<A> {
                 description: _,
                 input_schema: _,
                 callback,
-            } => callback(tool_use.id.clone(), tool_use.input.clone()).await,
+            } => Some(callback(tool_use.clone()).await),
             Tool::SearchFileSystem => {
-                let id = tool_use.id.clone();
-                let input = tool_use.input.clone();
-                search_callback(id, input)
+                let tool_use = tool_use.clone();
+                Some(search_callback(tool_use))
             }
             Tool::Bash20250124(_) => {
-                todo!();
+                let tool_use = tool_use.clone();
+                Some(bash_callback(tool_use))
             }
             Tool::TextEditor20250124(_) => {
                 let tool_use = tool_use.clone();
-                text_editor_callback(tool_use)
+                Some(text_editor_callback(tool_use))
             }
-            Tool::WebSearch20250305(_) => {
-                todo!();
-            }
+            Tool::WebSearch20250305(_) => None,
         }
     }
 }
