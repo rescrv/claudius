@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{ToolBash20250124, ToolParam, ToolTextEditor20250124, WebSearchTool20250305};
+use crate::types::{ToolBash20241022, ToolBash20250124, ToolParam, ToolTextEditor20250124, ToolTextEditor20250429, WebSearchTool20250305};
 
 /// Union type for different tool parameter types.
 ///
@@ -18,13 +18,21 @@ pub enum ToolUnionParam {
     #[serde(rename = "custom")]
     CustomTool(ToolParam),
 
-    /// A bash tool for executing shell commands
+    /// A bash tool for executing shell commands (version 20241022)
+    #[serde(rename = "bash_20241022")]
+    Bash20241022(ToolBash20241022),
+
+    /// A bash tool for executing shell commands (version 20250124)
     #[serde(rename = "bash_20250124")]
     Bash20250124(ToolBash20250124),
 
     /// A text editor tool for making changes to text
     #[serde(rename = "text_editor_20250124")]
     TextEditor20250124(ToolTextEditor20250124),
+
+    /// A text editor tool for making changes to text (version 20250429)
+    #[serde(rename = "text_editor_20250429")]
+    TextEditor20250429(ToolTextEditor20250429),
 
     /// A web search tool for retrieving information from the internet
     #[serde(rename = "web_search_20250305")]
@@ -37,7 +45,12 @@ impl ToolUnionParam {
         Self::CustomTool(ToolParam::new(name, input_schema))
     }
 
-    /// Creates a new bash tool
+    /// Creates a new bash tool (version 20241022)
+    pub fn new_bash_20241022_tool() -> Self {
+        Self::Bash20241022(ToolBash20241022::new())
+    }
+
+    /// Creates a new bash tool (version 20250124)
     pub fn new_bash_tool() -> Self {
         Self::Bash20250124(ToolBash20250124::new())
     }
@@ -45,6 +58,11 @@ impl ToolUnionParam {
     /// Creates a new text editor tool
     pub fn new_text_editor_tool() -> Self {
         Self::TextEditor20250124(ToolTextEditor20250124::new())
+    }
+
+    /// Creates a new text editor tool (version 20250429)
+    pub fn new_text_editor_20250429_tool() -> Self {
+        Self::TextEditor20250429(ToolTextEditor20250429::new())
     }
 
     /// Creates a new web search tool
@@ -101,7 +119,25 @@ mod tests {
     }
 
     #[test]
-    fn bash_tool() {
+    fn bash_20241022_tool() {
+        let bash_tool = ToolBash20241022::new().with_ephemeral_cache_control();
+        let tool = ToolUnionParam::Bash20241022(bash_tool);
+
+        let json = to_value(&tool).unwrap();
+        assert_eq!(
+            json,
+            json!({
+                "name": "bash",
+                "type": "bash_20241022",
+                "cache_control": {
+                    "type": "ephemeral"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn bash_20250124_tool() {
         let bash_tool = ToolBash20250124::new().with_ephemeral_cache_control();
         let tool = ToolUnionParam::Bash20250124(bash_tool);
 
@@ -129,6 +165,24 @@ mod tests {
             json!({
                 "name": "str_replace_editor",
                 "type": "text_editor_20250124",
+                "cache_control": {
+                    "type": "ephemeral"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn text_editor_20250429_tool() {
+        let text_editor_tool = ToolTextEditor20250429::new().with_ephemeral_cache_control();
+        let tool = ToolUnionParam::TextEditor20250429(text_editor_tool);
+
+        let json = to_value(&tool).unwrap();
+        assert_eq!(
+            json,
+            json!({
+                "name": "str_replace_based_edit_tool",
+                "type": "text_editor_20250429",
                 "cache_control": {
                     "type": "ephemeral"
                 }
@@ -197,7 +251,21 @@ mod tests {
             _ => panic!("Expected CustomTool variant"),
         }
 
-        // Test bash tool deserialization
+        // Test bash 20241022 tool deserialization
+        let json = json!({
+            "name": "bash",
+            "type": "bash_20241022"
+        });
+
+        let tool: ToolUnionParam = serde_json::from_value(json).unwrap();
+        match tool {
+            ToolUnionParam::Bash20241022(t) => {
+                assert_eq!(t.name, "bash");
+            }
+            _ => panic!("Expected Bash20241022 variant"),
+        }
+
+        // Test bash 20250124 tool deserialization
         let json = json!({
             "name": "bash",
             "type": "bash_20250124"
