@@ -6,10 +6,11 @@ use std::sync::Arc;
 use utf8path::Path;
 
 use crate::{
-    Anthropic, ContentBlock, Error, JsonSchema, MessageCreateParams, MessageParam,
-    MessageParamContent, MessageRole, Metadata, Model, StopReason, SystemPrompt, ThinkingConfig,
-    ToolBash20250124, ToolChoice, ToolParam, ToolResultBlock, ToolResultBlockContent,
-    ToolTextEditor20250124, ToolUnionParam, ToolUseBlock, WebSearchTool20250305,
+    merge_message_content, push_or_merge_message, Anthropic, ContentBlock, Error, JsonSchema,
+    MessageCreateParams, MessageParam, MessageParamContent, MessageRole, Metadata, Model,
+    StopReason, SystemPrompt, ThinkingConfig, ToolBash20250124, ToolChoice, ToolParam,
+    ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124, ToolUnionParam, ToolUseBlock,
+    WebSearchTool20250305,
 };
 
 /////////////////////////////////////////////// Agent //////////////////////////////////////////////
@@ -432,39 +433,6 @@ pub struct AgentLoop<A: Agent> {
     pub tools: Vec<Tool<A>>,
     pub top_k: Option<u32>,
     pub top_p: Option<f32>,
-}
-
-fn push_or_merge_message(messages: &mut Vec<MessageParam>, to_push: MessageParam) {
-    if let Some(last) = messages.last_mut() {
-        if last.role != to_push.role {
-            messages.push(to_push);
-        } else {
-            merge_message_content(&mut last.content, to_push.content);
-        }
-    } else {
-        messages.push(to_push);
-    }
-}
-
-fn merge_message_content(existing: &mut MessageParamContent, new: MessageParamContent) {
-    match (&mut *existing, new) {
-        (MessageParamContent::Array(existing_blocks), MessageParamContent::Array(new_blocks)) => {
-            existing_blocks.extend(new_blocks);
-        }
-        (MessageParamContent::Array(existing_blocks), MessageParamContent::String(new_string)) => {
-            existing_blocks.push(ContentBlock::Text(crate::TextBlock::new(new_string)));
-        }
-        (MessageParamContent::String(existing_string), MessageParamContent::Array(new_blocks)) => {
-            let mut combined = vec![ContentBlock::Text(crate::TextBlock::new(
-                existing_string.clone(),
-            ))];
-            combined.extend(new_blocks);
-            *existing = MessageParamContent::Array(combined);
-        }
-        (MessageParamContent::String(existing_string), MessageParamContent::String(new_string)) => {
-            existing_string.push_str(&new_string);
-        }
-    }
 }
 
 impl<A: Agent> AgentLoop<A> {
