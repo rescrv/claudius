@@ -5,13 +5,13 @@ mod error;
 mod json_schema;
 mod types;
 
-pub use agent::{Agent, AgentLoop, Tool};
+pub use agent::{Agent, AgentLoop, Tool, ToolSearchFileSystem};
 pub use client::Anthropic;
 pub use error::{Error, Result};
 pub use json_schema::JsonSchema;
 pub use types::*;
 
-fn push_or_merge_message(messages: &mut Vec<MessageParam>, to_push: MessageParam) {
+pub fn push_or_merge_message(messages: &mut Vec<MessageParam>, to_push: MessageParam) {
     if let Some(last) = messages.last_mut() {
         if last.role != to_push.role {
             messages.push(to_push);
@@ -23,7 +23,7 @@ fn push_or_merge_message(messages: &mut Vec<MessageParam>, to_push: MessageParam
     }
 }
 
-fn merge_message_content(existing: &mut MessageParamContent, new: MessageParamContent) {
+pub fn merge_message_content(existing: &mut MessageParamContent, new: MessageParamContent) {
     match (&mut *existing, new) {
         (MessageParamContent::Array(existing_blocks), MessageParamContent::Array(new_blocks)) => {
             existing_blocks.extend(new_blocks);

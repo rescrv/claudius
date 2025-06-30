@@ -2,7 +2,7 @@ use utf8path::Path;
 
 use claudius::{
     AgentLoop, Anthropic, KnownModel, MessageParam, MessageParamContent, MessageRole, Model,
-    SystemPrompt, ThinkingConfig, Tool, ToolBash20250124, ToolTextEditor20250124,
+    SystemPrompt, ThinkingConfig, ToolBash20250124, ToolSearchFileSystem, ToolTextEditor20250124,
     WebSearchTool20250305,
 };
 
@@ -30,10 +30,10 @@ async fn main() {
         top_p: None,
         tool_choice: None,
         tools: vec![
-            Tool::SearchFileSystem,
-            Tool::TextEditor20250124(ToolTextEditor20250124::new()),
-            Tool::WebSearch20250305(WebSearchTool20250305::new()),
-            Tool::Bash20250124(ToolBash20250124::new()),
+            Box::new(ToolSearchFileSystem) as _,
+            Box::new(ToolBash20250124::new()) as _,
+            Box::new(ToolTextEditor20250124::new()) as _,
+            Box::new(WebSearchTool20250305::new()) as _,
         ],
     };
     println!("{:#?}", agent.take_turn().await.unwrap());

@@ -73,6 +73,12 @@ impl From<String> for MessageParam {
     }
 }
 
+impl<T: AsRef<str>> From<T> for MessageParamContent {
+    fn from(content: T) -> Self {
+        MessageParamContent::String(content.as_ref().to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,6 +175,31 @@ mod tests {
                 "role": "user"
             })
         );
+    }
+
+    #[test]
+    fn message_param_content_from_as_ref_str() {
+        // Test From<&str>
+        let content: MessageParamContent = "Hello".into();
+        match content {
+            MessageParamContent::String(s) => assert_eq!(s, "Hello"),
+            _ => panic!("Expected String variant"),
+        }
+
+        // Test From<String>
+        let content: MessageParamContent = "World".to_string().into();
+        match content {
+            MessageParamContent::String(s) => assert_eq!(s, "World"),
+            _ => panic!("Expected String variant"),
+        }
+
+        // Test From<&String>
+        let s = "Test".to_string();
+        let content: MessageParamContent = (&s).into();
+        match content {
+            MessageParamContent::String(s) => assert_eq!(s, "Test"),
+            _ => panic!("Expected String variant"),
+        }
     }
 
     #[test]

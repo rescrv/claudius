@@ -1,26 +1,277 @@
 use std::future::Future;
 use std::ops::ControlFlow;
 use std::pin::Pin;
-use std::sync::Arc;
 
 use utf8path::Path;
 
 use crate::{
     merge_message_content, push_or_merge_message, Anthropic, ContentBlock, Error, JsonSchema,
     MessageCreateParams, MessageParam, MessageParamContent, MessageRole, Metadata, Model,
-    StopReason, SystemPrompt, ThinkingConfig, ToolBash20250124, ToolChoice, ToolParam,
-    ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124, ToolUnionParam, ToolUseBlock,
-    WebSearchTool20250305,
+    StopReason, SystemPrompt, ThinkingConfig, ToolBash20241022, ToolBash20250124, ToolChoice,
+    ToolParam, ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124,
+    ToolTextEditor20250429, ToolUnionParam, ToolUseBlock, WebSearchTool20250305,
 };
+
+/////////////////////////////////////////////// Tool ///////////////////////////////////////////////
+
+pub trait Tool<A: Agent> {
+    fn name(&self) -> &str;
+    #[allow(clippy::type_complexity)]
+    fn callback(
+        &self,
+    ) -> Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>>;
+    fn to_param(&self) -> ToolUnionParam;
+}
+
+impl<A: Agent> Tool<A> for ToolBash20241022 {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn callback(
+        &self,
+    ) -> Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>> {
+        Box::new(|tool_use| Box::pin(async move { bash_callback(tool_use) }))
+    }
+
+    fn to_param(&self) -> ToolUnionParam {
+        ToolUnionParam::Bash20241022(self.clone())
+    }
+}
+
+impl<A: Agent> Tool<A> for ToolBash20250124 {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn callback(
+        &self,
+    ) -> Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>> {
+        Box::new(|tool_use| Box::pin(async move { bash_callback(tool_use) }))
+    }
+
+    fn to_param(&self) -> ToolUnionParam {
+        ToolUnionParam::Bash20250124(self.clone())
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct BashTool {
+    command: String,
+    restart: bool,
+}
+
+pub fn bash_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A> {
+    Box::new(|agent| {
+        Box::pin(async move {
+            let bash: BashTool = match serde_json::from_value(tool_use.input) {
+                Ok(input) => input,
+                Err(err) => {
+                    return ControlFlow::Continue(Err(ToolResultBlock {
+                        tool_use_id: tool_use.id,
+                        content: Some(ToolResultBlockContent::String(err.to_string())),
+                        is_error: Some(true),
+                        cache_control: None,
+                    }));
+                }
+            };
+            match agent.bash(&bash.command, bash.restart).await {
+                Ok(answer) => ControlFlow::Continue(Ok(ToolResultBlock {
+                    tool_use_id: tool_use.id,
+                    content: Some(ToolResultBlockContent::String(answer.to_string())),
+                    is_error: None,
+                    cache_control: None,
+                })),
+                Err(err) => ControlFlow::Continue(Err(ToolResultBlock {
+                    tool_use_id: tool_use.id,
+                    content: Some(ToolResultBlockContent::String(err.to_string())),
+                    is_error: Some(true),
+                    cache_control: None,
+                })),
+            }
+        })
+    })
+}
+
+impl<A: Agent> Tool<A> for ToolTextEditor20250124 {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn callback(
+        &self,
+    ) -> Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>> {
+        Box::new(|tool_use| Box::pin(async move { text_editor_callback(tool_use) }))
+    }
+
+    fn to_param(&self) -> ToolUnionParam {
+        ToolUnionParam::TextEditor20250124(self.clone())
+    }
+}
+
+impl<A: Agent> Tool<A> for ToolTextEditor20250429 {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn callback(
+        &self,
+    ) -> Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>> {
+        Box::new(|tool_use| Box::pin(async move { text_editor_callback(tool_use) }))
+    }
+
+    fn to_param(&self) -> ToolUnionParam {
+        ToolUnionParam::TextEditor20250429(self.clone())
+    }
+}
+
+fn text_editor_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A> {
+    Box::new(|agent| {
+        let id = tool_use.id.clone();
+        Box::pin(async move {
+            match agent.text_editor(tool_use).await {
+                Ok(result) => ControlFlow::Continue(Ok(ToolResultBlock {
+                    tool_use_id: id,
+                    content: Some(ToolResultBlockContent::String(result)),
+                    is_error: None,
+                    cache_control: None,
+                })),
+                Err(err) => ControlFlow::Continue(Err(ToolResultBlock {
+                    tool_use_id: id,
+                    content: Some(ToolResultBlockContent::String(err.to_string())),
+                    is_error: Some(true),
+                    cache_control: None,
+                })),
+            }
+        })
+    })
+}
+
+impl<A: Agent> Tool<A> for WebSearchTool20250305 {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn callback(
+        &self,
+    ) -> Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>> {
+        Box::new(|tool_use| Box::pin(async move { web_search_callback(tool_use) }))
+    }
+
+    fn to_param(&self) -> ToolUnionParam {
+        ToolUnionParam::WebSearch20250305(self.clone())
+    }
+}
+
+fn web_search_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A> {
+    Box::new(move |_agent| {
+        let id = tool_use.id.clone();
+        Box::pin(async move {
+            ControlFlow::Continue(Err(ToolResultBlock {
+                tool_use_id: id,
+                content: Some(ToolResultBlockContent::String(
+                    "Web search is not implemented".to_string(),
+                )),
+                is_error: Some(true),
+                cache_control: None,
+            }))
+        })
+    })
+}
+
+pub struct ToolSearchFileSystem;
+
+impl<A: Agent> Tool<A> for ToolSearchFileSystem {
+    fn name(&self) -> &str {
+        "search_filesystem"
+    }
+
+    fn callback(
+        &self,
+    ) -> Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>> {
+        Box::new(|tool_use| Box::pin(async move { search_callback(tool_use) }))
+    }
+
+    fn to_param(&self) -> ToolUnionParam {
+        let name = <Self as Tool<A>>::name(self).to_string();
+        let input_schema = SearchTool::json_schema();
+        let description = Some("Search the local filesystem.".to_string());
+        let cache_control = None;
+        ToolUnionParam::CustomTool(ToolParam {
+            input_schema,
+            name,
+            description,
+            cache_control,
+        })
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct SearchTool {
+    query: String,
+}
+
+impl JsonSchema for SearchTool {
+    fn json_schema() -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query to find on the filesystem."
+                }
+            },
+            "required": ["query"]
+        })
+    }
+}
+
+pub fn search_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A> {
+    Box::new(|agent| {
+        Box::pin(async move {
+            let search: SearchTool = match serde_json::from_value(tool_use.input) {
+                Ok(input) => input,
+                Err(err) => {
+                    return ControlFlow::Continue(Err(ToolResultBlock {
+                        tool_use_id: tool_use.id,
+                        content: Some(ToolResultBlockContent::String(err.to_string())),
+                        is_error: Some(true),
+                        cache_control: None,
+                    }));
+                }
+            };
+            match agent.search(&search.query).await {
+                Ok(answer) => ControlFlow::Continue(Ok(ToolResultBlock {
+                    tool_use_id: tool_use.id,
+                    content: Some(ToolResultBlockContent::String(answer.to_string())),
+                    is_error: None,
+                    cache_control: None,
+                })),
+                Err(err) => ControlFlow::Continue(Err(ToolResultBlock {
+                    tool_use_id: tool_use.id,
+                    content: Some(ToolResultBlockContent::String(err.to_string())),
+                    is_error: Some(true),
+                    cache_control: None,
+                })),
+            }
+        })
+    })
+}
+
+//////////////////////////////////////////// ToolResult ////////////////////////////////////////////
+
+type ToolResult = ControlFlow<Error, Result<ToolResultBlock, ToolResultBlock>>;
+
+///////////////////////////////////////// ToolResultApplier ////////////////////////////////////////
+
+type ToolResultApplier<A> =
+    Box<dyn for<'a> FnOnce(&'a mut A) -> Pin<Box<dyn Future<Output = ToolResult> + 'a>>>;
 
 /////////////////////////////////////////////// Agent //////////////////////////////////////////////
 
 #[async_trait::async_trait]
 pub trait Agent: Send {
-    async fn apply_text_editor20250124(
-        &mut self,
-        tool_use: ToolUseBlock,
-    ) -> Result<String, std::io::Error> {
+    async fn text_editor(&mut self, tool_use: ToolUseBlock) -> Result<String, std::io::Error> {
         #[derive(serde::Deserialize)]
         struct Command {
             command: String,
@@ -251,171 +502,7 @@ impl Agent for Path<'_> {
     }
 }
 
-//////////////////////////////////////////// ToolResult ////////////////////////////////////////////
-
-type ToolResult = ControlFlow<Error, Result<ToolResultBlock, ToolResultBlock>>;
-type ToolResultApplier<A> =
-    Box<dyn for<'a> FnOnce(&'a mut A) -> Pin<Box<dyn Future<Output = ToolResult> + 'a>>>;
-
-/////////////////////////////////////////////// Tool ///////////////////////////////////////////////
-
-#[derive(Clone)]
-pub enum Tool<A: Agent> {
-    Custom {
-        name: String,
-        description: Option<String>,
-        input_schema: serde_json::Value,
-        #[allow(clippy::type_complexity)]
-        callback: Arc<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>>,
-    },
-    SearchFileSystem,
-    Bash20250124(ToolBash20250124),
-    TextEditor20250124(ToolTextEditor20250124),
-    WebSearch20250305(WebSearchTool20250305),
-}
-
-impl<A: Agent> Tool<A> {
-    fn name(&self) -> &str {
-        match self {
-            Tool::Custom { name, .. } => name,
-            Tool::SearchFileSystem => "search",
-            Tool::Bash20250124(_) => "bash",
-            Tool::TextEditor20250124(_) => "str_replace_editor",
-            Tool::WebSearch20250305(_) => "web_search",
-        }
-    }
-}
-
-#[derive(serde::Deserialize)]
-pub struct SearchTool {
-    search: String,
-}
-
-impl JsonSchema for SearchTool {
-    fn json_schema() -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "search": {
-                    "type": "string",
-                    "description": "The search term to look for"
-                }
-            },
-            "required": ["search"]
-        })
-    }
-}
-
-pub fn search_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A> {
-    Box::new(|agent| {
-        Box::pin(async move {
-            let search: SearchTool = match serde_json::from_value(tool_use.input) {
-                Ok(input) => input,
-                Err(err) => {
-                    return ControlFlow::Continue(Err(ToolResultBlock {
-                        tool_use_id: tool_use.id,
-                        content: Some(ToolResultBlockContent::String(err.to_string())),
-                        is_error: Some(true),
-                        cache_control: None,
-                    }));
-                }
-            };
-            match agent.search(&search.search).await {
-                Ok(answer) => ControlFlow::Continue(Ok(ToolResultBlock {
-                    tool_use_id: tool_use.id,
-                    content: Some(ToolResultBlockContent::String(answer.to_string())),
-                    is_error: None,
-                    cache_control: None,
-                })),
-                Err(err) => ControlFlow::Continue(Err(ToolResultBlock {
-                    tool_use_id: tool_use.id,
-                    content: Some(ToolResultBlockContent::String(err.to_string())),
-                    is_error: Some(true),
-                    cache_control: None,
-                })),
-            }
-        })
-    })
-}
-
-#[derive(serde::Deserialize)]
-pub struct BashTool {
-    command: String,
-    restart: bool,
-}
-
-impl JsonSchema for BashTool {
-    fn json_schema() -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "The command to run."
-                },
-                "restart": {
-                    "type": "boolean",
-                    "description": "Set to true to restart the bash session."
-                }
-            },
-            "required": ["search"]
-        })
-    }
-}
-
-pub fn bash_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A> {
-    Box::new(|agent| {
-        Box::pin(async move {
-            let bash: BashTool = match serde_json::from_value(tool_use.input) {
-                Ok(input) => input,
-                Err(err) => {
-                    return ControlFlow::Continue(Err(ToolResultBlock {
-                        tool_use_id: tool_use.id,
-                        content: Some(ToolResultBlockContent::String(err.to_string())),
-                        is_error: Some(true),
-                        cache_control: None,
-                    }));
-                }
-            };
-            match agent.bash(&bash.command, bash.restart).await {
-                Ok(answer) => ControlFlow::Continue(Ok(ToolResultBlock {
-                    tool_use_id: tool_use.id,
-                    content: Some(ToolResultBlockContent::String(answer.to_string())),
-                    is_error: None,
-                    cache_control: None,
-                })),
-                Err(err) => ControlFlow::Continue(Err(ToolResultBlock {
-                    tool_use_id: tool_use.id,
-                    content: Some(ToolResultBlockContent::String(err.to_string())),
-                    is_error: Some(true),
-                    cache_control: None,
-                })),
-            }
-        })
-    })
-}
-
-pub fn text_editor_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A> {
-    Box::new(|agent| {
-        let id = tool_use.id.clone();
-        Box::pin(async move {
-            match agent.apply_text_editor20250124(tool_use).await {
-                Ok(result) => ControlFlow::Continue(Ok(ToolResultBlock {
-                    tool_use_id: id,
-                    content: Some(ToolResultBlockContent::String(result)),
-                    is_error: None,
-                    cache_control: None,
-                })),
-                Err(err) => ControlFlow::Continue(Err(ToolResultBlock {
-                    tool_use_id: id,
-                    content: Some(ToolResultBlockContent::String(err.to_string())),
-                    is_error: Some(true),
-                    cache_control: None,
-                })),
-            }
-        })
-    })
-}
+/////////////////////////////////////////////// Misc ///////////////////////////////////////////////
 
 pub struct AgentLoop<A: Agent> {
     pub client: Anthropic,
@@ -430,7 +517,7 @@ pub struct AgentLoop<A: Agent> {
     pub temperature: Option<f32>,
     pub thinking: Option<ThinkingConfig>,
     pub tool_choice: Option<ToolChoice>,
-    pub tools: Vec<Tool<A>>,
+    pub tools: Vec<Box<dyn Tool<A>>>,
     pub top_k: Option<u32>,
     pub top_p: Option<f32>,
 }
@@ -484,9 +571,6 @@ impl<A: Agent> AgentLoop<A> {
                     }
                     let tool_result_appliers = futures::future::join_all(futures).await;
                     for tool_result_applier in tool_result_appliers {
-                        let Some(tool_result_applier) = tool_result_applier else {
-                            continue;
-                        };
                         match tool_result_applier(&mut self.agent).await {
                             ControlFlow::Continue(result) => match result {
                                 Ok(block) => tool_results.push(block.into()),
@@ -511,28 +595,7 @@ impl<A: Agent> AgentLoop<A> {
         let tools = self
             .tools
             .iter()
-            .map(|tool| match tool {
-                Tool::Custom {
-                    name,
-                    input_schema,
-                    description,
-                    callback: _,
-                } => ToolUnionParam::CustomTool(ToolParam {
-                    name: name.clone(),
-                    input_schema: input_schema.clone(),
-                    cache_control: None,
-                    description: description.clone(),
-                }),
-                Tool::SearchFileSystem => ToolUnionParam::CustomTool(ToolParam {
-                    name: "search".to_string(),
-                    input_schema: SearchTool::json_schema(),
-                    cache_control: None,
-                    description: Some("Search the files available to the text editor tool for a given search string.".to_string()),
-                }),
-                Tool::Bash20250124(tool) => ToolUnionParam::Bash20250124(tool.clone()),
-                Tool::TextEditor20250124(tool) => ToolUnionParam::TextEditor20250124(tool.clone()),
-                Tool::WebSearch20250305(tool) => ToolUnionParam::WebSearch20250305(tool.clone()),
-            })
+            .map(|tool| tool.to_param())
             .collect::<Vec<_>>();
         MessageCreateParams {
             max_tokens,
@@ -551,10 +614,10 @@ impl<A: Agent> AgentLoop<A> {
         }
     }
 
-    async fn process_tool_use(&self, tool_use: &ToolUseBlock) -> Option<ToolResultApplier<A>> {
+    async fn process_tool_use(&self, tool_use: &ToolUseBlock) -> ToolResultApplier<A> {
         let Some(tool) = self.tools.iter().find(|t| t.name() == tool_use.name) else {
             let id = tool_use.id.clone();
-            return Some(Box::new(|_| {
+            return Box::new(|_| {
                 Box::pin(async move {
                     ControlFlow::Continue(Err(ToolResultBlock {
                         tool_use_id: id.clone(),
@@ -565,29 +628,9 @@ impl<A: Agent> AgentLoop<A> {
                         cache_control: None,
                     }))
                 })
-            }));
+            });
         };
-        match tool {
-            Tool::Custom {
-                name: _,
-                description: _,
-                input_schema: _,
-                callback,
-            } => Some(callback(tool_use.clone()).await),
-            Tool::SearchFileSystem => {
-                let tool_use = tool_use.clone();
-                Some(search_callback(tool_use))
-            }
-            Tool::Bash20250124(_) => {
-                let tool_use = tool_use.clone();
-                Some(bash_callback(tool_use))
-            }
-            Tool::TextEditor20250124(_) => {
-                let tool_use = tool_use.clone();
-                Some(text_editor_callback(tool_use))
-            }
-            Tool::WebSearch20250305(_) => None,
-        }
+        (tool.callback())(tool_use.clone()).await
     }
 }
 
