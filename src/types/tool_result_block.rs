@@ -35,6 +35,18 @@ pub enum ToolResultBlockContent {
     Array(Vec<Content>),
 }
 
+impl From<String> for ToolResultBlockContent {
+    fn from(value: String) -> Self {
+        ToolResultBlockContent::String(value)
+    }
+}
+
+impl From<&str> for ToolResultBlockContent {
+    fn from(value: &str) -> Self {
+        ToolResultBlockContent::String(value.to_string())
+    }
+}
+
 impl ToolResultBlock {
     /// Create a new `ToolResultBlock` with the given tool use ID.
     pub fn new(tool_use_id: String) -> Self {
@@ -170,5 +182,22 @@ mod tests {
         }
 
         assert_eq!(block.is_error, Some(false));
+    }
+
+    #[test]
+    fn tool_result_block_content_from_string() {
+        // Test From<String> trait
+        let content: ToolResultBlockContent = "Test content".to_string().into();
+        match content {
+            ToolResultBlockContent::String(s) => assert_eq!(s, "Test content"),
+            _ => panic!("Expected String variant"),
+        }
+
+        // Test From<&str> trait
+        let content: ToolResultBlockContent = "Another test".into();
+        match content {
+            ToolResultBlockContent::String(s) => assert_eq!(s, "Another test"),
+            _ => panic!("Expected String variant"),
+        }
     }
 }

@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{ToolBash20241022, ToolBash20250124, ToolParam, ToolTextEditor20250124, ToolTextEditor20250429, WebSearchTool20250305};
+use crate::types::{
+    ToolBash20241022, ToolBash20250124, ToolParam, ToolTextEditor20250124, ToolTextEditor20250429,
+    WebSearchTool20250305,
+};
 
 /// Union type for different tool parameter types.
 ///
