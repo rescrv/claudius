@@ -1,17 +1,17 @@
 use std::future::Future;
 use std::ops::ControlFlow;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use utf8path::Path;
 
 use crate::{
-    merge_message_content, push_or_merge_message, Anthropic, ContentBlock, Error, JsonSchema,
-    KnownModel, Message, MessageCreateParams, MessageParam, MessageParamContent, MessageRole,
-    Metadata, Model, StopReason, SystemPrompt, ThinkingConfig, ToolBash20241022, ToolBash20250124,
-    ToolChoice, ToolParam, ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124,
-    ToolTextEditor20250429, ToolUnionParam, ToolUseBlock, WebSearchTool20250305,
+    Anthropic, ContentBlock, Error, JsonSchema, KnownModel, Message, MessageCreateParams,
+    MessageParam, MessageParamContent, MessageRole, Metadata, Model, StopReason, SystemPrompt,
+    ThinkingConfig, ToolBash20241022, ToolBash20250124, ToolChoice, ToolParam, ToolResultBlock,
+    ToolResultBlockContent, ToolTextEditor20250124, ToolTextEditor20250429, ToolUnionParam,
+    ToolUseBlock, WebSearchTool20250305, merge_message_content, push_or_merge_message,
 };
 
 /////////////////////////////////////////////// Tool ///////////////////////////////////////////////
@@ -452,7 +452,7 @@ pub trait Agent: Send + Sync + Sized {
                 None | Some(StopReason::EndTurn) => return self.handle_end_turn().await,
                 Some(StopReason::MaxTokens) => return self.handle_max_tokens().await,
                 Some(StopReason::StopSequence) => {
-                    return self.handle_stop_sequence(resp.stop_sequence).await
+                    return self.handle_stop_sequence(resp.stop_sequence).await;
                 }
                 Some(StopReason::Refusal) => return self.handle_refusal(resp).await,
                 Some(StopReason::PauseTurn) => {

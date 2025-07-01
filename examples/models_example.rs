@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if models_response.has_more() {
         println!("There are more models available. Use pagination to fetch them.");
         if let Some(last_id) = models_response.last_id() {
-            println!("To get the next page, use after_id: {}", last_id);
+            println!("To get the next page, use after_id: {last_id}");
         }
     }
 

@@ -448,25 +448,21 @@ impl fmt::Display for Error {
             } => {
                 if let Some(error_type) = error_type {
                     if let Some(request_id) = request_id {
-                        write!(
-                            f,
-                            "{}: {} (Request ID: {})",
-                            error_type, message, request_id
-                        )
+                        write!(f, "{error_type}: {message} (Request ID: {request_id})")
                     } else {
-                        write!(f, "{}: {}", error_type, message)
+                        write!(f, "{error_type}: {message}")
                     }
                 } else if let Some(request_id) = request_id {
-                    write!(f, "API error: {} (Request ID: {})", message, request_id)
+                    write!(f, "API error: {message} (Request ID: {request_id})")
                 } else {
-                    write!(f, "API error: {}", message)
+                    write!(f, "API error: {message}")
                 }
             }
             Error::Authentication { message } => {
-                write!(f, "Authentication error: {}", message)
+                write!(f, "Authentication error: {message}")
             }
             Error::Permission { message } => {
-                write!(f, "Permission error: {}", message)
+                write!(f, "Permission error: {message}")
             }
             Error::NotFound {
                 message,
@@ -474,18 +470,18 @@ impl fmt::Display for Error {
                 resource_id,
             } => {
                 let prefix = if let Some(resource_type) = resource_type {
-                    format!("Resource not found ({})", resource_type)
+                    format!("Resource not found ({resource_type})")
                 } else {
                     "Resource not found".to_string()
                 };
 
                 let suffix = if let Some(resource_id) = resource_id {
-                    format!(" [ID: {}]", resource_id)
+                    format!(" [ID: {resource_id}]")
                 } else {
                     "".to_string()
                 };
 
-                write!(f, "{}: {}{}", prefix, message, suffix)
+                write!(f, "{prefix}: {message}{suffix}")
             }
             Error::RateLimit {
                 message,
@@ -494,32 +490,31 @@ impl fmt::Display for Error {
                 if let Some(retry_after) = retry_after {
                     write!(
                         f,
-                        "Rate limit exceeded: {} (retry after {} seconds)",
-                        message, retry_after
+                        "Rate limit exceeded: {message} (retry after {retry_after} seconds)"
                     )
                 } else {
-                    write!(f, "Rate limit exceeded: {}", message)
+                    write!(f, "Rate limit exceeded: {message}")
                 }
             }
             Error::BadRequest { message, param } => {
                 if let Some(param) = param {
-                    write!(f, "Bad request: {} (parameter: {})", message, param)
+                    write!(f, "Bad request: {message} (parameter: {param})")
                 } else {
-                    write!(f, "Bad request: {}", message)
+                    write!(f, "Bad request: {message}")
                 }
             }
             Error::Timeout { message, duration } => {
                 if let Some(duration) = duration {
-                    write!(f, "Timeout error: {} ({} seconds)", message, duration)
+                    write!(f, "Timeout error: {message} ({duration} seconds)")
                 } else {
-                    write!(f, "Timeout error: {}", message)
+                    write!(f, "Timeout error: {message}")
                 }
             }
             Error::Abort { message } => {
-                write!(f, "Request aborted: {}", message)
+                write!(f, "Request aborted: {message}")
             }
             Error::Connection { message, .. } => {
-                write!(f, "Connection error: {}", message)
+                write!(f, "Connection error: {message}")
             }
             Error::InternalServer {
                 message,
@@ -528,11 +523,10 @@ impl fmt::Display for Error {
                 if let Some(request_id) = request_id {
                     write!(
                         f,
-                        "Internal server error: {} (Request ID: {})",
-                        message, request_id
+                        "Internal server error: {message} (Request ID: {request_id})"
                     )
                 } else {
-                    write!(f, "Internal server error: {}", message)
+                    write!(f, "Internal server error: {message}")
                 }
             }
             Error::ServiceUnavailable {
@@ -542,43 +536,42 @@ impl fmt::Display for Error {
                 if let Some(retry_after) = retry_after {
                     write!(
                         f,
-                        "Service unavailable: {} (retry after {} seconds)",
-                        message, retry_after
+                        "Service unavailable: {message} (retry after {retry_after} seconds)"
                     )
                 } else {
-                    write!(f, "Service unavailable: {}", message)
+                    write!(f, "Service unavailable: {message}")
                 }
             }
             Error::Serialization { message, .. } => {
-                write!(f, "Serialization error: {}", message)
+                write!(f, "Serialization error: {message}")
             }
             Error::Io { message, .. } => {
-                write!(f, "I/O error: {}", message)
+                write!(f, "I/O error: {message}")
             }
             Error::HttpClient { message, .. } => {
-                write!(f, "HTTP client error: {}", message)
+                write!(f, "HTTP client error: {message}")
             }
             Error::Validation { message, param } => {
                 if let Some(param) = param {
-                    write!(f, "Validation error: {} (parameter: {})", message, param)
+                    write!(f, "Validation error: {message} (parameter: {param})")
                 } else {
-                    write!(f, "Validation error: {}", message)
+                    write!(f, "Validation error: {message}")
                 }
             }
             Error::Url { message, .. } => {
-                write!(f, "URL error: {}", message)
+                write!(f, "URL error: {message}")
             }
             Error::Streaming { message, .. } => {
-                write!(f, "Streaming error: {}", message)
+                write!(f, "Streaming error: {message}")
             }
             Error::Encoding { message, .. } => {
-                write!(f, "Encoding error: {}", message)
+                write!(f, "Encoding error: {message}")
             }
             Error::Unknown { message } => {
-                write!(f, "Unknown error: {}", message)
+                write!(f, "Unknown error: {message}")
             }
             Error::ToDo { message } => {
-                write!(f, "Unimplemented: {}", message)
+                write!(f, "Unimplemented: {message}")
             }
         }
     }
@@ -619,19 +612,19 @@ impl From<io::Error> for Error {
 
 impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Self {
-        Error::serialization(format!("JSON error: {}", err), Some(Box::new(err)))
+        Error::serialization(format!("JSON error: {err}"), Some(Box::new(err)))
     }
 }
 
 impl From<url::ParseError> for Error {
     fn from(err: url::ParseError) -> Self {
-        Error::url(format!("URL parse error: {}", err), Some(err))
+        Error::url(format!("URL parse error: {err}"), Some(err))
     }
 }
 
 impl From<Utf8Error> for Error {
     fn from(err: Utf8Error) -> Self {
-        Error::encoding(format!("UTF-8 error: {}", err), Some(Box::new(err)))
+        Error::encoding(format!("UTF-8 error: {err}"), Some(Box::new(err)))
     }
 }
 

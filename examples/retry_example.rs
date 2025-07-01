@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Err(e) => {
-            println!("Failed after all retries: {}", e);
+            println!("Failed after all retries: {e}");
             if e.is_rate_limit() {
                 println!(
                     "This was a rate limit error - the client would have automatically retried with backoff"

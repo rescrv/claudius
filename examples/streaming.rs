@@ -24,10 +24,10 @@ async fn main() -> Result<()> {
         match event {
             Ok(event) => {
                 // In a real application, you would handle different event types appropriately
-                println!("Received event: {:?}", event);
+                println!("Received event: {event:?}");
             }
             Err(e) => {
-                eprintln!("Error: {}", e);
+                eprintln!("Error: {e}");
             }
         }
     }

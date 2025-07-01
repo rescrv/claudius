@@ -79,8 +79,8 @@ pub enum KnownModel {
 impl fmt::Display for Model {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Model::Known(known_model) => write!(f, "{}", known_model),
-            Model::Custom(custom) => write!(f, "{}", custom),
+            Model::Known(known_model) => write!(f, "{known_model}"),
+            Model::Custom(custom) => write!(f, "{custom}"),
         }
     }
 }

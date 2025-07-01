@@ -57,7 +57,7 @@ impl Anthropic {
             .build()
             .map_err(|e| {
                 Error::http_client(
-                    format!("Failed to build HTTP client: {}", e),
+                    format!("Failed to build HTTP client: {e}"),
                     Some(Box::new(e)),
                 )
             })?;
@@ -231,7 +231,7 @@ impl Anthropic {
             Ok(body) => body,
             Err(e) => {
                 return Error::http_client(
-                    format!("Failed to read error response: {}", e),
+                    format!("Failed to read error response: {e}"),
                     Some(Box::new(e)),
                 );
             }
@@ -285,13 +285,13 @@ impl Anthropic {
                 .map_err(|e| {
                     if e.is_timeout() {
                         Error::timeout(
-                            format!("Request timed out: {}", e),
+                            format!("Request timed out: {e}"),
                             Some(self.timeout.as_secs_f64()),
                         )
                     } else if e.is_connect() {
-                        Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
+                        Error::connection(format!("Connection error: {e}"), Some(Box::new(e)))
                     } else {
-                        Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
+                        Error::http_client(format!("Request failed: {e}"), Some(Box::new(e)))
                     }
                 })?;
 
@@ -300,10 +300,7 @@ impl Anthropic {
             }
 
             response.json::<Message>().await.map_err(|e| {
-                Error::serialization(
-                    format!("Failed to parse response: {}", e),
-                    Some(Box::new(e)),
-                )
+                Error::serialization(format!("Failed to parse response: {e}"), Some(Box::new(e)))
             })
         })
         .await
@@ -339,13 +336,13 @@ impl Anthropic {
                     .map_err(|e| {
                         if e.is_timeout() {
                             Error::timeout(
-                                format!("Request timed out: {}", e),
+                                format!("Request timed out: {e}"),
                                 Some(self.timeout.as_secs_f64()),
                             )
                         } else if e.is_connect() {
-                            Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
+                            Error::connection(format!("Connection error: {e}"), Some(Box::new(e)))
                         } else {
-                            Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
+                            Error::http_client(format!("Request failed: {e}"), Some(Box::new(e)))
                         }
                     })?;
 
@@ -385,13 +382,13 @@ impl Anthropic {
                 .map_err(|e| {
                     if e.is_timeout() {
                         Error::timeout(
-                            format!("Request timed out: {}", e),
+                            format!("Request timed out: {e}"),
                             Some(self.timeout.as_secs_f64()),
                         )
                     } else if e.is_connect() {
-                        Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
+                        Error::connection(format!("Connection error: {e}"), Some(Box::new(e)))
                     } else {
-                        Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
+                        Error::http_client(format!("Request failed: {e}"), Some(Box::new(e)))
                     }
                 })?;
 
@@ -400,10 +397,7 @@ impl Anthropic {
             }
 
             response.json::<MessageTokensCount>().await.map_err(|e| {
-                Error::serialization(
-                    format!("Failed to parse response: {}", e),
-                    Some(Box::new(e)),
-                )
+                Error::serialization(format!("Failed to parse response: {e}"), Some(Box::new(e)))
             })
         })
         .await
@@ -436,13 +430,13 @@ impl Anthropic {
             let response = request.send().await.map_err(|e| {
                 if e.is_timeout() {
                     Error::timeout(
-                        format!("Request timed out: {}", e),
+                        format!("Request timed out: {e}"),
                         Some(self.timeout.as_secs_f64()),
                     )
                 } else if e.is_connect() {
-                    Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
+                    Error::connection(format!("Connection error: {e}"), Some(Box::new(e)))
                 } else {
-                    Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
+                    Error::http_client(format!("Request failed: {e}"), Some(Box::new(e)))
                 }
             })?;
 
@@ -451,10 +445,7 @@ impl Anthropic {
             }
 
             response.json::<ModelListResponse>().await.map_err(|e| {
-                Error::serialization(
-                    format!("Failed to parse response: {}", e),
-                    Some(Box::new(e)),
-                )
+                Error::serialization(format!("Failed to parse response: {e}"), Some(Box::new(e)))
             })
         })
         .await
@@ -477,13 +468,13 @@ impl Anthropic {
                 .map_err(|e| {
                     if e.is_timeout() {
                         Error::timeout(
-                            format!("Request timed out: {}", e),
+                            format!("Request timed out: {e}"),
                             Some(self.timeout.as_secs_f64()),
                         )
                     } else if e.is_connect() {
-                        Error::connection(format!("Connection error: {}", e), Some(Box::new(e)))
+                        Error::connection(format!("Connection error: {e}"), Some(Box::new(e)))
                     } else {
-                        Error::http_client(format!("Request failed: {}", e), Some(Box::new(e)))
+                        Error::http_client(format!("Request failed: {e}"), Some(Box::new(e)))
                     }
                 })?;
 
@@ -492,10 +483,7 @@ impl Anthropic {
             }
 
             response.json::<ModelInfo>().await.map_err(|e| {
-                Error::serialization(
-                    format!("Failed to parse response: {}", e),
-                    Some(Box::new(e)),
-                )
+                Error::serialization(format!("Failed to parse response: {e}"), Some(Box::new(e)))
             })
         })
         .await
@@ -509,9 +497,8 @@ where
 {
     // Convert reqwest errors to our error type
     let stream = byte_stream.map(|result| {
-        result.map_err(|e| {
-            Error::streaming(format!("Error in HTTP stream: {}", e), Some(Box::new(e)))
-        })
+        result
+            .map_err(|e| Error::streaming(format!("Error in HTTP stream: {e}"), Some(Box::new(e))))
     });
 
     // Use a state machine to process the SSE stream
@@ -534,7 +521,7 @@ where
                         Err(e) => {
                             return Some((
                                 Err(Error::encoding(
-                                    format!("Invalid UTF-8 in stream: {}", e),
+                                    format!("Invalid UTF-8 in stream: {e}"),
                                     Some(Box::new(e)),
                                 )),
                                 (stream, buffer),
@@ -606,7 +593,7 @@ fn extract_event(buffer: &str) -> Option<(Result<MessageStreamEvent>, String)> {
                 Err(e) => Some((Err(e.into()), rest)),
             }
         }
-        event_type => Some((Err(Error::todo(format!("handle {}", event_type))), rest)),
+        event_type => Some((Err(Error::todo(format!("handle {event_type}"))), rest)),
     }
 }
 
