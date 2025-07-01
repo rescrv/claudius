@@ -5,32 +5,27 @@ use std::pin::Pin;
 use utf8path::Path;
 
 use crate::{
-    Anthropic, ContentBlock, Error, JsonSchema, MessageCreateParams, MessageParam,
-    MessageParamContent, MessageRole, Metadata, Model, StopReason, SystemPrompt, ThinkingConfig,
-    ToolBash20241022, ToolBash20250124, ToolChoice, ToolParam, ToolResultBlock,
-    ToolResultBlockContent, ToolTextEditor20250124, ToolTextEditor20250429, ToolUnionParam,
-    ToolUseBlock, WebSearchTool20250305, merge_message_content, push_or_merge_message,
+    merge_message_content, push_or_merge_message, Anthropic, ContentBlock, Error, JsonSchema,
+    MessageCreateParams, MessageParam, MessageParamContent, MessageRole, Metadata, Model,
+    StopReason, SystemPrompt, ThinkingConfig, ToolBash20241022, ToolBash20250124, ToolChoice,
+    ToolParam, ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124,
+    ToolTextEditor20250429, ToolUnionParam, ToolUseBlock, WebSearchTool20250305,
 };
 
 /////////////////////////////////////////////// Tool ///////////////////////////////////////////////
 
 pub trait Tool<A: Agent> {
-    fn name(&self) -> &str;
-    #[allow(clippy::type_complexity)]
-    fn callback(
-        &self,
-    ) -> Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>>;
+    fn name(&self) -> String;
+    fn callback(&self) -> ToolResultCallback<A>;
     fn to_param(&self) -> ToolUnionParam;
 }
 
 impl<A: Agent> Tool<A> for ToolBash20241022 {
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> String {
+        self.name.clone()
     }
 
-    fn callback(
-        &self,
-    ) -> Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>> {
+    fn callback(&self) -> ToolResultCallback<A> {
         Box::new(|tool_use| Box::pin(async move { bash_callback(tool_use) }))
     }
 
@@ -40,13 +35,11 @@ impl<A: Agent> Tool<A> for ToolBash20241022 {
 }
 
 impl<A: Agent> Tool<A> for ToolBash20250124 {
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> String {
+        self.name.clone()
     }
 
-    fn callback(
-        &self,
-    ) -> Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>> {
+    fn callback(&self) -> ToolResultCallback<A> {
         Box::new(|tool_use| Box::pin(async move { bash_callback(tool_use) }))
     }
 
@@ -94,13 +87,11 @@ pub fn bash_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A> {
 }
 
 impl<A: Agent> Tool<A> for ToolTextEditor20250124 {
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> String {
+        self.name.clone()
     }
 
-    fn callback(
-        &self,
-    ) -> Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>> {
+    fn callback(&self) -> ToolResultCallback<A> {
         Box::new(|tool_use| Box::pin(async move { text_editor_callback(tool_use) }))
     }
 
@@ -110,13 +101,11 @@ impl<A: Agent> Tool<A> for ToolTextEditor20250124 {
 }
 
 impl<A: Agent> Tool<A> for ToolTextEditor20250429 {
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> String {
+        self.name.clone()
     }
 
-    fn callback(
-        &self,
-    ) -> Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>> {
+    fn callback(&self) -> ToolResultCallback<A> {
         Box::new(|tool_use| Box::pin(async move { text_editor_callback(tool_use) }))
     }
 
@@ -148,13 +137,11 @@ fn text_editor_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A
 }
 
 impl<A: Agent> Tool<A> for WebSearchTool20250305 {
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> String {
+        self.name.clone()
     }
 
-    fn callback(
-        &self,
-    ) -> Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>> {
+    fn callback(&self) -> ToolResultCallback<A> {
         Box::new(|tool_use| Box::pin(async move { web_search_callback(tool_use) }))
     }
 
@@ -182,13 +169,11 @@ fn web_search_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A>
 pub struct ToolSearchFileSystem;
 
 impl<A: Agent> Tool<A> for ToolSearchFileSystem {
-    fn name(&self) -> &str {
-        "search_filesystem"
+    fn name(&self) -> String {
+        "search_filesystem".to_string()
     }
 
-    fn callback(
-        &self,
-    ) -> Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>>>>> {
+    fn callback(&self) -> ToolResultCallback<A> {
         Box::new(|tool_use| Box::pin(async move { search_callback(tool_use) }))
     }
 
@@ -260,17 +245,43 @@ pub fn search_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A>
 
 //////////////////////////////////////////// ToolResult ////////////////////////////////////////////
 
-type ToolResult = ControlFlow<Error, Result<ToolResultBlock, ToolResultBlock>>;
+pub type ToolResult = ControlFlow<Error, Result<ToolResultBlock, ToolResultBlock>>;
 
 ///////////////////////////////////////// ToolResultApplier ////////////////////////////////////////
 
-type ToolResultApplier<A> =
+pub type ToolResultApplier<A> =
     Box<dyn for<'a> FnOnce(&'a mut A) -> Pin<Box<dyn Future<Output = ToolResult> + 'a>>>;
+
+pub type ToolResultCallback<A> =
+    Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>> + Send>> + Send>;
 
 /////////////////////////////////////////////// Agent //////////////////////////////////////////////
 
 #[async_trait::async_trait]
-pub trait Agent: Send {
+pub trait Agent: Send + Sync + Sized {
+    async fn tools(&self) -> impl Iterator<Item = Box<dyn Tool<Self> + Send>> {
+        vec![].into_iter()
+    }
+
+    async fn process_tool_use(&self, tool_use: &ToolUseBlock) -> ToolResultApplier<Self> {
+        let Some(tool) = self.tools().await.find(|t| t.name() == tool_use.name) else {
+            let id = tool_use.id.clone();
+            return Box::new(|_| {
+                Box::pin(async move {
+                    ControlFlow::Continue(Err(ToolResultBlock {
+                        tool_use_id: id.clone(),
+                        content: Some(ToolResultBlockContent::String(
+                            "error: no such tool".to_string(),
+                        )),
+                        is_error: Some(true),
+                        cache_control: None,
+                    }))
+                })
+            });
+        };
+        (tool.callback())(tool_use.clone()).await
+    }
+
     async fn text_editor(&mut self, tool_use: ToolUseBlock) -> Result<String, std::io::Error> {
         #[derive(serde::Deserialize)]
         struct Command {
@@ -566,7 +577,7 @@ impl<A: Agent> AgentLoop<A> {
                     let mut futures = Vec::with_capacity(resp.content.len());
                     for block in resp.content.iter() {
                         if let ContentBlock::ToolUse(tool) = block {
-                            futures.push(self.process_tool_use(tool));
+                            futures.push(self.agent.process_tool_use(tool));
                         }
                     }
                     let tool_result_appliers = futures::future::join_all(futures).await;
@@ -612,25 +623,6 @@ impl<A: Agent> AgentLoop<A> {
             tool_choice: self.tool_choice.clone(),
             tools: Some(tools),
         }
-    }
-
-    async fn process_tool_use(&self, tool_use: &ToolUseBlock) -> ToolResultApplier<A> {
-        let Some(tool) = self.tools.iter().find(|t| t.name() == tool_use.name) else {
-            let id = tool_use.id.clone();
-            return Box::new(|_| {
-                Box::pin(async move {
-                    ControlFlow::Continue(Err(ToolResultBlock {
-                        tool_use_id: id.clone(),
-                        content: Some(ToolResultBlockContent::String(
-                            "error: no such tool".to_string(),
-                        )),
-                        is_error: Some(true),
-                        cache_control: None,
-                    }))
-                })
-            });
-        };
-        (tool.callback())(tool_use.clone()).await
     }
 }
 
