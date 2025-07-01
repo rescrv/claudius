@@ -5,7 +5,7 @@ mod error;
 mod json_schema;
 mod types;
 
-pub use agent::{Agent, AgentLoop, Tool, ToolSearchFileSystem};
+pub use agent::{Agent, Budget, Tool, ToolSearchFileSystem};
 pub use client::Anthropic;
 pub use error::{Error, Result};
 pub use json_schema::JsonSchema;
