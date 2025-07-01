@@ -323,6 +323,33 @@ impl Drop for BudgetAllocation {
     }
 }
 
+/////////////////////////////////////////// FileSystem ////////////////////////////////////////////
+
+#[async_trait::async_trait]
+pub trait FileSystem: Send + Sync {
+    async fn search(&self, search: &str) -> Result<String, std::io::Error>;
+
+    async fn view(
+        &self,
+        path: &str,
+        view_range: Option<(u32, u32)>,
+    ) -> Result<String, std::io::Error>;
+
+    async fn str_replace(
+        &self,
+        path: &str,
+        old_str: &str,
+        new_str: &str,
+    ) -> Result<String, std::io::Error>;
+
+    async fn insert(
+        &self,
+        path: &str,
+        insert_line: u32,
+        new_str: &str,
+    ) -> Result<String, std::io::Error>;
+}
+
 /////////////////////////////////////////////// Agent //////////////////////////////////////////////
 
 #[async_trait::async_trait]
@@ -368,6 +395,10 @@ pub trait Agent: Send + Sync + Sized {
     }
 
     async fn top_p(&self) -> Option<f32> {
+        None
+    }
+
+    async fn filesystem(&self) -> Option<&dyn FileSystem> {
         None
     }
 
@@ -593,11 +624,14 @@ pub trait Agent: Send + Sync + Sized {
     }
 
     async fn search(&self, search: &str) -> Result<String, std::io::Error> {
-        let _ = search;
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "search is not supported",
-        ))
+        if let Some(fs) = self.filesystem().await {
+            fs.search(search).await
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "search is not supported",
+            ))
+        }
     }
 
     async fn view(
@@ -605,12 +639,14 @@ pub trait Agent: Send + Sync + Sized {
         path: &str,
         view_range: Option<(u32, u32)>,
     ) -> Result<String, std::io::Error> {
-        let _ = path;
-        let _ = view_range;
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "view is not supported",
-        ))
+        if let Some(fs) = self.filesystem().await {
+            fs.view(path, view_range).await
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "view is not supported",
+            ))
+        }
     }
 
     async fn str_replace(
@@ -619,13 +655,14 @@ pub trait Agent: Send + Sync + Sized {
         old_str: &str,
         new_str: &str,
     ) -> Result<String, std::io::Error> {
-        let _ = path;
-        let _ = old_str;
-        let _ = new_str;
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "str_replace is not supported",
-        ))
+        if let Some(fs) = self.filesystem().await {
+            fs.str_replace(path, old_str, new_str).await
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "str_replace is not supported",
+            ))
+        }
     }
 
     async fn insert(
@@ -634,13 +671,14 @@ pub trait Agent: Send + Sync + Sized {
         insert_line: u32,
         new_str: &str,
     ) -> Result<String, std::io::Error> {
-        let _ = path;
-        let _ = insert_line;
-        let _ = new_str;
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "insert is not supported",
-        ))
+        if let Some(fs) = self.filesystem().await {
+            fs.insert(path, insert_line, new_str).await
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "insert is not supported",
+            ))
+        }
     }
 }
 
@@ -648,7 +686,7 @@ pub trait Agent: Send + Sync + Sized {
 impl Agent for () {}
 
 #[async_trait::async_trait]
-impl Agent for Path<'_> {
+impl FileSystem for Path<'_> {
     async fn search(&self, search: &str) -> Result<String, std::io::Error> {
         let output = std::process::Command::new("grep")
             .args(["-nRI", search])

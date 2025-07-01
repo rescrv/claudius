@@ -2,13 +2,28 @@ use std::sync::Arc;
 
 use utf8path::Path;
 
-use claudius::{Agent, Anthropic, Budget, MessageParam, MessageParamContent, MessageRole};
+use claudius::{
+    Agent, Anthropic, Budget, FileSystem, MessageParam, MessageParamContent, MessageRole,
+};
+
+struct MyAgent {
+    root: Path<'static>,
+}
+
+#[async_trait::async_trait]
+impl Agent for MyAgent {
+    async fn filesystem(&self) -> Option<&dyn FileSystem> {
+        Some(&self.root)
+    }
+}
 
 #[tokio::main]
 async fn main() {
     let client = Anthropic::new(None).unwrap();
     let budget = Arc::new(Budget::new(1024));
-    let agent = Path::from("kb");
+    let agent = MyAgent {
+        root: Path::from("kb"),
+    };
 
     // Initialize message history
     let mut messages = vec![MessageParam {
