@@ -54,7 +54,7 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
 - [X] Implement response parsing
 - [X] Design stream handling framework
 - [-] Enable customizable fetch options
-- [ ] Implement idempotency keys for non-GET requests
+- [-] Implement idempotency keys for non-GET requests
 - [X] Implement error handling and mapping to domain-specific errors
 - [X] Set up connection pooling and keep-alive settings
 - [-] Add header/query parameter sanitization
@@ -71,7 +71,7 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
 - [X] Add detailed error messages with context
 - [X] Include request IDs in errors for easier debugging
 - [X] Support retry-after headers for rate limiting
-- [ ] Add special handling for request timeouts
+- [X] Add special handling for request timeouts
 
 ## Phase 2: API Resources and Models
 
@@ -175,9 +175,14 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
   - [X] Create messages (with streaming and non-streaming variants)
   - [X] Stream messages with proper event handling
   - [X] Count tokens
+  - [-] Message batches API
 - [X] Implement Models API
   - [X] List models
   - [X] Retrieve model information
+- [-] Implement Beta APIs
+  - [-] Beta message endpoints
+  - [-] Beta file endpoints
+  - [-] Beta model endpoints
 - [X] Use type-safe request/response parameters
 
 
@@ -204,7 +209,7 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
 - [X] Add tool result submission
 - [ ] Support JSON schema validation
 - [X] Implement all tool choice types
-- [ ] Add convenience methods for common tool use patterns
+- [X] Add convenience methods for common tool use patterns
 
 ### Images & Rich Media
 - [X] Support for image inputs
@@ -282,11 +287,11 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
 
 ### Documentation
 - [ ] API documentation with rustdoc
-- [ ] Comprehensive README
-- [ ] Code examples for common use cases
+- [X] Comprehensive README
+- [X] Code examples for common use cases
 - [ ] Detailed API reference
-- [ ] Sample applications
-- [ ] Method-level documentation
+- [X] Sample applications
+- [X] Method-level documentation
 - [ ] Add tutorials for common workflows
 
 ## Phase 7: Performance & Optimization
@@ -301,9 +306,9 @@ This document outlines a comprehensive plan for developing `claudius`, a Rust SD
 - [-] Add configurable TCP settings
 
 ### Developer Experience
-- [ ] Add builder patterns for complex request types
-- [ ] Implement convenient helper methods
-- [ ] Create idiomatic Rust interfaces while maintaining compatibility
+- [X] Add builder patterns for complex request types
+- [X] Implement convenient helper methods
+- [X] Create idiomatic Rust interfaces while maintaining compatibility
 - [ ] Add feature flags for optional dependencies
 - [ ] Support custom HTTP client implementations
 - [ ] Add debugging tools
