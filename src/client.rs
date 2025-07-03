@@ -312,7 +312,7 @@ impl Anthropic {
     pub async fn stream(
         &self,
         mut params: MessageCreateParams,
-    ) -> Result<impl Stream<Item = Result<MessageStreamEvent>>> {
+    ) -> Result<impl Stream<Item = Result<MessageStreamEvent>> + use<>> {
         // Ensure stream is enabled
         params.stream = true;
 
@@ -491,7 +491,7 @@ impl Anthropic {
 }
 
 /// Process a stream of bytes into a stream of server-sent events
-fn process_sse<S>(byte_stream: S) -> impl Stream<Item = Result<MessageStreamEvent>>
+fn process_sse<S>(byte_stream: S) -> impl Stream<Item = Result<MessageStreamEvent>> + use<S>
 where
     S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Unpin + 'static,
 {
