@@ -1,17 +1,17 @@
 use std::future::Future;
 use std::ops::ControlFlow;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use utf8path::Path;
 
 use crate::{
-    Anthropic, ContentBlock, Error, JsonSchema, KnownModel, Message, MessageCreateParams,
-    MessageParam, MessageParamContent, MessageRole, Metadata, Model, StopReason, SystemPrompt,
-    ThinkingConfig, ToolBash20241022, ToolBash20250124, ToolChoice, ToolParam, ToolResultBlock,
-    ToolResultBlockContent, ToolTextEditor20250124, ToolTextEditor20250429, ToolUnionParam,
-    ToolUseBlock, WebSearchTool20250305, merge_message_content, push_or_merge_message,
+    merge_message_content, push_or_merge_message, Anthropic, ContentBlock, Error, JsonSchema,
+    KnownModel, Message, MessageCreateParams, MessageParam, MessageParamContent, MessageRole,
+    Metadata, Model, StopReason, SystemPrompt, ThinkingConfig, ToolBash20241022, ToolBash20250124,
+    ToolChoice, ToolParam, ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124,
+    ToolTextEditor20250429, ToolUnionParam, ToolUseBlock, WebSearchTool20250305,
 };
 
 /////////////////////////////////////////////// Tool ///////////////////////////////////////////////
@@ -386,8 +386,8 @@ pub trait Agent: Send + Sync + Sized {
         None
     }
 
-    async fn tools(&self) -> &[Box<dyn Tool<Self>>] {
-        &[]
+    async fn tools(&self) -> Vec<&dyn Tool<Self>> {
+        vec![]
     }
 
     async fn top_k(&self) -> Option<u32> {
@@ -442,12 +442,12 @@ pub trait Agent: Send + Sync + Sized {
         };
 
         while tokens_rem.allocated > self.thinking().await.map(|t| t.num_tokens()).unwrap_or(0) {
-            let agent_tools = self.tools().await;
-            let api_tools = if !agent_tools.is_empty() {
-                Some(agent_tools.iter().map(|tool| tool.to_param()).collect())
-            } else {
-                None
-            };
+            let tools = self
+                .tools()
+                .await
+                .into_iter()
+                .map(|tool| tool.to_param())
+                .collect::<Vec<_>>();
             let req = MessageCreateParams {
                 max_tokens: tokens_rem.allocated,
                 model: self.model().await,
@@ -461,7 +461,7 @@ pub trait Agent: Send + Sync + Sized {
                 top_p: self.top_p().await,
                 stream: false,
                 tool_choice: self.tool_choice().await,
-                tools: api_tools,
+                tools: Some(tools),
             };
             self.hook_message_create_params(&req).await?;
             let resp = client.send(req).await?;
@@ -551,6 +551,7 @@ pub trait Agent: Send + Sync + Sized {
             .await
             .iter()
             .find(|t| t.name() == tool_use.name)
+            .cloned()
         else {
             let id = tool_use.id.clone();
             return Box::new(|_| {
