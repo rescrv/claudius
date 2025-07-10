@@ -556,16 +556,22 @@ fn extract_event(buffer: &str) -> Option<(Result<MessageStreamEvent>, String)> {
     let event_text = parts[0];
     let rest = parts[1].to_string();
     let Some((event_type, event_data)) = event_text.split_once('\n') else {
-        return Some((Err(Error::serialization(
-            format!("Malformed SSE event: missing newline separator in '{}'", event_text),
-            None,
-        )), rest));
+        return Some((
+            Err(Error::serialization(
+                format!("Malformed SSE event: missing newline separator in '{event_text}'"),
+                None,
+            )),
+            rest,
+        ));
     };
     let Some(event_data) = event_data.strip_prefix("data:").map(str::trim) else {
-        return Some((Err(Error::serialization(
-            format!("Malformed SSE event: missing 'data:' prefix in '{}'", event_data),
-            None,
-        )), rest));
+        return Some((
+            Err(Error::serialization(
+                format!("Malformed SSE event: missing 'data:' prefix in '{event_data}'"),
+                None,
+            )),
+            rest,
+        ));
     };
     match event_type {
         "event: ping" => Some((Ok(MessageStreamEvent::Ping), rest)),

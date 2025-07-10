@@ -7,9 +7,10 @@ use std::error;
 use std::fmt;
 use std::io;
 use std::str::Utf8Error;
+use std::sync::Arc;
 
 /// The main error type for the Claudius SDK.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Error {
     /// A generic API error occurred.
     Api {
@@ -80,7 +81,7 @@ pub enum Error {
         /// Human-readable error message.
         message: String,
         /// Underlying cause.
-        source: Option<Box<dyn error::Error + Send + Sync>>,
+        source: Option<Arc<dyn error::Error + Send + Sync>>,
     },
 
     /// Server returned a 500 internal error.
@@ -104,7 +105,7 @@ pub enum Error {
         /// Human-readable error message.
         message: String,
         /// The underlying error.
-        source: Option<Box<dyn error::Error + Send + Sync>>,
+        source: Option<Arc<dyn error::Error + Send + Sync>>,
     },
 
     /// I/O error.
@@ -112,7 +113,7 @@ pub enum Error {
         /// Human-readable error message.
         message: String,
         /// The underlying error.
-        source: io::Error,
+        source: Arc<io::Error>,
     },
 
     /// HTTP client error.
@@ -120,7 +121,7 @@ pub enum Error {
         /// Human-readable error message.
         message: String,
         /// The underlying error.
-        source: Option<Box<dyn error::Error + Send + Sync>>,
+        source: Option<Arc<dyn error::Error + Send + Sync>>,
     },
 
     /// Error during validation of request parameters.
@@ -144,7 +145,7 @@ pub enum Error {
         /// Human-readable error message.
         message: String,
         /// The underlying error.
-        source: Option<Box<dyn error::Error + Send + Sync>>,
+        source: Option<Arc<dyn error::Error + Send + Sync>>,
     },
 
     /// Encoding/decoding error.
@@ -152,7 +153,7 @@ pub enum Error {
         /// Human-readable error message.
         message: String,
         /// The underlying error.
-        source: Option<Box<dyn error::Error + Send + Sync>>,
+        source: Option<Arc<dyn error::Error + Send + Sync>>,
     },
 
     /// Unknown error.
@@ -249,7 +250,7 @@ impl Error {
     ) -> Self {
         Error::Connection {
             message: message.into(),
-            source,
+            source: source.map(Arc::from),
         }
     }
 
@@ -276,7 +277,7 @@ impl Error {
     ) -> Self {
         Error::Serialization {
             message: message.into(),
-            source,
+            source: source.map(Arc::from),
         }
     }
 
@@ -284,7 +285,7 @@ impl Error {
     pub fn io(message: impl Into<String>, source: io::Error) -> Self {
         Error::Io {
             message: message.into(),
-            source,
+            source: Arc::new(source),
         }
     }
 
@@ -295,7 +296,7 @@ impl Error {
     ) -> Self {
         Error::HttpClient {
             message: message.into(),
-            source,
+            source: source.map(Arc::from),
         }
     }
 
@@ -322,7 +323,7 @@ impl Error {
     ) -> Self {
         Error::Streaming {
             message: message.into(),
-            source,
+            source: source.map(Arc::from),
         }
     }
 
@@ -333,7 +334,7 @@ impl Error {
     ) -> Self {
         Error::Encoding {
             message: message.into(),
-            source,
+            source: source.map(Arc::from),
         }
     }
 

@@ -21,7 +21,7 @@ impl Agent for MyAgent {
 async fn main() {
     let client = Anthropic::new(None).unwrap();
     let budget = Arc::new(Budget::new(1024));
-    let agent = MyAgent {
+    let mut agent = MyAgent {
         root: Path::from("kb"),
     };
 

@@ -6,7 +6,7 @@ mod json_schema;
 mod types;
 
 pub use agent::{
-    Agent, Budget, FileSystem, Tool, ToolResult, ToolResultApplier, ToolResultCallback,
+    Agent, Budget, FileSystem, IntermediateToolResult, Tool, ToolCallback, ToolResult,
     ToolSearchFileSystem,
 };
 pub use client::Anthropic;

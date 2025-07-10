@@ -1,25 +1,119 @@
-use std::future::Future;
+use std::any::Any;
 use std::ops::ControlFlow;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use utf8path::Path;
 
 use crate::{
-    merge_message_content, push_or_merge_message, Anthropic, ContentBlock, Error, JsonSchema,
-    KnownModel, Message, MessageCreateParams, MessageParam, MessageParamContent, MessageRole,
-    Metadata, Model, StopReason, SystemPrompt, ThinkingConfig, ToolBash20241022, ToolBash20250124,
-    ToolChoice, ToolParam, ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124,
+    merge_message_content, push_or_merge_message, Anthropic, ContentBlock, Error, KnownModel,
+    Message, MessageCreateParams, MessageParam, MessageParamContent, MessageRole, Metadata, Model,
+    StopReason, SystemPrompt, ThinkingConfig, ToolBash20241022, ToolBash20250124, ToolChoice,
+    ToolParam, ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124,
     ToolTextEditor20250429, ToolUnionParam, ToolUseBlock, WebSearchTool20250305,
 };
 
+//////////////////////////////////////////// ToolResult ////////////////////////////////////////////
+
+pub type ToolResult = ControlFlow<Error, Result<ToolResultBlock, ToolResultBlock>>;
+
+////////////////////////////////////// IntermediateToolResult //////////////////////////////////////
+
+pub trait IntermediateToolResult: Send {
+    fn as_any(&self) -> &dyn Any;
+}
+
+impl IntermediateToolResult for () {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl<T: Send + 'static> IntermediateToolResult for Option<T> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl IntermediateToolResult for ToolResult {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+//////////////////////////////////////// ToolResultCallback ////////////////////////////////////////
+
+#[async_trait::async_trait]
+pub trait ToolCallback<A>: Send {
+    async fn compute_tool_result(
+        &self,
+        client: &Anthropic,
+        agent: &A,
+        tool_use: &ToolUseBlock,
+    ) -> Box<dyn IntermediateToolResult>;
+    async fn apply_tool_result(
+        &self,
+        client: &Anthropic,
+        agent: &mut A,
+        tool_use: &ToolUseBlock,
+        intermediate: Box<dyn IntermediateToolResult>,
+    ) -> ToolResult;
+}
+
 /////////////////////////////////////////////// Tool ///////////////////////////////////////////////
 
-pub trait Tool<A: Agent> {
+pub trait Tool<A: Agent>: Send + Sync {
     fn name(&self) -> String;
-    fn callback(&self) -> ToolResultCallback<A>;
+    fn callback(&self) -> Box<dyn ToolCallback<A> + '_>;
     fn to_param(&self) -> ToolUnionParam;
+}
+
+struct ToolNotFound(String);
+
+impl<A: Agent> Tool<A> for ToolNotFound {
+    fn name(&self) -> String {
+        self.0.clone()
+    }
+
+    fn callback(&self) -> Box<dyn ToolCallback<A> + '_> {
+        Box::new(ToolNotFoundCallback(self.0.clone()))
+    }
+
+    fn to_param(&self) -> ToolUnionParam {
+        unimplemented!();
+    }
+}
+
+struct ToolNotFoundCallback(String);
+
+#[async_trait::async_trait]
+impl<A: Agent> ToolCallback<A> for ToolNotFoundCallback {
+    async fn compute_tool_result(
+        &self,
+        _client: &Anthropic,
+        _agent: &A,
+        _tool_use: &ToolUseBlock,
+    ) -> Box<dyn IntermediateToolResult> {
+        Box::new(())
+    }
+
+    async fn apply_tool_result(
+        &self,
+        _client: &Anthropic,
+        _agent: &mut A,
+        tool_use: &ToolUseBlock,
+        _intermediate: Box<dyn IntermediateToolResult>,
+    ) -> ToolResult {
+        ControlFlow::Continue(Err(ToolResultBlock {
+            tool_use_id: tool_use.id.clone(),
+            content: Some(ToolResultBlockContent::String(format!(
+                "{} not found",
+                self.0
+            ))),
+            is_error: Some(true),
+            cache_control: None,
+        }))
+    }
 }
 
 impl<A: Agent> Tool<A> for ToolBash20241022 {
@@ -27,8 +121,8 @@ impl<A: Agent> Tool<A> for ToolBash20241022 {
         self.name.clone()
     }
 
-    fn callback(&self) -> ToolResultCallback<A> {
-        Box::new(|tool_use| Box::pin(async move { bash_callback(tool_use) }))
+    fn callback(&self) -> Box<dyn ToolCallback<A> + '_> {
+        Box::new(BashCallback)
     }
 
     fn to_param(&self) -> ToolUnionParam {
@@ -41,8 +135,8 @@ impl<A: Agent> Tool<A> for ToolBash20250124 {
         self.name.clone()
     }
 
-    fn callback(&self) -> ToolResultCallback<A> {
-        Box::new(|tool_use| Box::pin(async move { bash_callback(tool_use) }))
+    fn callback(&self) -> Box<dyn ToolCallback<A> + '_> {
+        Box::new(BashCallback)
     }
 
     fn to_param(&self) -> ToolUnionParam {
@@ -50,42 +144,197 @@ impl<A: Agent> Tool<A> for ToolBash20250124 {
     }
 }
 
-#[derive(serde::Deserialize)]
-pub struct BashTool {
-    command: String,
-    restart: bool,
-}
+struct BashCallback;
 
-pub fn bash_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A> {
-    Box::new(|agent| {
-        Box::pin(async move {
-            let bash: BashTool = match serde_json::from_value(tool_use.input) {
-                Ok(input) => input,
-                Err(err) => {
-                    return ControlFlow::Continue(Err(ToolResultBlock {
-                        tool_use_id: tool_use.id,
-                        content: Some(ToolResultBlockContent::String(err.to_string())),
-                        is_error: Some(true),
-                        cache_control: None,
-                    }));
-                }
-            };
-            match agent.bash(&bash.command, bash.restart).await {
-                Ok(answer) => ControlFlow::Continue(Ok(ToolResultBlock {
-                    tool_use_id: tool_use.id,
-                    content: Some(ToolResultBlockContent::String(answer.to_string())),
-                    is_error: None,
-                    cache_control: None,
-                })),
-                Err(err) => ControlFlow::Continue(Err(ToolResultBlock {
-                    tool_use_id: tool_use.id,
+#[async_trait::async_trait]
+impl<A: Agent> ToolCallback<A> for BashCallback {
+    async fn compute_tool_result(
+        &self,
+        _client: &Anthropic,
+        agent: &A,
+        tool_use: &ToolUseBlock,
+    ) -> Box<dyn IntermediateToolResult> {
+        #[derive(serde::Deserialize)]
+        struct BashTool {
+            command: String,
+            restart: bool,
+        }
+        let bash: BashTool = match serde_json::from_value(tool_use.input.clone()) {
+            Ok(input) => input,
+            Err(err) => {
+                return Box::new(ControlFlow::Continue(Err(ToolResultBlock {
+                    tool_use_id: tool_use.id.clone(),
                     content: Some(ToolResultBlockContent::String(err.to_string())),
                     is_error: Some(true),
                     cache_control: None,
-                })),
+                })));
             }
-        })
-    })
+        };
+        match agent.bash(&bash.command, bash.restart).await {
+            Ok(answer) => Box::new(ControlFlow::Continue(Ok(ToolResultBlock {
+                tool_use_id: tool_use.id.clone(),
+                content: Some(ToolResultBlockContent::String(answer.to_string())),
+                is_error: None,
+                cache_control: None,
+            }))),
+            Err(err) => Box::new(ControlFlow::Continue(Err(ToolResultBlock {
+                tool_use_id: tool_use.id.clone(),
+                content: Some(ToolResultBlockContent::String(err.to_string())),
+                is_error: Some(true),
+                cache_control: None,
+            }))),
+        }
+    }
+
+    async fn apply_tool_result(
+        &self,
+        _client: &Anthropic,
+        _agent: &mut A,
+        _tool_use: &ToolUseBlock,
+        intermediate: Box<dyn IntermediateToolResult>,
+    ) -> ToolResult {
+        let Some(intermediate) = intermediate.as_any().downcast_ref::<ToolResult>() else {
+            return ControlFlow::Break(Error::unknown(
+                "intermediate tool result fails to deserialize",
+            ));
+        };
+        intermediate.clone()
+    }
+}
+
+struct TextEditorCallback;
+
+#[async_trait::async_trait]
+impl<A: Agent> ToolCallback<A> for TextEditorCallback {
+    async fn compute_tool_result(
+        &self,
+        _client: &Anthropic,
+        agent: &A,
+        tool_use: &ToolUseBlock,
+    ) -> Box<dyn IntermediateToolResult> {
+        match agent.text_editor(tool_use.clone()).await {
+            Ok(result) => Box::new(ControlFlow::Continue(Ok(ToolResultBlock {
+                tool_use_id: tool_use.id.clone(),
+                content: Some(ToolResultBlockContent::String(result)),
+                is_error: None,
+                cache_control: None,
+            }))),
+            Err(err) => Box::new(ControlFlow::Continue(Err(ToolResultBlock {
+                tool_use_id: tool_use.id.clone(),
+                content: Some(ToolResultBlockContent::String(err.to_string())),
+                is_error: Some(true),
+                cache_control: None,
+            }))),
+        }
+    }
+
+    async fn apply_tool_result(
+        &self,
+        _client: &Anthropic,
+        _agent: &mut A,
+        _tool_use: &ToolUseBlock,
+        intermediate: Box<dyn IntermediateToolResult>,
+    ) -> ToolResult {
+        let Some(intermediate) = intermediate.as_any().downcast_ref::<ToolResult>() else {
+            return ControlFlow::Break(Error::unknown(
+                "intermediate tool result fails to deserialize",
+            ));
+        };
+        intermediate.clone()
+    }
+}
+
+struct WebSearchCallback;
+
+#[async_trait::async_trait]
+impl<A: Agent> ToolCallback<A> for WebSearchCallback {
+    async fn compute_tool_result(
+        &self,
+        _client: &Anthropic,
+        _agent: &A,
+        tool_use: &ToolUseBlock,
+    ) -> Box<dyn IntermediateToolResult> {
+        Box::new(ControlFlow::Continue(Err(ToolResultBlock {
+            tool_use_id: tool_use.id.clone(),
+            content: Some(ToolResultBlockContent::String(
+                "Web search is not implemented".to_string(),
+            )),
+            is_error: Some(true),
+            cache_control: None,
+        })))
+    }
+
+    async fn apply_tool_result(
+        &self,
+        _client: &Anthropic,
+        _agent: &mut A,
+        _tool_use: &ToolUseBlock,
+        intermediate: Box<dyn IntermediateToolResult>,
+    ) -> ToolResult {
+        let Some(intermediate) = intermediate.as_any().downcast_ref::<ToolResult>() else {
+            return ControlFlow::Break(Error::unknown(
+                "intermediate tool result fails to deserialize",
+            ));
+        };
+        intermediate.clone()
+    }
+}
+
+struct SearchFilesystemCallback;
+
+#[async_trait::async_trait]
+impl<A: Agent> ToolCallback<A> for SearchFilesystemCallback {
+    async fn compute_tool_result(
+        &self,
+        _client: &Anthropic,
+        agent: &A,
+        tool_use: &ToolUseBlock,
+    ) -> Box<dyn IntermediateToolResult> {
+        #[derive(serde::Deserialize)]
+        struct SearchTool {
+            query: String,
+        }
+        let search: SearchTool = match serde_json::from_value(tool_use.input.clone()) {
+            Ok(input) => input,
+            Err(err) => {
+                return Box::new(ControlFlow::Continue(Err(ToolResultBlock {
+                    tool_use_id: tool_use.id.clone(),
+                    content: Some(ToolResultBlockContent::String(err.to_string())),
+                    is_error: Some(true),
+                    cache_control: None,
+                })));
+            }
+        };
+        match agent.search(&search.query).await {
+            Ok(answer) => Box::new(ControlFlow::Continue(Ok(ToolResultBlock {
+                tool_use_id: tool_use.id.clone(),
+                content: Some(ToolResultBlockContent::String(answer.to_string())),
+                is_error: None,
+                cache_control: None,
+            }))),
+            Err(err) => Box::new(ControlFlow::Continue(Err(ToolResultBlock {
+                tool_use_id: tool_use.id.clone(),
+                content: Some(ToolResultBlockContent::String(err.to_string())),
+                is_error: Some(true),
+                cache_control: None,
+            }))),
+        }
+    }
+
+    async fn apply_tool_result(
+        &self,
+        _client: &Anthropic,
+        _agent: &mut A,
+        _tool_use: &ToolUseBlock,
+        intermediate: Box<dyn IntermediateToolResult>,
+    ) -> ToolResult {
+        let Some(intermediate) = intermediate.as_any().downcast_ref::<ToolResult>() else {
+            return ControlFlow::Break(Error::unknown(
+                "intermediate tool result fails to deserialize",
+            ));
+        };
+        intermediate.clone()
+    }
 }
 
 impl<A: Agent> Tool<A> for ToolTextEditor20250124 {
@@ -93,8 +342,8 @@ impl<A: Agent> Tool<A> for ToolTextEditor20250124 {
         self.name.clone()
     }
 
-    fn callback(&self) -> ToolResultCallback<A> {
-        Box::new(|tool_use| Box::pin(async move { text_editor_callback(tool_use) }))
+    fn callback(&self) -> Box<dyn ToolCallback<A>> {
+        Box::new(TextEditorCallback)
     }
 
     fn to_param(&self) -> ToolUnionParam {
@@ -107,8 +356,8 @@ impl<A: Agent> Tool<A> for ToolTextEditor20250429 {
         self.name.clone()
     }
 
-    fn callback(&self) -> ToolResultCallback<A> {
-        Box::new(|tool_use| Box::pin(async move { text_editor_callback(tool_use) }))
+    fn callback(&self) -> Box<dyn ToolCallback<A>> {
+        Box::new(TextEditorCallback)
     }
 
     fn to_param(&self) -> ToolUnionParam {
@@ -116,56 +365,18 @@ impl<A: Agent> Tool<A> for ToolTextEditor20250429 {
     }
 }
 
-fn text_editor_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A> {
-    Box::new(|agent| {
-        let id = tool_use.id.clone();
-        Box::pin(async move {
-            match agent.text_editor(tool_use).await {
-                Ok(result) => ControlFlow::Continue(Ok(ToolResultBlock {
-                    tool_use_id: id,
-                    content: Some(ToolResultBlockContent::String(result)),
-                    is_error: None,
-                    cache_control: None,
-                })),
-                Err(err) => ControlFlow::Continue(Err(ToolResultBlock {
-                    tool_use_id: id,
-                    content: Some(ToolResultBlockContent::String(err.to_string())),
-                    is_error: Some(true),
-                    cache_control: None,
-                })),
-            }
-        })
-    })
-}
-
 impl<A: Agent> Tool<A> for WebSearchTool20250305 {
     fn name(&self) -> String {
         self.name.clone()
     }
 
-    fn callback(&self) -> ToolResultCallback<A> {
-        Box::new(|tool_use| Box::pin(async move { web_search_callback(tool_use) }))
+    fn callback(&self) -> Box<dyn ToolCallback<A>> {
+        Box::new(WebSearchCallback)
     }
 
     fn to_param(&self) -> ToolUnionParam {
         ToolUnionParam::WebSearch20250305(self.clone())
     }
-}
-
-fn web_search_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A> {
-    Box::new(move |_agent| {
-        let id = tool_use.id.clone();
-        Box::pin(async move {
-            ControlFlow::Continue(Err(ToolResultBlock {
-                tool_use_id: id,
-                content: Some(ToolResultBlockContent::String(
-                    "Web search is not implemented".to_string(),
-                )),
-                is_error: Some(true),
-                cache_control: None,
-            }))
-        })
-    })
 }
 
 pub struct ToolSearchFileSystem;
@@ -175,13 +386,22 @@ impl<A: Agent> Tool<A> for ToolSearchFileSystem {
         "search_filesystem".to_string()
     }
 
-    fn callback(&self) -> ToolResultCallback<A> {
-        Box::new(|tool_use| Box::pin(async move { search_callback(tool_use) }))
+    fn callback(&self) -> Box<dyn ToolCallback<A>> {
+        Box::new(SearchFilesystemCallback)
     }
 
     fn to_param(&self) -> ToolUnionParam {
         let name = <Self as Tool<A>>::name(self).to_string();
-        let input_schema = SearchTool::json_schema();
+        let input_schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query to find on the filesystem."
+                }
+            },
+            "required": ["query"]
+        });
         let description = Some("Search the local filesystem.".to_string());
         let cache_control = None;
         ToolUnionParam::CustomTool(ToolParam {
@@ -192,72 +412,6 @@ impl<A: Agent> Tool<A> for ToolSearchFileSystem {
         })
     }
 }
-
-#[derive(serde::Deserialize)]
-pub struct SearchTool {
-    query: String,
-}
-
-impl JsonSchema for SearchTool {
-    fn json_schema() -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search query to find on the filesystem."
-                }
-            },
-            "required": ["query"]
-        })
-    }
-}
-
-pub fn search_callback<A: Agent>(tool_use: ToolUseBlock) -> ToolResultApplier<A> {
-    Box::new(|agent| {
-        Box::pin(async move {
-            let search: SearchTool = match serde_json::from_value(tool_use.input) {
-                Ok(input) => input,
-                Err(err) => {
-                    return ControlFlow::Continue(Err(ToolResultBlock {
-                        tool_use_id: tool_use.id,
-                        content: Some(ToolResultBlockContent::String(err.to_string())),
-                        is_error: Some(true),
-                        cache_control: None,
-                    }));
-                }
-            };
-            match agent.search(&search.query).await {
-                Ok(answer) => ControlFlow::Continue(Ok(ToolResultBlock {
-                    tool_use_id: tool_use.id,
-                    content: Some(ToolResultBlockContent::String(answer.to_string())),
-                    is_error: None,
-                    cache_control: None,
-                })),
-                Err(err) => ControlFlow::Continue(Err(ToolResultBlock {
-                    tool_use_id: tool_use.id,
-                    content: Some(ToolResultBlockContent::String(err.to_string())),
-                    is_error: Some(true),
-                    cache_control: None,
-                })),
-            }
-        })
-    })
-}
-
-//////////////////////////////////////////// ToolResult ////////////////////////////////////////////
-
-pub type ToolResult = ControlFlow<Error, Result<ToolResultBlock, ToolResultBlock>>;
-
-///////////////////////////////////////// ToolResultApplier ////////////////////////////////////////
-
-pub type ToolResultApplier<A> =
-    Box<dyn for<'a> FnOnce(&'a A) -> Pin<Box<dyn Future<Output = ToolResult> + Send + 'a>> + Send>;
-
-//////////////////////////////////////// ToolResultCallback ////////////////////////////////////////
-
-pub type ToolResultCallback<A> =
-    Box<dyn Fn(ToolUseBlock) -> Pin<Box<dyn Future<Output = ToolResultApplier<A>> + Send>> + Send>;
 
 ////////////////////////////////////////////// Budget //////////////////////////////////////////////
 
@@ -386,7 +540,7 @@ pub trait Agent: Send + Sync + Sized {
         None
     }
 
-    async fn tools(&self) -> Vec<&dyn Tool<Self>> {
+    async fn tools(&self) -> Vec<Arc<dyn Tool<Self>>> {
         vec![]
     }
 
@@ -431,7 +585,7 @@ pub trait Agent: Send + Sync + Sized {
     }
 
     async fn take_turn(
-        &self,
+        &mut self,
         client: &Anthropic,
         messages: &mut Vec<MessageParam>,
         budget: &Arc<Budget>,
@@ -490,15 +644,40 @@ pub trait Agent: Send + Sync + Sized {
                     continue;
                 }
                 Some(StopReason::ToolUse) => {
-                    let mut futures = Vec::with_capacity(resp.content.len());
+                    let mut tools_and_blocks = vec![];
                     for block in resp.content.iter() {
                         if let ContentBlock::ToolUse(tool_use) = block {
-                            futures.push(self.process_tool_use(tool_use));
+                            let Some(tool) = self
+                                .tools()
+                                .await
+                                .iter()
+                                .find(|t| t.name() == tool_use.name)
+                                .cloned()
+                            else {
+                                tools_and_blocks.push((
+                                    tool_use.clone(),
+                                    Arc::new(ToolNotFound(tool_use.name.clone())) as _,
+                                ));
+                                continue;
+                            };
+                            tools_and_blocks.push((tool_use.clone(), tool));
                         }
                     }
-                    let tool_result_appliers = futures::future::join_all(futures).await;
-                    for tool_result_applier in tool_result_appliers {
-                        match tool_result_applier(self).await {
+                    let mut futures = Vec::with_capacity(tools_and_blocks.len());
+                    for (tool_use, tool) in tools_and_blocks.iter() {
+                        let callback = tool.callback();
+                        futures.push(async {
+                            let this = &*self;
+                            let tool_use = tool_use.clone();
+                            async move { callback.compute_tool_result(client, this, &tool_use).await }.await
+                        });
+                    }
+                    let intermediate_tool_results = futures::future::join_all(futures).await;
+                    for ((tool_use, tool), result) in
+                        std::iter::zip(tools_and_blocks, intermediate_tool_results)
+                    {
+                        let callback = tool.callback();
+                        match callback.apply_tool_result(client, self, &tool_use, result).await {
                             ControlFlow::Continue(result) => match result {
                                 Ok(block) => tool_results.push(block.into()),
                                 Err(block) => {
@@ -543,31 +722,6 @@ pub trait Agent: Send + Sync + Sized {
             tool_choice: self.tool_choice().await,
             tools: Some(tools),
         }
-    }
-
-    async fn process_tool_use(&self, tool_use: &ToolUseBlock) -> ToolResultApplier<Self> {
-        let Some(tool) = self
-            .tools()
-            .await
-            .iter()
-            .find(|t| t.name() == tool_use.name)
-            .cloned()
-        else {
-            let id = tool_use.id.clone();
-            return Box::new(|_| {
-                Box::pin(async move {
-                    ControlFlow::Continue(Err(ToolResultBlock {
-                        tool_use_id: id.clone(),
-                        content: Some(ToolResultBlockContent::String(
-                            "error: no such tool".to_string(),
-                        )),
-                        is_error: Some(true),
-                        cache_control: None,
-                    }))
-                })
-            });
-        };
-        (tool.callback())(tool_use.clone()).await
     }
 
     async fn text_editor(&self, tool_use: ToolUseBlock) -> Result<String, std::io::Error> {
