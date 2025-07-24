@@ -590,6 +590,15 @@ pub trait Agent: Send + Sync + Sized {
         messages: &mut Vec<MessageParam>,
         budget: &Arc<Budget>,
     ) -> Result<(), Error> {
+        self.take_default_turn(client, messages, budget).await
+    }
+
+    async fn take_default_turn(
+        &mut self,
+        client: &Anthropic,
+        messages: &mut Vec<MessageParam>,
+        budget: &Arc<Budget>,
+    ) -> Result<(), Error> {
         let mut final_content = MessageParamContent::Array(vec![]);
         let Some(mut tokens_rem) = budget.allocate(self.max_tokens().await) else {
             return self.handle_max_tokens().await;
@@ -677,7 +686,10 @@ pub trait Agent: Send + Sync + Sized {
                         std::iter::zip(tools_and_blocks, intermediate_tool_results)
                     {
                         let callback = tool.callback();
-                        match callback.apply_tool_result(client, self, &tool_use, result).await {
+                        match callback
+                            .apply_tool_result(client, self, &tool_use, result)
+                            .await
+                        {
                             ControlFlow::Continue(result) => match result {
                                 Ok(block) => tool_results.push(block.into()),
                                 Err(block) => {
