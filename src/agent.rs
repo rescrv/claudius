@@ -477,6 +477,15 @@ impl Drop for BudgetAllocation {
     }
 }
 
+/////////////////////////////////////////// Permissions ///////////////////////////////////////////
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Permissions {
+    ReadOnly,
+    ReadWrite,
+    WriteOnly,
+}
+
 /////////////////////////////////////////// FileSystem ////////////////////////////////////////////
 
 #[async_trait::async_trait]
@@ -974,6 +983,165 @@ impl FileSystem for Path<'_> {
     }
 }
 
+/////////////////////////////////////////////// Mount //////////////////////////////////////////////
+
+pub struct Mount {
+    path: Path<'static>,
+    perm: Permissions,
+    fs: Box<dyn FileSystem>,
+}
+
+#[async_trait::async_trait]
+impl FileSystem for Mount {
+    async fn search(&self, search: &str) -> Result<String, std::io::Error> {
+        match self.perm {
+            Permissions::WriteOnly => Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "search not allowed with WriteOnly permissions",
+            )),
+            Permissions::ReadOnly | Permissions::ReadWrite => self.fs.search(search).await,
+        }
+    }
+
+    async fn view(
+        &self,
+        path: &str,
+        view_range: Option<(u32, u32)>,
+    ) -> Result<String, std::io::Error> {
+        match self.perm {
+            Permissions::WriteOnly => Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "view not allowed with WriteOnly permissions",
+            )),
+            Permissions::ReadOnly | Permissions::ReadWrite => self.fs.view(path, view_range).await,
+        }
+    }
+
+    async fn str_replace(
+        &self,
+        path: &str,
+        old_str: &str,
+        new_str: &str,
+    ) -> Result<String, std::io::Error> {
+        match self.perm {
+            Permissions::ReadOnly => Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "str_replace not allowed with ReadOnly permissions",
+            )),
+            Permissions::WriteOnly | Permissions::ReadWrite => {
+                self.fs.str_replace(path, old_str, new_str).await
+            }
+        }
+    }
+
+    async fn insert(
+        &self,
+        path: &str,
+        insert_line: u32,
+        new_str: &str,
+    ) -> Result<String, std::io::Error> {
+        match self.perm {
+            Permissions::ReadOnly => Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "insert not allowed with ReadOnly permissions",
+            )),
+            Permissions::WriteOnly | Permissions::ReadWrite => {
+                self.fs.insert(path, insert_line, new_str).await
+            }
+        }
+    }
+}
+
+////////////////////////////////////////// MountHierarchy //////////////////////////////////////////
+
+pub struct MountHierarchy {
+    mounts: Vec<Mount>,
+}
+
+impl MountHierarchy {
+    pub fn mount(
+        &mut self,
+        path: Path,
+        perm: Permissions,
+        fs: impl FileSystem + 'static,
+    ) -> Result<(), String> {
+        if !path.is_abs() {
+            return Err("path must be absolute".to_string());
+        }
+        for mount in self.mounts.iter() {
+            // If mount.path is a prefix of the current mount, then error.
+            if mount.path.strip_prefix(path.clone()).is_some() && mount.path != path {
+                return Err(format!(
+                    "path must extend existing paths: {} masks {path}",
+                    mount.path
+                ));
+            }
+        }
+        if self.mounts.is_empty() && path != "/".into() {
+            return Err("initial mount point must be /".to_string());
+        }
+        let path = path.into_owned();
+        let fs = Box::new(fs);
+        self.mounts.push(Mount { path, perm, fs });
+        Ok(())
+    }
+
+    fn fs_for_path(&self, path: &str) -> Result<(&dyn FileSystem, Path<'static>), std::io::Error> {
+        for mount in self.mounts.iter().rev() {
+            if let Some(path) = Path::from(path).strip_prefix(mount.path.clone()) {
+                let path = path.into_owned();
+                return Ok((mount, path));
+            }
+        }
+        Err(std::io::Error::other(
+            "filesystem not initialized".to_string(),
+        ))
+    }
+}
+
+#[async_trait::async_trait]
+impl FileSystem for MountHierarchy {
+    async fn search(&self, search: &str) -> Result<String, std::io::Error> {
+        let mut output = String::new();
+        for mount in self.mounts.iter() {
+            output += &mount.search(search).await?;
+            if !output.ends_with('\n') {
+                output.push('\n');
+            }
+        }
+        Ok(output)
+    }
+
+    async fn view(
+        &self,
+        path: &str,
+        view_range: Option<(u32, u32)>,
+    ) -> Result<String, std::io::Error> {
+        let (fs, path) = self.fs_for_path(path)?;
+        fs.view(path.as_str(), view_range).await
+    }
+
+    async fn str_replace(
+        &self,
+        path: &str,
+        old_str: &str,
+        new_str: &str,
+    ) -> Result<String, std::io::Error> {
+        let (fs, path) = self.fs_for_path(path)?;
+        fs.str_replace(path.as_str(), old_str, new_str).await
+    }
+
+    async fn insert(
+        &self,
+        path: &str,
+        insert_line: u32,
+        new_str: &str,
+    ) -> Result<String, std::io::Error> {
+        let (fs, path) = self.fs_for_path(path)?;
+        fs.insert(path.as_str(), insert_line, new_str).await
+    }
+}
+
 /////////////////////////////////////////////// Misc ///////////////////////////////////////////////
 
 fn sanitize_path(base: Path, path: &str) -> Result<Path<'static>, std::io::Error> {
@@ -1177,5 +1345,744 @@ mod tests {
         let alloc3 = budget.allocate(500);
         assert!(alloc3.is_some());
         assert_eq!(budget.remaining.load(Ordering::Relaxed), 50);
+    }
+
+    // MountHierarchy tests
+
+    #[test]
+    fn mount_hierarchy_initial_mount_must_be_root() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        // First mount must be /
+        let result = hierarchy.mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"));
+        assert_eq!(result, Err("initial mount point must be /".to_string()));
+
+        // After mounting /, other paths can be mounted
+        assert!(hierarchy
+            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"))
+            .is_ok());
+        assert!(hierarchy
+            .mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"))
+            .is_ok());
+    }
+
+    #[test]
+    fn mount_hierarchy_path_must_be_absolute() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        let result = hierarchy.mount(
+            "relative/path".into(),
+            Permissions::ReadWrite,
+            Path::from("/tmp"),
+        );
+        assert_eq!(result, Err("path must be absolute".to_string()));
+
+        let result = hierarchy.mount("./path".into(), Permissions::ReadWrite, Path::from("/tmp"));
+        assert_eq!(result, Err("path must be absolute".to_string()));
+
+        let result = hierarchy.mount("../path".into(), Permissions::ReadWrite, Path::from("/tmp"));
+        assert_eq!(result, Err("path must be absolute".to_string()));
+    }
+
+    #[test]
+    fn mount_hierarchy_cannot_mask_existing_mount() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        // Mount / and /home
+        assert!(hierarchy
+            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"))
+            .is_ok());
+        assert!(hierarchy
+            .mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"))
+            .is_ok());
+
+        // Cannot mount / again since it would mask /home
+        let result = hierarchy.mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"));
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        eprintln!("err_msg: {err_msg:?}");
+        assert!(err_msg.contains("path must extend existing paths"));
+        assert!(err_msg.contains("/home masks"));
+    }
+
+    #[test]
+    fn mount_hierarchy_can_mount_same_path_multiple_times() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        // Mount /
+        assert!(hierarchy
+            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp1"))
+            .is_ok());
+
+        // Can mount / again (overlays previous mount)
+        assert!(hierarchy
+            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp2"))
+            .is_ok());
+
+        assert_eq!(hierarchy.mounts.len(), 2);
+    }
+
+    #[test]
+    fn mount_hierarchy_fs_for_path_finds_most_specific_mount() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        // Mount different paths
+        assert!(hierarchy
+            .mount("/".into(), Permissions::ReadWrite, Path::from("/root"))
+            .is_ok());
+        assert!(hierarchy
+            .mount(
+                "/home".into(),
+                Permissions::ReadWrite,
+                Path::from("/home_fs")
+            )
+            .is_ok());
+        assert!(hierarchy
+            .mount(
+                "/home/user".into(),
+                Permissions::ReadWrite,
+                Path::from("/user_fs")
+            )
+            .is_ok());
+
+        // Check that fs_for_path returns the most specific mount
+        let fs = hierarchy.fs_for_path("/file.txt").unwrap().0;
+        // Cast both to raw pointers to compare addresses without vtable metadata
+        let fs_ptr = fs as *const dyn FileSystem as *const ();
+        let expected_ptr = &hierarchy.mounts[0] as &dyn FileSystem as *const dyn FileSystem as *const ();
+        assert_eq!(fs_ptr, expected_ptr);
+
+        let fs = hierarchy.fs_for_path("/home/file.txt").unwrap().0;
+        let fs_ptr = fs as *const dyn FileSystem as *const ();
+        let expected_ptr = &hierarchy.mounts[1] as &dyn FileSystem as *const dyn FileSystem as *const ();
+        assert_eq!(fs_ptr, expected_ptr);
+
+        let fs = hierarchy.fs_for_path("/home/user/file.txt").unwrap().0;
+        let fs_ptr = fs as *const dyn FileSystem as *const ();
+        let expected_ptr = &hierarchy.mounts[2] as &dyn FileSystem as *const dyn FileSystem as *const ();
+        assert_eq!(fs_ptr, expected_ptr);
+    }
+
+    #[test]
+    fn mount_hierarchy_fs_for_path_error_when_no_mount() {
+        let hierarchy = MountHierarchy { mounts: vec![] };
+
+        let result = hierarchy.fs_for_path("/any/path");
+        assert!(result.is_err());
+        if let Err(err) = result {
+            assert_eq!(err.kind(), std::io::ErrorKind::Other);
+            assert_eq!(err.to_string(), "filesystem not initialized");
+        }
+    }
+
+    enum MockResult {
+        Ok(String),
+        Err(std::io::ErrorKind, String),
+    }
+
+    struct MockFileSystem {
+        search_result: MockResult,
+        view_result: MockResult,
+        str_replace_result: MockResult,
+        insert_result: MockResult,
+    }
+
+    impl MockFileSystem {
+        fn new_ok(name: &str) -> Self {
+            Self {
+                search_result: MockResult::Ok(format!("search from {name}")),
+                view_result: MockResult::Ok(format!("view from {name}")),
+                str_replace_result: MockResult::Ok(format!("str_replace from {name}")),
+                insert_result: MockResult::Ok(format!("insert from {name}")),
+            }
+        }
+
+        fn new_err(name: &str, kind: std::io::ErrorKind) -> Self {
+            Self {
+                search_result: MockResult::Err(kind, format!("search error from {name}")),
+                view_result: MockResult::Err(kind, format!("view error from {name}")),
+                str_replace_result: MockResult::Err(kind, format!("str_replace error from {name}")),
+                insert_result: MockResult::Err(kind, format!("insert error from {name}")),
+            }
+        }
+    }
+
+    impl MockResult {
+        fn to_result(&self) -> Result<String, std::io::Error> {
+            match self {
+                MockResult::Ok(s) => Ok(s.clone()),
+                MockResult::Err(kind, msg) => Err(std::io::Error::new(*kind, msg.clone())),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl FileSystem for MockFileSystem {
+        async fn search(&self, _search: &str) -> Result<String, std::io::Error> {
+            self.search_result.to_result()
+        }
+
+        async fn view(
+            &self,
+            _path: &str,
+            _view_range: Option<(u32, u32)>,
+        ) -> Result<String, std::io::Error> {
+            self.view_result.to_result()
+        }
+
+        async fn str_replace(
+            &self,
+            _path: &str,
+            _old_str: &str,
+            _new_str: &str,
+        ) -> Result<String, std::io::Error> {
+            self.str_replace_result.to_result()
+        }
+
+        async fn insert(
+            &self,
+            _path: &str,
+            _insert_line: u32,
+            _new_str: &str,
+        ) -> Result<String, std::io::Error> {
+            self.insert_result.to_result()
+        }
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_search_aggregates_all_mounts() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("root"),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/home".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("home"),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/usr".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("usr"),
+            )
+            .unwrap();
+
+        let result = hierarchy.search("test").await.unwrap();
+        assert_eq!(
+            result,
+            "search from root\nsearch from home\nsearch from usr\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_search_error_propagates() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("root"),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/home".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_err("home", std::io::ErrorKind::PermissionDenied),
+            )
+            .unwrap();
+
+        let result = hierarchy.search("test").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(err.to_string().contains("search error from home"));
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_search_adds_newlines() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        // Mock that doesn't end with newline
+        let mut mock = MockFileSystem::new_ok("no_newline");
+        mock.search_result = MockResult::Ok("result without newline".to_string());
+
+        hierarchy
+            .mount("/".into(), Permissions::ReadWrite, mock)
+            .unwrap();
+        hierarchy
+            .mount(
+                "/home".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("home"),
+            )
+            .unwrap();
+
+        let result = hierarchy.search("test").await.unwrap();
+        assert_eq!(result, "result without newline\nsearch from home\n");
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_view_uses_correct_filesystem() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("root"),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/home".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("home"),
+            )
+            .unwrap();
+
+        let result = hierarchy.view("/file.txt", None).await.unwrap();
+        assert_eq!(result, "view from root");
+
+        let result = hierarchy
+            .view("/home/file.txt", Some((1, 10)))
+            .await
+            .unwrap();
+        assert_eq!(result, "view from home");
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_view_error_no_filesystem() {
+        let hierarchy = MountHierarchy { mounts: vec![] };
+
+        let result = hierarchy.view("/file.txt", None).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::Other);
+        assert_eq!(err.to_string(), "filesystem not initialized");
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_view_error_from_filesystem() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_err("root", std::io::ErrorKind::NotFound),
+            )
+            .unwrap();
+
+        let result = hierarchy.view("/file.txt", None).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+        assert!(err.to_string().contains("view error from root"));
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_str_replace_uses_correct_filesystem() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("root"),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/home".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("home"),
+            )
+            .unwrap();
+
+        let result = hierarchy
+            .str_replace("/file.txt", "old", "new")
+            .await
+            .unwrap();
+        assert_eq!(result, "str_replace from root");
+
+        let result = hierarchy
+            .str_replace("/home/file.txt", "old", "new")
+            .await
+            .unwrap();
+        assert_eq!(result, "str_replace from home");
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_str_replace_error_no_filesystem() {
+        let hierarchy = MountHierarchy { mounts: vec![] };
+
+        let result = hierarchy.str_replace("/file.txt", "old", "new").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::Other);
+        assert_eq!(err.to_string(), "filesystem not initialized");
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_str_replace_error_from_filesystem() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_err("root", std::io::ErrorKind::PermissionDenied),
+            )
+            .unwrap();
+
+        let result = hierarchy.str_replace("/file.txt", "old", "new").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(err.to_string().contains("str_replace error from root"));
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_insert_uses_correct_filesystem() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("root"),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/home".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("home"),
+            )
+            .unwrap();
+
+        let result = hierarchy.insert("/file.txt", 5, "new line").await.unwrap();
+        assert_eq!(result, "insert from root");
+
+        let result = hierarchy
+            .insert("/home/file.txt", 10, "new line")
+            .await
+            .unwrap();
+        assert_eq!(result, "insert from home");
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_insert_error_no_filesystem() {
+        let hierarchy = MountHierarchy { mounts: vec![] };
+
+        let result = hierarchy.insert("/file.txt", 5, "new line").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::Other);
+        assert_eq!(err.to_string(), "filesystem not initialized");
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_insert_error_from_filesystem() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_err("root", std::io::ErrorKind::AddrInUse),
+            )
+            .unwrap();
+
+        let result = hierarchy.insert("/file.txt", 5, "new line").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse);
+        assert!(err.to_string().contains("insert error from root"));
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_overlay_mounts() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        // First mount at /
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("first"),
+            )
+            .unwrap();
+
+        // Overlay mount at same path
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("second"),
+            )
+            .unwrap();
+
+        // Should use the most recent mount
+        let result = hierarchy.view("/file.txt", None).await.unwrap();
+        assert_eq!(result, "view from second");
+    }
+
+    #[test]
+    fn mount_hierarchy_complex_path_scenarios() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        // Mount various paths
+        assert!(hierarchy
+            .mount("/".into(), Permissions::ReadWrite, Path::from("/root"))
+            .is_ok());
+        assert!(hierarchy
+            .mount("/home".into(), Permissions::ReadWrite, Path::from("/home"))
+            .is_ok());
+        assert!(hierarchy
+            .mount(
+                "/home/user".into(),
+                Permissions::ReadWrite,
+                Path::from("/user")
+            )
+            .is_ok());
+        assert!(hierarchy
+            .mount("/var".into(), Permissions::ReadWrite, Path::from("/var"))
+            .is_ok());
+        assert!(hierarchy
+            .mount(
+                "/var/log".into(),
+                Permissions::ReadWrite,
+                Path::from("/log")
+            )
+            .is_ok());
+
+        // Cannot mount path that would mask existing deeper paths
+        let result = hierarchy.mount(
+            "/home".into(),
+            Permissions::ReadWrite,
+            Path::from("/new_home"),
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("/home/user masks"));
+
+        let result = hierarchy.mount(
+            "/var".into(),
+            Permissions::ReadWrite,
+            Path::from("/new_var"),
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("/var/log masks"));
+
+        // Can mount paths that don't conflict
+        assert!(hierarchy
+            .mount("/usr".into(), Permissions::ReadWrite, Path::from("/usr"))
+            .is_ok());
+        assert!(hierarchy
+            .mount(
+                "/home/other".into(),
+                Permissions::ReadWrite,
+                Path::from("/other")
+            )
+            .is_ok());
+    }
+
+    // Permission tests
+    #[tokio::test]
+    async fn mount_permissions_readonly_allows_search_and_view() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadOnly,
+                MockFileSystem::new_ok("readonly"),
+            )
+            .unwrap();
+
+        // Search should work
+        let result = hierarchy.search("test").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "search from readonly\n");
+
+        // View should work
+        let result = hierarchy.view("/file.txt", None).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "view from readonly");
+    }
+
+    #[tokio::test]
+    async fn mount_permissions_readonly_denies_write_operations() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadOnly,
+                MockFileSystem::new_ok("readonly"),
+            )
+            .unwrap();
+
+        // str_replace should fail
+        let result = hierarchy.str_replace("/file.txt", "old", "new").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(err
+            .to_string()
+            .contains("str_replace not allowed with ReadOnly permissions"));
+
+        // insert should fail
+        let result = hierarchy.insert("/file.txt", 1, "new line").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(err
+            .to_string()
+            .contains("insert not allowed with ReadOnly permissions"));
+    }
+
+    #[tokio::test]
+    async fn mount_permissions_writeonly_allows_write_operations() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::WriteOnly,
+                MockFileSystem::new_ok("writeonly"),
+            )
+            .unwrap();
+
+        // str_replace should work
+        let result = hierarchy.str_replace("/file.txt", "old", "new").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "str_replace from writeonly");
+
+        // insert should work
+        let result = hierarchy.insert("/file.txt", 1, "new line").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "insert from writeonly");
+    }
+
+    #[tokio::test]
+    async fn mount_permissions_writeonly_denies_read_operations() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::WriteOnly,
+                MockFileSystem::new_ok("writeonly"),
+            )
+            .unwrap();
+
+        // search should fail
+        let result = hierarchy.search("test").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(err
+            .to_string()
+            .contains("search not allowed with WriteOnly permissions"));
+
+        // view should fail
+        let result = hierarchy.view("/file.txt", None).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(err
+            .to_string()
+            .contains("view not allowed with WriteOnly permissions"));
+    }
+
+    #[tokio::test]
+    async fn mount_permissions_readwrite_allows_all_operations() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("readwrite"),
+            )
+            .unwrap();
+
+        // All operations should work
+        let result = hierarchy.search("test").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "search from readwrite\n");
+
+        let result = hierarchy.view("/file.txt", None).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "view from readwrite");
+
+        let result = hierarchy.str_replace("/file.txt", "old", "new").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "str_replace from readwrite");
+
+        let result = hierarchy.insert("/file.txt", 1, "new line").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "insert from readwrite");
+    }
+
+    #[tokio::test]
+    async fn mount_permissions_different_mounts_different_permissions() {
+        let mut hierarchy = MountHierarchy { mounts: vec![] };
+
+        // Mount with different permissions
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                MockFileSystem::new_ok("root"),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/readonly".into(),
+                Permissions::ReadOnly,
+                MockFileSystem::new_ok("readonly"),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/writeonly".into(),
+                Permissions::WriteOnly,
+                MockFileSystem::new_ok("writeonly"),
+            )
+            .unwrap();
+
+        // Root mount allows all operations
+        let result = hierarchy.str_replace("/file.txt", "old", "new").await;
+        assert!(result.is_ok());
+
+        // ReadOnly mount denies write
+        let result = hierarchy
+            .str_replace("/readonly/file.txt", "old", "new")
+            .await;
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+
+        // WriteOnly mount denies read
+        let result = hierarchy.view("/writeonly/file.txt", None).await;
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
     }
 }
