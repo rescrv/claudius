@@ -6,8 +6,8 @@ use std::sync::Arc;
 use utf8path::Path;
 
 use crate::{
-    merge_message_content, push_or_merge_message, Anthropic, ContentBlock, Error, KnownModel,
-    Message, MessageCreateParams, MessageParam, MessageParamContent, MessageRole, Metadata, Model,
+    push_or_merge_message, Anthropic, ContentBlock, Error, KnownModel, Message,
+    MessageCreateParams, MessageParam, MessageParamContent, MessageRole, Metadata, Model,
     StopReason, SystemPrompt, ThinkingConfig, ToolBash20241022, ToolBash20250124, ToolChoice,
     ToolParam, ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124,
     ToolTextEditor20250429, ToolUnionParam, ToolUseBlock, WebSearchTool20250305,
@@ -565,22 +565,22 @@ pub trait Agent: Send + Sync + Sized {
         None
     }
 
-    async fn handle_max_tokens(&self) -> Result<(), Error> {
-        Ok(())
+    async fn handle_max_tokens(&self) -> Result<StopReason, Error> {
+        Ok(StopReason::MaxTokens)
     }
 
-    async fn handle_end_turn(&self) -> Result<(), Error> {
-        Ok(())
+    async fn handle_end_turn(&self) -> Result<StopReason, Error> {
+        Ok(StopReason::EndTurn)
     }
 
-    async fn handle_stop_sequence(&self, sequence: Option<String>) -> Result<(), Error> {
+    async fn handle_stop_sequence(&self, sequence: Option<String>) -> Result<StopReason, Error> {
         _ = sequence;
-        Ok(())
+        Ok(StopReason::StopSequence)
     }
 
-    async fn handle_refusal(&self, resp: Message) -> Result<(), Error> {
+    async fn handle_refusal(&self, resp: Message) -> Result<StopReason, Error> {
         _ = resp;
-        Ok(())
+        Ok(StopReason::Refusal)
     }
 
     async fn hook_message_create_params(&self, req: &MessageCreateParams) -> Result<(), Error> {
@@ -598,7 +598,7 @@ pub trait Agent: Send + Sync + Sized {
         client: &Anthropic,
         messages: &mut Vec<MessageParam>,
         budget: &Arc<Budget>,
-    ) -> Result<(), Error> {
+    ) -> Result<StopReason, Error> {
         self.take_default_turn(client, messages, budget).await
     }
 
@@ -607,13 +607,38 @@ pub trait Agent: Send + Sync + Sized {
         client: &Anthropic,
         messages: &mut Vec<MessageParam>,
         budget: &Arc<Budget>,
-    ) -> Result<(), Error> {
-        let mut final_content = MessageParamContent::Array(vec![]);
+    ) -> Result<StopReason, Error> {
         let Some(mut tokens_rem) = budget.allocate(self.max_tokens().await) else {
             return self.handle_max_tokens().await;
         };
 
         while tokens_rem.allocated > self.thinking().await.map(|t| t.num_tokens()).unwrap_or(0) {
+            match self.step_turn(client, messages, &mut tokens_rem).await {
+                ControlFlow::Continue(()) => {}
+                ControlFlow::Break(res) => {
+                    return res;
+                }
+            }
+        }
+        self.handle_max_tokens().await
+    }
+
+    async fn step_turn(
+        &mut self,
+        client: &Anthropic,
+        messages: &mut Vec<MessageParam>,
+        tokens_rem: &mut BudgetAllocation,
+    ) -> ControlFlow<Result<StopReason, Error>> {
+        self.step_default_turn(client, messages, tokens_rem).await
+    }
+
+    async fn step_default_turn(
+        &mut self,
+        client: &Anthropic,
+        messages: &mut Vec<MessageParam>,
+        tokens_rem: &mut BudgetAllocation,
+    ) -> ControlFlow<Result<StopReason, Error>> {
+        loop {
             let tools = self
                 .tools()
                 .await
@@ -635,86 +660,112 @@ pub trait Agent: Send + Sync + Sized {
                 tool_choice: self.tool_choice().await,
                 tools: Some(tools),
             };
-            self.hook_message_create_params(&req).await?;
-            let resp = client.send(req).await?;
-            self.hook_message(&resp).await?;
-            let mut tool_results = vec![];
-
+            if let Err(err) = self.hook_message_create_params(&req).await {
+                return ControlFlow::Break(Err(err));
+            }
+            let resp = match client.send(req).await {
+                Ok(resp) => resp,
+                Err(err) => return ControlFlow::Break(Err(err)),
+            };
+            if let Err(err) = self.hook_message(&resp).await {
+                return ControlFlow::Break(Err(err));
+            }
+            let tool_results: Vec<ContentBlock>;
             let assistant_message = MessageParam {
                 role: MessageRole::Assistant,
                 content: MessageParamContent::Array(resp.content.clone()),
             };
-            push_or_merge_message(messages, assistant_message);
-            merge_message_content(
-                &mut final_content,
-                MessageParamContent::Array(resp.content.clone()),
-            );
-
             let _ = tokens_rem.consume(resp.usage.output_tokens as u32);
             match resp.stop_reason {
-                None | Some(StopReason::EndTurn) => return self.handle_end_turn().await,
-                Some(StopReason::MaxTokens) => return self.handle_max_tokens().await,
-                Some(StopReason::StopSequence) => {
-                    return self.handle_stop_sequence(resp.stop_sequence).await;
+                None | Some(StopReason::EndTurn) => {
+                    return ControlFlow::Break(self.handle_end_turn().await)
                 }
-                Some(StopReason::Refusal) => return self.handle_refusal(resp).await,
+                Some(StopReason::MaxTokens) => {
+                    return ControlFlow::Break(self.handle_max_tokens().await)
+                }
+                Some(StopReason::StopSequence) => {
+                    return ControlFlow::Break(self.handle_stop_sequence(resp.stop_sequence).await);
+                }
+                Some(StopReason::Refusal) => {
+                    return ControlFlow::Break(self.handle_refusal(resp).await)
+                }
                 Some(StopReason::PauseTurn) => {
+                    push_or_merge_message(messages, assistant_message);
                     continue;
                 }
                 Some(StopReason::ToolUse) => {
-                    let mut tools_and_blocks = vec![];
-                    for block in resp.content.iter() {
-                        if let ContentBlock::ToolUse(tool_use) = block {
-                            let Some(tool) = self
-                                .tools()
-                                .await
-                                .iter()
-                                .find(|t| t.name() == tool_use.name)
-                                .cloned()
-                            else {
-                                tools_and_blocks.push((
-                                    tool_use.clone(),
-                                    Arc::new(ToolNotFound(tool_use.name.clone())) as _,
-                                ));
-                                continue;
-                            };
-                            tools_and_blocks.push((tool_use.clone(), tool));
-                        }
-                    }
-                    let mut futures = Vec::with_capacity(tools_and_blocks.len());
-                    for (tool_use, tool) in tools_and_blocks.iter() {
-                        let callback = tool.callback();
-                        futures.push(async {
-                            let this = &*self;
-                            let tool_use = tool_use.clone();
-                            async move { callback.compute_tool_result(client, this, &tool_use).await }.await
-                        });
-                    }
-                    let intermediate_tool_results = futures::future::join_all(futures).await;
-                    for ((tool_use, tool), result) in
-                        std::iter::zip(tools_and_blocks, intermediate_tool_results)
-                    {
-                        let callback = tool.callback();
-                        match callback
-                            .apply_tool_result(client, self, &tool_use, result)
-                            .await
-                        {
-                            ControlFlow::Continue(result) => match result {
-                                Ok(block) => tool_results.push(block.into()),
-                                Err(block) => {
-                                    tool_results.push(block.with_error(true).into());
-                                }
-                            },
-                            ControlFlow::Break(err) => return Err(err),
-                        }
-                    }
+                    tool_results = self.handle_tool_use(client, &resp).await?;
                 }
             }
             let user_message =
                 MessageParam::new(MessageParamContent::Array(tool_results), MessageRole::User);
+            push_or_merge_message(messages, assistant_message);
             push_or_merge_message(messages, user_message);
+            return ControlFlow::Continue(());
         }
-        self.handle_max_tokens().await
+    }
+
+    async fn handle_tool_use(
+        &mut self,
+        client: &Anthropic,
+        resp: &Message,
+    ) -> ControlFlow<Result<StopReason, Error>, Vec<ContentBlock>> {
+        self.handle_default_tool_use(client, resp).await
+    }
+
+    async fn handle_default_tool_use(
+        &mut self,
+        client: &Anthropic,
+        resp: &Message,
+    ) -> ControlFlow<Result<StopReason, Error>, Vec<ContentBlock>> {
+        let mut tools_and_blocks = vec![];
+        for block in resp.content.iter() {
+            if let ContentBlock::ToolUse(tool_use) = block {
+                let Some(tool) = self
+                    .tools()
+                    .await
+                    .iter()
+                    .find(|t| t.name() == tool_use.name)
+                    .cloned()
+                else {
+                    tools_and_blocks.push((
+                        tool_use.clone(),
+                        Arc::new(ToolNotFound(tool_use.name.clone())) as _,
+                    ));
+                    continue;
+                };
+                tools_and_blocks.push((tool_use.clone(), tool));
+            }
+        }
+        let mut futures = Vec::with_capacity(tools_and_blocks.len());
+        for (tool_use, tool) in tools_and_blocks.iter() {
+            let callback = tool.callback();
+            futures.push(async {
+                let this = &*self;
+                let tool_use = tool_use.clone();
+                async move { callback.compute_tool_result(client, this, &tool_use).await }.await
+            });
+        }
+        let intermediate_tool_results = futures::future::join_all(futures).await;
+        let mut tool_results = vec![];
+        for ((tool_use, tool), result) in
+            std::iter::zip(tools_and_blocks, intermediate_tool_results)
+        {
+            let callback = tool.callback();
+            match callback
+                .apply_tool_result(client, self, &tool_use, result)
+                .await
+            {
+                ControlFlow::Continue(result) => match result {
+                    Ok(block) => tool_results.push(block.into()),
+                    Err(block) => {
+                        tool_results.push(block.with_error(true).into());
+                    }
+                },
+                ControlFlow::Break(err) => return ControlFlow::Break(Err(err)),
+            }
+        }
+        ControlFlow::Continue(tool_results)
     }
 
     async fn create_request(
@@ -1449,17 +1500,20 @@ mod tests {
         let fs = hierarchy.fs_for_path("/file.txt").unwrap().0;
         // Cast both to raw pointers to compare addresses without vtable metadata
         let fs_ptr = fs as *const dyn FileSystem as *const ();
-        let expected_ptr = &hierarchy.mounts[0] as &dyn FileSystem as *const dyn FileSystem as *const ();
+        let expected_ptr =
+            &hierarchy.mounts[0] as &dyn FileSystem as *const dyn FileSystem as *const ();
         assert_eq!(fs_ptr, expected_ptr);
 
         let fs = hierarchy.fs_for_path("/home/file.txt").unwrap().0;
         let fs_ptr = fs as *const dyn FileSystem as *const ();
-        let expected_ptr = &hierarchy.mounts[1] as &dyn FileSystem as *const dyn FileSystem as *const ();
+        let expected_ptr =
+            &hierarchy.mounts[1] as &dyn FileSystem as *const dyn FileSystem as *const ();
         assert_eq!(fs_ptr, expected_ptr);
 
         let fs = hierarchy.fs_for_path("/home/user/file.txt").unwrap().0;
         let fs_ptr = fs as *const dyn FileSystem as *const ();
-        let expected_ptr = &hierarchy.mounts[2] as &dyn FileSystem as *const dyn FileSystem as *const ();
+        let expected_ptr =
+            &hierarchy.mounts[2] as &dyn FileSystem as *const dyn FileSystem as *const ();
         assert_eq!(fs_ptr, expected_ptr);
     }
 
