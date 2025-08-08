@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{
     ToolBash20241022, ToolBash20250124, ToolParam, ToolTextEditor20250124, ToolTextEditor20250429,
-    WebSearchTool20250305,
+    ToolTextEditor20250728, WebSearchTool20250305,
 };
 
 /// Union type for different tool parameter types.
@@ -37,6 +37,10 @@ pub enum ToolUnionParam {
     #[serde(rename = "text_editor_20250429")]
     TextEditor20250429(ToolTextEditor20250429),
 
+    /// A text editor tool for making changes to text (version 20250728)
+    #[serde(rename = "text_editor_20250728")]
+    TextEditor20250728(ToolTextEditor20250728),
+
     /// A web search tool for retrieving information from the internet
     #[serde(rename = "web_search_20250305")]
     WebSearch20250305(WebSearchTool20250305),
@@ -66,6 +70,11 @@ impl ToolUnionParam {
     /// Creates a new text editor tool (version 20250429)
     pub fn new_text_editor_20250429_tool() -> Self {
         Self::TextEditor20250429(ToolTextEditor20250429::new())
+    }
+
+    /// Creates a new text editor tool (version 20250728)
+    pub fn new_text_editor_20250728_tool() -> Self {
+        Self::TextEditor20250728(ToolTextEditor20250728::new())
     }
 
     /// Creates a new web search tool
@@ -189,6 +198,27 @@ mod tests {
                 "cache_control": {
                     "type": "ephemeral"
                 }
+            })
+        );
+    }
+
+    #[test]
+    fn text_editor_20250728_tool() {
+        let text_editor_tool = ToolTextEditor20250728::new()
+            .with_max_characters(5000)
+            .with_ephemeral_cache_control();
+        let tool = ToolUnionParam::TextEditor20250728(text_editor_tool);
+
+        let json = to_value(&tool).unwrap();
+        assert_eq!(
+            json,
+            json!({
+                "name": "str_replace_based_edit_tool",
+                "type": "text_editor_20250728",
+                "cache_control": {
+                    "type": "ephemeral"
+                },
+                "max_characters": 5000
             })
         );
     }

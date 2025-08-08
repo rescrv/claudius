@@ -57,6 +57,9 @@ pub enum KnownModel {
     /// Claude 4 Opus (2025-05-14 version)
     Claude4Opus20250514,
 
+    /// Claude Opus 4.1 (2025-08-05 version)
+    ClaudeOpus4120250805,
+
     /// Claude 3 Opus (latest version)
     Claude3OpusLatest,
 
@@ -101,6 +104,7 @@ impl fmt::Display for KnownModel {
             KnownModel::ClaudeOpus40 => write!(f, "claude-opus-4-0"),
             KnownModel::ClaudeOpus420250514 => write!(f, "claude-opus-4-20250514"),
             KnownModel::Claude4Opus20250514 => write!(f, "claude-4-opus-20250514"),
+            KnownModel::ClaudeOpus4120250805 => write!(f, "claude-opus-4-1-20250805"),
             KnownModel::Claude3OpusLatest => write!(f, "claude-3-opus-latest"),
             KnownModel::Claude3Opus20240229 => write!(f, "claude-3-opus-20240229"),
             KnownModel::Claude3Sonnet20240229 => write!(f, "claude-3-sonnet-20240229"),
@@ -143,6 +147,7 @@ impl<'de> Deserialize<'de> for Model {
             "claude-opus-4-0" => Ok(Model::Known(KnownModel::ClaudeOpus40)),
             "claude-opus-4-20250514" => Ok(Model::Known(KnownModel::ClaudeOpus420250514)),
             "claude-4-opus-20250514" => Ok(Model::Known(KnownModel::Claude4Opus20250514)),
+            "claude-opus-4-1-20250805" => Ok(Model::Known(KnownModel::ClaudeOpus4120250805)),
             "claude-3-opus-latest" => Ok(Model::Known(KnownModel::Claude3OpusLatest)),
             "claude-3-opus-20240229" => Ok(Model::Known(KnownModel::Claude3Opus20240229)),
             "claude-3-sonnet-20240229" => Ok(Model::Known(KnownModel::Claude3Sonnet20240229)),
@@ -179,6 +184,7 @@ impl FromStr for KnownModel {
             "claude-opus-4-0" => Ok(KnownModel::ClaudeOpus40),
             "claude-opus-4-20250514" => Ok(KnownModel::ClaudeOpus420250514),
             "claude-4-opus-20250514" => Ok(KnownModel::Claude4Opus20250514),
+            "claude-opus-4-1-20250805" => Ok(KnownModel::ClaudeOpus4120250805),
             "claude-3-opus-latest" => Ok(KnownModel::Claude3OpusLatest),
             "claude-3-opus-20240229" => Ok(KnownModel::Claude3Opus20240229),
             "claude-3-sonnet-20240229" => Ok(KnownModel::Claude3Sonnet20240229),
@@ -252,6 +258,10 @@ mod tests {
         let model = Model::Known(KnownModel::Claude4Opus20250514);
         assert_eq!(model.to_string(), "claude-4-opus-20250514");
 
+        // Test Claude Opus 4.1
+        let model = Model::Known(KnownModel::ClaudeOpus4120250805);
+        assert_eq!(model.to_string(), "claude-opus-4-1-20250805");
+
         // Test deserialization of Claude 4 models
         let json = r#""claude-sonnet-4-20250514""#;
         let model: Model = serde_json::from_str(json).unwrap();
@@ -260,6 +270,10 @@ mod tests {
         let json = r#""claude-4-opus-20250514""#;
         let model: Model = serde_json::from_str(json).unwrap();
         assert_eq!(model, Model::Known(KnownModel::Claude4Opus20250514));
+
+        let json = r#""claude-opus-4-1-20250805""#;
+        let model: Model = serde_json::from_str(json).unwrap();
+        assert_eq!(model, Model::Known(KnownModel::ClaudeOpus4120250805));
     }
 
     #[test]
