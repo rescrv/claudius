@@ -7,6 +7,11 @@ description = "SDK for the Anthropic API"
 license = "Apache-2.0"
 repository = "https://github.com/rescrv/claudius"
 
+[features]
+default = ["binaries"]
+
+binaries = []
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -20,6 +25,11 @@ tokio = { version = "1.36", features = ["full"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 async-trait = "0.1.88"
 utf8path = "0.9.1"
+
+[[bin]]
+name = "median-text"
+path = "src/bin/median-text.rs"
+required-features=["binaries"]
 
 [dev-dependencies]
 tokio = { version = "1.36", features = ["full", "test-util", "macros"] }
