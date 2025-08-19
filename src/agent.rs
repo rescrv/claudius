@@ -676,6 +676,7 @@ pub trait Agent: Send + Sync + Sized {
                 content: MessageParamContent::Array(resp.content.clone()),
             };
             let _ = tokens_rem.consume(resp.usage.output_tokens as u32);
+            push_or_merge_message(messages, assistant_message);
             match resp.stop_reason {
                 None | Some(StopReason::EndTurn) => {
                     return ControlFlow::Break(self.handle_end_turn().await)
@@ -690,7 +691,6 @@ pub trait Agent: Send + Sync + Sized {
                     return ControlFlow::Break(self.handle_refusal(resp).await)
                 }
                 Some(StopReason::PauseTurn) => {
-                    push_or_merge_message(messages, assistant_message);
                     continue;
                 }
                 Some(StopReason::ToolUse) => {
@@ -699,7 +699,6 @@ pub trait Agent: Send + Sync + Sized {
             }
             let user_message =
                 MessageParam::new(MessageParamContent::Array(tool_results), MessageRole::User);
-            push_or_merge_message(messages, assistant_message);
             push_or_merge_message(messages, user_message);
             return ControlFlow::Continue(());
         }
