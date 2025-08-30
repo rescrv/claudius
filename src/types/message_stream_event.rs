@@ -6,34 +6,55 @@ use crate::types::{
 };
 
 /// An event in a message stream.
+///
+/// This enum represents all possible events that can occur when streaming
+/// messages from the Anthropic API. Events are delivered in a specific order:
+/// message_start, then potentially multiple content_block events, and finally
+/// message_stop.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum MessageStreamEvent {
-    /// Ping event.
+    /// A periodic ping event to keep the connection alive.
+    ///
+    /// These events have no payload and can be safely ignored.
     #[serde(rename = "ping")]
     Ping,
 
-    /// Message start event.
+    /// Indicates the start of a new message in the stream.
+    ///
+    /// This event contains the initial message metadata including ID, model,
+    /// role, and initial usage statistics.
     #[serde(rename = "message_start")]
     MessageStart(MessageStartEvent),
 
-    /// Message delta event.
+    /// Provides incremental updates to the message being generated.
+    ///
+    /// This includes updates to stop_reason, stop_sequence, and usage statistics.
     #[serde(rename = "message_delta")]
     MessageDelta(MessageDeltaEvent),
 
-    /// Content block start event.
+    /// Marks the beginning of a new content block within the message.
+    ///
+    /// Content blocks can be text, tool_use, or other content types.
     #[serde(rename = "content_block_start")]
     ContentBlockStart(ContentBlockStartEvent),
 
-    /// Content block delta event.
+    /// Provides incremental updates to the current content block.
+    ///
+    /// For text blocks, this contains partial text. For tool_use blocks,
+    /// this contains partial JSON input.
     #[serde(rename = "content_block_delta")]
     ContentBlockDelta(ContentBlockDeltaEvent),
 
-    /// Content block stop event.
+    /// Indicates that the current content block is complete.
+    ///
+    /// After this event, either a new content_block_start or message_stop will follow.
     #[serde(rename = "content_block_stop")]
     ContentBlockStop(ContentBlockStopEvent),
 
-    /// Message stop event.
+    /// Marks the end of the message stream.
+    ///
+    /// This is always the final event in a successful stream.
     #[serde(rename = "message_stop")]
     MessageStop(MessageStopEvent),
 }

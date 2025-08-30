@@ -1,6 +1,6 @@
 use claudius::{
-    push_or_merge_message, Anthropic, ContentBlock, KnownModel, MessageCreateParams, MessageParam,
-    MessageRole, Model, TextBlock, ThinkingConfig,
+    Anthropic, ContentBlock, KnownModel, MessageCreateParams, MessageParam, MessageRole, Model,
+    TextBlock, ThinkingConfig, push_or_merge_message,
 };
 
 #[tokio::main]

@@ -34,9 +34,15 @@ impl fmt::Display for WebSearchErrorCode {
 }
 
 /// An error that occurred when using the web search tool.
+///
+/// This struct represents various failure conditions that can occur during
+/// web search operations, from input validation errors to service availability issues.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WebSearchToolResultError {
-    /// The specific error code.
+    /// The specific error code indicating the type of failure.
+    ///
+    /// This code can be used to programmatically handle different error scenarios
+    /// and provide appropriate user feedback or retry logic.
     pub error_code: WebSearchErrorCode,
 }
 

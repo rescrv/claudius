@@ -9,15 +9,19 @@ use crate::types::{
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum Citation {
+    /// Citation referencing a character location in source text.
     #[serde(rename = "char_location")]
     CharLocation(CitationCharLocation),
 
+    /// Citation referencing a page location in a document.
     #[serde(rename = "page_location")]
     PageLocation(CitationPageLocation),
 
+    /// Citation referencing a content block location.
     #[serde(rename = "content_block_location")]
     ContentBlockLocation(CitationContentBlockLocation),
 
+    /// Citation referencing a web search result location.
     #[serde(rename = "web_search_result_location")]
     WebSearchResultLocation(CitationWebSearchResultLocation),
 }

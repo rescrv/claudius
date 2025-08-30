@@ -38,8 +38,13 @@ impl fmt::Display for StopReason {
     }
 }
 
+/// Error returned when parsing an invalid stop reason string.
+///
+/// This error contains the invalid string value that could not be parsed
+/// into a valid `StopReason` variant.
 #[derive(Debug)]
 pub struct StopReasonParseError {
+    /// The invalid string value that could not be parsed.
     pub invalid_value: String,
 }
 

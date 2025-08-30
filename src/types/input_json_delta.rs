@@ -1,9 +1,16 @@
 use serde::{Deserialize, Serialize};
 
 /// A JSON delta, representing a piece of JSON in a streaming response.
+///
+/// InputJsonDelta is used in streaming responses to deliver incremental JSON
+/// content, typically for tool input parameters. The JSON is streamed as fragments
+/// that need to be concatenated to form the complete JSON object.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InputJsonDelta {
     /// The partial JSON content.
+    ///
+    /// This contains a fragment of JSON that should be appended to previously
+    /// received fragments to build the complete JSON structure.
     #[serde(rename = "partial_json")]
     pub partial_json: String,
 }

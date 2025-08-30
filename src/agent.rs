@@ -1,25 +1,34 @@
 use std::any::Any;
 use std::ops::ControlFlow;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use utf8path::Path;
 
 use crate::{
-    push_or_merge_message, Anthropic, ContentBlock, Error, KnownModel, Message,
-    MessageCreateParams, MessageParam, MessageParamContent, MessageRole, Metadata, Model,
-    StopReason, SystemPrompt, ThinkingConfig, ToolBash20241022, ToolBash20250124, ToolChoice,
-    ToolParam, ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124,
-    ToolTextEditor20250429, ToolUnionParam, ToolUseBlock, WebSearchTool20250305,
+    Anthropic, ContentBlock, Error, KnownModel, Message, MessageCreateParams, MessageParam,
+    MessageParamContent, MessageRole, Metadata, Model, StopReason, SystemPrompt, ThinkingConfig,
+    ToolBash20241022, ToolBash20250124, ToolChoice, ToolParam, ToolResultBlock,
+    ToolResultBlockContent, ToolTextEditor20250124, ToolTextEditor20250429, ToolUnionParam,
+    ToolUseBlock, WebSearchTool20250305, push_or_merge_message,
 };
 
 //////////////////////////////////////////// ToolResult ////////////////////////////////////////////
 
+/// Result type for tool execution, using ControlFlow for early returns.
+///
+/// `Break` indicates execution should stop with an error, while `Continue`
+/// contains the successful or error tool result blocks.
 pub type ToolResult = ControlFlow<Error, Result<ToolResultBlock, ToolResultBlock>>;
 
 ////////////////////////////////////// IntermediateToolResult //////////////////////////////////////
 
+/// Trait for intermediate tool results that can be passed between compute and apply phases.
+///
+/// This allows tools to compute results in one phase and apply them in another,
+/// enabling better separation of concerns in tool execution.
 pub trait IntermediateToolResult: Send {
+    /// Returns the result as a type-erased Any reference for downcasting.
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -43,14 +52,20 @@ impl IntermediateToolResult for ToolResult {
 
 //////////////////////////////////////// ToolResultCallback ////////////////////////////////////////
 
+/// Callback trait for implementing tool execution logic.
+///
+/// Separates tool execution into compute and apply phases, allowing for
+/// read-only computation followed by state modification.
 #[async_trait::async_trait]
 pub trait ToolCallback<A>: Send {
+    /// Computes the tool result without modifying agent state.
     async fn compute_tool_result(
         &self,
         client: &Anthropic,
         agent: &A,
         tool_use: &ToolUseBlock,
     ) -> Box<dyn IntermediateToolResult>;
+    /// Applies the computed result, potentially modifying agent state.
     async fn apply_tool_result(
         &self,
         client: &Anthropic,
@@ -62,9 +77,16 @@ pub trait ToolCallback<A>: Send {
 
 /////////////////////////////////////////////// Tool ///////////////////////////////////////////////
 
+/// Trait for tools that can be used by agents.
+///
+/// Tools provide functionality that agents can invoke during conversations,
+/// such as file operations, web searches, or custom computations.
 pub trait Tool<A: Agent>: Send + Sync {
+    /// Returns the name of the tool.
     fn name(&self) -> String;
+    /// Returns the callback implementation for this tool.
     fn callback(&self) -> Box<dyn ToolCallback<A> + '_>;
+    /// Converts the tool to a parameter format for the API.
     fn to_param(&self) -> ToolUnionParam;
 }
 
@@ -379,6 +401,10 @@ impl<A: Agent> Tool<A> for WebSearchTool20250305 {
     }
 }
 
+/// Tool for searching the local filesystem.
+///
+/// Provides filesystem search functionality to agents, allowing them
+/// to find files and directories based on search queries.
 pub struct ToolSearchFileSystem;
 
 impl<A: Agent> Tool<A> for ToolSearchFileSystem {
@@ -415,16 +441,25 @@ impl<A: Agent> Tool<A> for ToolSearchFileSystem {
 
 ////////////////////////////////////////////// Budget //////////////////////////////////////////////
 
+/// Token budget manager for controlling API usage.
+///
+/// Provides atomic token allocation and consumption tracking to prevent
+/// exceeding API token limits during agent operations.
 pub struct Budget {
     remaining: Arc<AtomicU64>,
 }
 
 impl Budget {
+    /// Creates a new budget with the specified number of tokens.
     pub fn new(tokens: u32) -> Self {
         let remaining = Arc::new(AtomicU64::new(tokens as u64));
         Self { remaining }
     }
 
+    /// Attempts to allocate the specified amount of tokens from the budget.
+    ///
+    /// Returns `Some(BudgetAllocation)` if sufficient tokens are available,
+    /// or `None` if the budget is insufficient.
     pub fn allocate(&self, amount: u32) -> Option<BudgetAllocation> {
         let allocated = amount;
         let amount = amount as u64;
@@ -488,16 +523,23 @@ pub enum Permissions {
 
 /////////////////////////////////////////// FileSystem ////////////////////////////////////////////
 
+/// Trait for implementing filesystem operations.
+///
+/// Provides an abstraction over filesystem operations that can be used by agents
+/// to interact with files and directories.
 #[async_trait::async_trait]
 pub trait FileSystem: Send + Sync {
+    /// Searches for files matching the given query.
     async fn search(&self, search: &str) -> Result<String, std::io::Error>;
 
+    /// Views the contents of a file, optionally within a specific line range.
     async fn view(
         &self,
         path: &str,
         view_range: Option<(u32, u32)>,
     ) -> Result<String, std::io::Error>;
 
+    /// Replaces occurrences of a string in a file.
     async fn str_replace(
         &self,
         path: &str,
@@ -505,6 +547,7 @@ pub trait FileSystem: Send + Sync {
         new_str: &str,
     ) -> Result<String, std::io::Error>;
 
+    /// Inserts text at a specific line in a file.
     async fn insert(
         &self,
         path: &str,
@@ -515,84 +558,107 @@ pub trait FileSystem: Send + Sync {
 
 /////////////////////////////////////////////// Agent //////////////////////////////////////////////
 
+/// Trait for implementing agents that interact with the Anthropic API.
+///
+/// Agents encapsulate conversation logic, tool use, and configuration for
+/// interacting with Claude models.
 #[async_trait::async_trait]
 pub trait Agent: Send + Sync + Sized {
+    /// Returns the maximum number of tokens for responses.
     async fn max_tokens(&self) -> u32 {
         1024
     }
 
+    /// Returns the model to use for this agent.
     async fn model(&self) -> Model {
         Model::Known(KnownModel::ClaudeSonnet40)
     }
 
+    /// Returns optional metadata for requests.
     async fn metadata(&self) -> Option<Metadata> {
         None
     }
 
+    /// Returns optional stop sequences to halt generation.
     async fn stop_sequences(&self) -> Option<Vec<String>> {
         None
     }
 
+    /// Returns the system prompt for the agent.
     async fn system(&self) -> Option<SystemPrompt> {
         None
     }
 
+    /// Returns the temperature for response generation.
     async fn temperature(&self) -> Option<f32> {
         None
     }
 
+    /// Returns the thinking configuration for the agent.
     async fn thinking(&self) -> Option<ThinkingConfig> {
         None
     }
 
+    /// Returns the tool choice configuration.
     async fn tool_choice(&self) -> Option<ToolChoice> {
         None
     }
 
+    /// Returns the tools available to this agent.
     async fn tools(&self) -> Vec<Arc<dyn Tool<Self>>> {
         vec![]
     }
 
+    /// Returns the top-k sampling parameter.
     async fn top_k(&self) -> Option<u32> {
         None
     }
 
+    /// Returns the top-p (nucleus) sampling parameter.
     async fn top_p(&self) -> Option<f32> {
         None
     }
 
+    /// Returns the filesystem implementation for this agent.
     async fn filesystem(&self) -> Option<&dyn FileSystem> {
         None
     }
 
+    /// Handles the case when max tokens is reached.
     async fn handle_max_tokens(&self) -> Result<StopReason, Error> {
         Ok(StopReason::MaxTokens)
     }
 
+    /// Handles the end of a conversation turn.
     async fn handle_end_turn(&self) -> Result<StopReason, Error> {
         Ok(StopReason::EndTurn)
     }
 
+    /// Handles when a stop sequence is encountered.
     async fn handle_stop_sequence(&self, sequence: Option<String>) -> Result<StopReason, Error> {
         _ = sequence;
         Ok(StopReason::StopSequence)
     }
 
+    /// Handles when the model refuses to respond.
     async fn handle_refusal(&self, resp: Message) -> Result<StopReason, Error> {
         _ = resp;
         Ok(StopReason::Refusal)
     }
 
+    /// Hook called before sending a message create request.
     async fn hook_message_create_params(&self, req: &MessageCreateParams) -> Result<(), Error> {
         _ = req;
         Ok(())
     }
 
+    /// Hook called after receiving a message response.
     async fn hook_message(&self, resp: &Message) -> Result<(), Error> {
         _ = resp;
         Ok(())
     }
 
+    /// Takes a conversation turn, potentially making multiple API calls.
     async fn take_turn(
         &mut self,
         client: &Anthropic,
@@ -602,6 +668,7 @@ pub trait Agent: Send + Sync + Sized {
         self.take_default_turn(client, messages, budget).await
     }
 
+    /// Default implementation for taking a conversation turn.
     async fn take_default_turn(
         &mut self,
         client: &Anthropic,
@@ -623,6 +690,7 @@ pub trait Agent: Send + Sync + Sized {
         self.handle_max_tokens().await
     }
 
+    /// Executes a single step in a conversation turn.
     async fn step_turn(
         &mut self,
         client: &Anthropic,
@@ -632,6 +700,7 @@ pub trait Agent: Send + Sync + Sized {
         self.step_default_turn(client, messages, tokens_rem).await
     }
 
+    /// Default implementation for executing a single step in a conversation turn.
     async fn step_default_turn(
         &mut self,
         client: &Anthropic,
@@ -670,33 +739,30 @@ pub trait Agent: Send + Sync + Sized {
             if let Err(err) = self.hook_message(&resp).await {
                 return ControlFlow::Break(Err(err));
             }
-            let tool_results: Vec<ContentBlock>;
             let assistant_message = MessageParam {
                 role: MessageRole::Assistant,
                 content: MessageParamContent::Array(resp.content.clone()),
             };
             let _ = tokens_rem.consume(resp.usage.output_tokens as u32);
             push_or_merge_message(messages, assistant_message);
-            match resp.stop_reason {
+            let tool_results: Vec<ContentBlock> = match resp.stop_reason {
                 None | Some(StopReason::EndTurn) => {
-                    return ControlFlow::Break(self.handle_end_turn().await)
+                    return ControlFlow::Break(self.handle_end_turn().await);
                 }
                 Some(StopReason::MaxTokens) => {
-                    return ControlFlow::Break(self.handle_max_tokens().await)
+                    return ControlFlow::Break(self.handle_max_tokens().await);
                 }
                 Some(StopReason::StopSequence) => {
                     return ControlFlow::Break(self.handle_stop_sequence(resp.stop_sequence).await);
                 }
                 Some(StopReason::Refusal) => {
-                    return ControlFlow::Break(self.handle_refusal(resp).await)
+                    return ControlFlow::Break(self.handle_refusal(resp).await);
                 }
                 Some(StopReason::PauseTurn) => {
                     continue;
                 }
-                Some(StopReason::ToolUse) => {
-                    tool_results = self.handle_tool_use(client, &resp).await?;
-                }
-            }
+                Some(StopReason::ToolUse) => self.handle_tool_use(client, &resp).await?,
+            };
             let user_message =
                 MessageParam::new(MessageParamContent::Array(tool_results), MessageRole::User);
             push_or_merge_message(messages, user_message);
@@ -704,6 +770,7 @@ pub trait Agent: Send + Sync + Sized {
         }
     }
 
+    /// Handles tool use requests from the model.
     async fn handle_tool_use(
         &mut self,
         client: &Anthropic,
@@ -712,6 +779,7 @@ pub trait Agent: Send + Sync + Sized {
         self.handle_default_tool_use(client, resp).await
     }
 
+    /// Default implementation for handling tool use requests.
     async fn handle_default_tool_use(
         &mut self,
         client: &Anthropic,
@@ -767,6 +835,7 @@ pub trait Agent: Send + Sync + Sized {
         ControlFlow::Continue(tool_results)
     }
 
+    /// Creates a message request with the agent's configuration.
     async fn create_request(
         &self,
         max_tokens: u32,
@@ -795,6 +864,7 @@ pub trait Agent: Send + Sync + Sized {
         }
     }
 
+    /// Handles text editor tool use.
     async fn text_editor(&self, tool_use: ToolUseBlock) -> Result<String, std::io::Error> {
         #[derive(serde::Deserialize)]
         struct Command {
@@ -840,6 +910,7 @@ pub trait Agent: Send + Sync + Sized {
         }
     }
 
+    /// Executes a bash command.
     async fn bash(&self, command: &str, restart: bool) -> Result<String, std::io::Error> {
         let _ = command;
         let _ = restart;
@@ -849,6 +920,7 @@ pub trait Agent: Send + Sync + Sized {
         ))
     }
 
+    /// Searches the filesystem for files matching the query.
     async fn search(&self, search: &str) -> Result<String, std::io::Error> {
         if let Some(fs) = self.filesystem().await {
             fs.search(search).await
@@ -860,6 +932,7 @@ pub trait Agent: Send + Sync + Sized {
         }
     }
 
+    /// Views the contents of a file.
     async fn view(
         &self,
         path: &str,
@@ -875,6 +948,7 @@ pub trait Agent: Send + Sync + Sized {
         }
     }
 
+    /// Replaces text in a file.
     async fn str_replace(
         &self,
         path: &str,
@@ -891,6 +965,7 @@ pub trait Agent: Send + Sync + Sized {
         }
     }
 
+    /// Inserts text at a specific line in a file.
     async fn insert(
         &self,
         path: &str,
@@ -1035,6 +1110,10 @@ impl FileSystem for Path<'_> {
 
 /////////////////////////////////////////////// Mount //////////////////////////////////////////////
 
+/// A filesystem mount point with associated permissions.
+///
+/// Wraps a filesystem implementation with a path prefix and access permissions,
+/// enabling controlled access to specific parts of the filesystem.
 pub struct Mount {
     path: Path<'static>,
     perm: Permissions,
@@ -1104,11 +1183,19 @@ impl FileSystem for Mount {
 
 ////////////////////////////////////////// MountHierarchy //////////////////////////////////////////
 
+/// Manages a hierarchy of filesystem mount points.
+///
+/// Maintains a collection of mount points with different permissions,
+/// routing filesystem operations to the appropriate mount based on path.
 pub struct MountHierarchy {
     mounts: Vec<Mount>,
 }
 
 impl MountHierarchy {
+    /// Adds a new mount point to the hierarchy.
+    ///
+    /// Returns an error if the path conflicts with existing mounts or if
+    /// the initial mount is not at the root.
     pub fn mount(
         &mut self,
         path: Path,
@@ -1408,12 +1495,16 @@ mod tests {
         assert_eq!(result, Err("initial mount point must be /".to_string()));
 
         // After mounting /, other paths can be mounted
-        assert!(hierarchy
-            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"))
-            .is_ok());
-        assert!(hierarchy
-            .mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"))
-            .is_ok());
+        assert!(
+            hierarchy
+                .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"))
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"))
+                .is_ok()
+        );
     }
 
     #[test]
@@ -1439,12 +1530,16 @@ mod tests {
         let mut hierarchy = MountHierarchy { mounts: vec![] };
 
         // Mount / and /home
-        assert!(hierarchy
-            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"))
-            .is_ok());
-        assert!(hierarchy
-            .mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"))
-            .is_ok());
+        assert!(
+            hierarchy
+                .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"))
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"))
+                .is_ok()
+        );
 
         // Cannot mount / again since it would mask /home
         let result = hierarchy.mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"));
@@ -1460,14 +1555,18 @@ mod tests {
         let mut hierarchy = MountHierarchy { mounts: vec![] };
 
         // Mount /
-        assert!(hierarchy
-            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp1"))
-            .is_ok());
+        assert!(
+            hierarchy
+                .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp1"))
+                .is_ok()
+        );
 
         // Can mount / again (overlays previous mount)
-        assert!(hierarchy
-            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp2"))
-            .is_ok());
+        assert!(
+            hierarchy
+                .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp2"))
+                .is_ok()
+        );
 
         assert_eq!(hierarchy.mounts.len(), 2);
     }
@@ -1477,23 +1576,29 @@ mod tests {
         let mut hierarchy = MountHierarchy { mounts: vec![] };
 
         // Mount different paths
-        assert!(hierarchy
-            .mount("/".into(), Permissions::ReadWrite, Path::from("/root"))
-            .is_ok());
-        assert!(hierarchy
-            .mount(
-                "/home".into(),
-                Permissions::ReadWrite,
-                Path::from("/home_fs")
-            )
-            .is_ok());
-        assert!(hierarchy
-            .mount(
-                "/home/user".into(),
-                Permissions::ReadWrite,
-                Path::from("/user_fs")
-            )
-            .is_ok());
+        assert!(
+            hierarchy
+                .mount("/".into(), Permissions::ReadWrite, Path::from("/root"))
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount(
+                    "/home".into(),
+                    Permissions::ReadWrite,
+                    Path::from("/home_fs")
+                )
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount(
+                    "/home/user".into(),
+                    Permissions::ReadWrite,
+                    Path::from("/user_fs")
+                )
+                .is_ok()
+        );
 
         // Check that fs_for_path returns the most specific mount
         let fs = hierarchy.fs_for_path("/file.txt").unwrap().0;
@@ -1896,29 +2001,39 @@ mod tests {
         let mut hierarchy = MountHierarchy { mounts: vec![] };
 
         // Mount various paths
-        assert!(hierarchy
-            .mount("/".into(), Permissions::ReadWrite, Path::from("/root"))
-            .is_ok());
-        assert!(hierarchy
-            .mount("/home".into(), Permissions::ReadWrite, Path::from("/home"))
-            .is_ok());
-        assert!(hierarchy
-            .mount(
-                "/home/user".into(),
-                Permissions::ReadWrite,
-                Path::from("/user")
-            )
-            .is_ok());
-        assert!(hierarchy
-            .mount("/var".into(), Permissions::ReadWrite, Path::from("/var"))
-            .is_ok());
-        assert!(hierarchy
-            .mount(
-                "/var/log".into(),
-                Permissions::ReadWrite,
-                Path::from("/log")
-            )
-            .is_ok());
+        assert!(
+            hierarchy
+                .mount("/".into(), Permissions::ReadWrite, Path::from("/root"))
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount("/home".into(), Permissions::ReadWrite, Path::from("/home"))
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount(
+                    "/home/user".into(),
+                    Permissions::ReadWrite,
+                    Path::from("/user")
+                )
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount("/var".into(), Permissions::ReadWrite, Path::from("/var"))
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount(
+                    "/var/log".into(),
+                    Permissions::ReadWrite,
+                    Path::from("/log")
+                )
+                .is_ok()
+        );
 
         // Cannot mount path that would mask existing deeper paths
         let result = hierarchy.mount(
@@ -1938,16 +2053,20 @@ mod tests {
         assert!(result.unwrap_err().contains("/var/log masks"));
 
         // Can mount paths that don't conflict
-        assert!(hierarchy
-            .mount("/usr".into(), Permissions::ReadWrite, Path::from("/usr"))
-            .is_ok());
-        assert!(hierarchy
-            .mount(
-                "/home/other".into(),
-                Permissions::ReadWrite,
-                Path::from("/other")
-            )
-            .is_ok());
+        assert!(
+            hierarchy
+                .mount("/usr".into(), Permissions::ReadWrite, Path::from("/usr"))
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount(
+                    "/home/other".into(),
+                    Permissions::ReadWrite,
+                    Path::from("/other")
+                )
+                .is_ok()
+        );
     }
 
     // Permission tests
@@ -1991,18 +2110,20 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(err
-            .to_string()
-            .contains("str_replace not allowed with ReadOnly permissions"));
+        assert!(
+            err.to_string()
+                .contains("str_replace not allowed with ReadOnly permissions")
+        );
 
         // insert should fail
         let result = hierarchy.insert("/file.txt", 1, "new line").await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(err
-            .to_string()
-            .contains("insert not allowed with ReadOnly permissions"));
+        assert!(
+            err.to_string()
+                .contains("insert not allowed with ReadOnly permissions")
+        );
     }
 
     #[tokio::test]
@@ -2045,18 +2166,20 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(err
-            .to_string()
-            .contains("search not allowed with WriteOnly permissions"));
+        assert!(
+            err.to_string()
+                .contains("search not allowed with WriteOnly permissions")
+        );
 
         // view should fail
         let result = hierarchy.view("/file.txt", None).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(err
-            .to_string()
-            .contains("view not allowed with WriteOnly permissions"));
+        assert!(
+            err.to_string()
+                .contains("view not allowed with WriteOnly permissions")
+        );
     }
 
     #[tokio::test]

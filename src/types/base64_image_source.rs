@@ -21,15 +21,19 @@ pub struct Base64ImageSource {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ImageMediaType {
+    /// JPEG image format.
     #[serde(rename = "image/jpeg")]
     Jpeg,
 
+    /// PNG image format.
     #[serde(rename = "image/png")]
     Png,
 
+    /// GIF image format.
     #[serde(rename = "image/gif")]
     Gif,
 
+    /// WebP image format.
     #[serde(rename = "image/webp")]
     Webp,
 }

@@ -1,9 +1,16 @@
 use serde::{Deserialize, Serialize};
 
 /// A signature delta, representing a piece of a signature in a streaming response.
+///
+/// SignatureDelta is used in streaming responses to deliver incremental updates
+/// to a signature, typically associated with thinking blocks where the model's
+/// reasoning process needs to be cryptographically signed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SignatureDelta {
     /// The signature content.
+    ///
+    /// This contains a fragment of the signature that should be appended to
+    /// previously received signature fragments to build the complete signature.
     pub signature: String,
 }
 

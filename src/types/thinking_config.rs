@@ -25,6 +25,9 @@ pub enum ThinkingConfig {
 }
 
 impl ThinkingConfig {
+    /// Returns the number of budget tokens configured for thinking.
+    ///
+    /// Returns 0 if thinking is disabled.
     pub fn num_tokens(&self) -> u32 {
         match self {
             ThinkingConfig::Disabled => 0,

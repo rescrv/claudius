@@ -2,24 +2,39 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{CacheControlEphemeral, Content};
 
-/// A tool result block.
+/// A block containing the result of a tool execution.
+///
+/// ToolResultBlock represents the output from executing a tool that was previously
+/// requested via a ToolUseBlock. It contains the tool's response, which can be
+/// either successful output or an error indication.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 #[serde(rename = "tool_result")]
 pub struct ToolResultBlock {
     /// The ID of the tool use that this result is for.
+    ///
+    /// This must match the ID from the corresponding ToolUseBlock.
     #[serde(rename = "tool_use_id")]
     pub tool_use_id: String,
 
     /// Create a cache control breakpoint at this content block.
+    ///
+    /// When set, this creates an ephemeral cache point that can be reused
+    /// in subsequent requests to avoid reprocessing the tool result.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControlEphemeral>,
 
     /// The content of the tool result, which can be either a string or an array of content items.
+    ///
+    /// This contains the actual output from the tool execution. It can be simple text
+    /// or structured content including images and formatted text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<ToolResultBlockContent>,
 
     /// Whether this tool result represents an error.
+    ///
+    /// When true, indicates that the tool execution failed and the content
+    /// contains error information rather than successful output.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
 }
