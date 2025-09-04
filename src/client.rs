@@ -1,8 +1,8 @@
 use bytes::Bytes;
-use futures::Stream;
 use futures::stream::{self, StreamExt};
+use futures::Stream;
 use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{Client as ReqwestClient, Response, header};
+use reqwest::{header, Client as ReqwestClient, Response};
 use serde::Deserialize;
 use std::env;
 use std::time::Duration;
@@ -263,6 +263,7 @@ impl Anthropic {
             429 => Error::rate_limit(error_message, retry_after),
             500 => Error::internal_server(error_message, request_id),
             502..=504 => Error::service_unavailable(error_message, retry_after),
+            529 => Error::rate_limit(error_message, retry_after),
             _ => Error::api(status_code, error_type, error_message, request_id),
         }
     }
@@ -612,8 +613,8 @@ fn extract_event(buffer: &str) -> Option<(Result<MessageStreamEvent>, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn retry_logic_with_backoff() {
@@ -708,5 +709,64 @@ mod tests {
         assert!(result.unwrap_err().is_rate_limit());
         // Should attempt max_retries + 1 times (3 total: initial + 2 retries)
         assert_eq!(attempt_counter.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn error_529_is_retryable() {
+        // Test that 529 errors are properly mapped to rate_limit and are retryable
+        let client = Anthropic {
+            api_key: "test".to_string(),
+            client: ReqwestClient::new(),
+            base_url: "http://localhost".to_string(),
+            timeout: Duration::from_secs(1),
+            max_retries: 2,
+            throughput_ops_sec: 1.0 / 60.0,
+            reserve_capacity: 1.0 / 60.0,
+        };
+
+        let attempt_counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = attempt_counter.clone();
+
+        let result = client
+            .retry_with_backoff(|| {
+                let counter = counter_clone.clone();
+                async move {
+                    let attempt = counter.fetch_add(1, Ordering::SeqCst);
+                    match attempt {
+                        0 | 1 => {
+                            // Simulate a 529 overloaded error
+                            Err(Error::api(
+                                529,
+                                Some("overloaded_error".to_string()),
+                                "Overloaded".to_string(),
+                                None,
+                            ))
+                        }
+                        _ => Ok("success".to_string()),
+                    }
+                }
+            })
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "success");
+        // Should retry: initial attempt + 2 retries = 3 total
+        assert_eq!(attempt_counter.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn error_529_mapped_correctly() {
+        // Test that a 529 API error is correctly identified as retryable
+        let error = Error::api(
+            529,
+            Some("overloaded_error".to_string()),
+            "Overloaded".to_string(),
+            None,
+        );
+        assert!(error.is_retryable());
+
+        // Test that rate_limit error (which 529 now maps to) is also retryable
+        let rate_limit_error = Error::rate_limit("Overloaded", Some(5));
+        assert!(rate_limit_error.is_retryable());
     }
 }
