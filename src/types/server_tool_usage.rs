@@ -1,3 +1,5 @@
+use std::ops::Add;
+
 use serde::{Deserialize, Serialize};
 
 /// Information about server tool usage for a message.
@@ -12,6 +14,16 @@ impl ServerToolUsage {
     pub fn new(web_search_requests: i32) -> Self {
         Self {
             web_search_requests,
+        }
+    }
+}
+
+impl Add for ServerToolUsage {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            web_search_requests: self.web_search_requests + rhs.web_search_requests,
         }
     }
 }
@@ -42,5 +54,14 @@ mod tests {
 
         let usage: ServerToolUsage = serde_json::from_value(json).unwrap();
         assert_eq!(usage.web_search_requests, 5);
+    }
+
+    #[test]
+    fn add_server_tool_usage() {
+        let usage1 = ServerToolUsage::new(5);
+        let usage2 = ServerToolUsage::new(3);
+        let result = usage1 + usage2;
+
+        assert_eq!(result.web_search_requests, 8);
     }
 }

@@ -1,3 +1,5 @@
+use std::ops::Add;
+
 use serde::{Deserialize, Serialize};
 
 use crate::types::ServerToolUsage;
@@ -55,6 +57,36 @@ impl Usage {
     pub fn with_server_tool_use(mut self, server_tool_use: ServerToolUsage) -> Self {
         self.server_tool_use = Some(server_tool_use);
         self
+    }
+}
+
+/// Helper function to add two Option values where the contained type implements Add.
+fn add_options<T: std::ops::Add<Output = T>>(left: Option<T>, right: Option<T>) -> Option<T> {
+    match (left, right) {
+        (Some(a), Some(b)) => Some(a + b),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
+}
+
+impl Add for Usage {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            cache_creation_input_tokens: add_options(
+                self.cache_creation_input_tokens,
+                rhs.cache_creation_input_tokens,
+            ),
+            cache_read_input_tokens: add_options(
+                self.cache_read_input_tokens,
+                rhs.cache_read_input_tokens,
+            ),
+            input_tokens: self.input_tokens + rhs.input_tokens,
+            output_tokens: self.output_tokens + rhs.output_tokens,
+            server_tool_use: add_options(self.server_tool_use, rhs.server_tool_use),
+        }
     }
 }
 
@@ -119,5 +151,76 @@ mod tests {
         assert_eq!(usage.input_tokens, 50);
         assert_eq!(usage.output_tokens, 100);
         assert_eq!(usage.server_tool_use, Some(ServerToolUsage::new(5)));
+    }
+
+    #[test]
+    fn add_usage_minimal() {
+        let usage1 = Usage::new(50, 100);
+        let usage2 = Usage::new(30, 60);
+        let result = usage1 + usage2;
+
+        assert_eq!(result.input_tokens, 80);
+        assert_eq!(result.output_tokens, 160);
+        assert_eq!(result.cache_creation_input_tokens, None);
+        assert_eq!(result.cache_read_input_tokens, None);
+        assert_eq!(result.server_tool_use, None);
+    }
+
+    #[test]
+    fn add_usage_with_cache_tokens() {
+        let usage1 = Usage::new(50, 100)
+            .with_cache_creation_input_tokens(20)
+            .with_cache_read_input_tokens(30);
+        let usage2 = Usage::new(30, 60)
+            .with_cache_creation_input_tokens(10)
+            .with_cache_read_input_tokens(15);
+        let result = usage1 + usage2;
+
+        assert_eq!(result.input_tokens, 80);
+        assert_eq!(result.output_tokens, 160);
+        assert_eq!(result.cache_creation_input_tokens, Some(30));
+        assert_eq!(result.cache_read_input_tokens, Some(45));
+    }
+
+    #[test]
+    fn add_usage_partial_options() {
+        let usage1 = Usage::new(50, 100).with_cache_creation_input_tokens(20);
+        let usage2 = Usage::new(30, 60).with_cache_read_input_tokens(15);
+        let result = usage1 + usage2;
+
+        assert_eq!(result.input_tokens, 80);
+        assert_eq!(result.output_tokens, 160);
+        assert_eq!(result.cache_creation_input_tokens, Some(20));
+        assert_eq!(result.cache_read_input_tokens, Some(15));
+    }
+
+    #[test]
+    fn add_usage_with_server_tool_use() {
+        let usage1 = Usage::new(50, 100).with_server_tool_use(ServerToolUsage::new(5));
+        let usage2 = Usage::new(30, 60).with_server_tool_use(ServerToolUsage::new(3));
+        let result = usage1 + usage2;
+
+        assert_eq!(result.input_tokens, 80);
+        assert_eq!(result.output_tokens, 160);
+        assert_eq!(result.server_tool_use, Some(ServerToolUsage::new(8)));
+    }
+
+    #[test]
+    fn add_usage_complete() {
+        let usage1 = Usage::new(50, 100)
+            .with_cache_creation_input_tokens(20)
+            .with_cache_read_input_tokens(30)
+            .with_server_tool_use(ServerToolUsage::new(5));
+        let usage2 = Usage::new(30, 60)
+            .with_cache_creation_input_tokens(10)
+            .with_cache_read_input_tokens(15)
+            .with_server_tool_use(ServerToolUsage::new(3));
+        let result = usage1 + usage2;
+
+        assert_eq!(result.input_tokens, 80);
+        assert_eq!(result.output_tokens, 160);
+        assert_eq!(result.cache_creation_input_tokens, Some(30));
+        assert_eq!(result.cache_read_input_tokens, Some(45));
+        assert_eq!(result.server_tool_use, Some(ServerToolUsage::new(8)));
     }
 }
