@@ -108,14 +108,13 @@ where
                         Err(e) => {
                             // Try to recover partial UTF-8 sequences
                             let valid_up_to = e.utf8_error().valid_up_to();
-                            if valid_up_to > 0 {
-                                if let Ok(partial) =
+                            if valid_up_to > 0
+                                && let Ok(partial) =
                                     String::from_utf8(bytes[..valid_up_to].to_vec())
-                                {
-                                    state.buffer.push_str(&partial);
-                                    // Log invalid bytes but continue processing
-                                    continue;
-                                }
+                            {
+                                state.buffer.push_str(&partial);
+                                // Log invalid bytes but continue processing
+                                continue;
                             }
                             return Some((
                                 Err(Error::encoding(
@@ -132,10 +131,10 @@ where
                 }
                 None => {
                     // End of stream - try to process any remaining buffered events
-                    if !state.buffer.is_empty() {
-                        if let Ok(Some((event, _))) = extract_event(&state.buffer) {
-                            return Some((event, (stream, state)));
-                        }
+                    if !state.buffer.is_empty()
+                        && let Ok(Some((event, _))) = extract_event(&state.buffer)
+                    {
+                        return Some((event, (stream, state)));
                     }
                     return None;
                 }
@@ -393,7 +392,7 @@ mod tests {
         let chunk_size = MAX_BUFFER_SIZE / 2;
         let chunk1 = "a".repeat(chunk_size);
         let chunk2 = "b".repeat(chunk_size + 1000); // This will push over the limit
-        
+
         let stream = Box::pin(stream::iter(vec![
             Ok(Bytes::from(chunk1)),
             Ok(Bytes::from(chunk2)),
@@ -465,7 +464,7 @@ mod tests {
         let stream = Box::pin(stream::once(async move { Ok(Bytes::from(data)) }));
 
         let mut sse_stream = Box::pin(process_sse(stream));
-        
+
         // The stream might not produce an event if UTF-8 is completely invalid
         match sse_stream.next().await {
             Some(event) => {

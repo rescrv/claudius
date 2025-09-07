@@ -19,5 +19,7 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-
+    - name: cargo clippy
+      run: cargo clippy --all-targets -- -D clippy::all -D warnings
     - name: cargo test
       run: cargo test
