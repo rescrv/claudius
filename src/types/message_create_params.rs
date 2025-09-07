@@ -194,9 +194,15 @@ impl MessageCreateParams {
     }
 
     /// Add temperature to the parameters.
-    pub fn with_temperature(mut self, temperature: f32) -> Self {
+    pub fn with_temperature(mut self, temperature: f32) -> Result<Self, crate::Error> {
+        if !(0.0..=1.0).contains(&temperature) {
+            return Err(crate::Error::validation(
+                format!("Temperature must be between 0.0 and 1.0, got {temperature}"),
+                Some("temperature".to_string()),
+            ));
+        }
         self.temperature = Some(temperature);
-        self
+        Ok(self)
     }
 
     /// Add thinking configuration to the parameters.
@@ -224,15 +230,92 @@ impl MessageCreateParams {
     }
 
     /// Add top_p to the parameters.
-    pub fn with_top_p(mut self, top_p: f32) -> Self {
+    pub fn with_top_p(mut self, top_p: f32) -> Result<Self, crate::Error> {
+        if !(0.0..=1.0).contains(&top_p) {
+            return Err(crate::Error::validation(
+                format!("top_p must be between 0.0 and 1.0, got {top_p}"),
+                Some("top_p".to_string()),
+            ));
+        }
         self.top_p = Some(top_p);
-        self
+        Ok(self)
     }
 
     /// Sets the streaming option.
     pub fn with_stream(mut self, stream: bool) -> Self {
         self.stream = stream;
         self
+    }
+
+    /// Validate all parameters before sending to the API.
+    pub fn validate(&self) -> Result<(), crate::Error> {
+        // Validate max_tokens
+        if self.max_tokens == 0 {
+            return Err(crate::Error::validation(
+                "max_tokens must be greater than 0",
+                Some("max_tokens".to_string()),
+            ));
+        }
+
+        // Validate messages
+        if self.messages.is_empty() {
+            return Err(crate::Error::validation(
+                "At least one message is required",
+                Some("messages".to_string()),
+            ));
+        }
+
+        // Validate temperature if present
+        if let Some(temp) = self.temperature {
+            if !(0.0..=1.0).contains(&temp) {
+                return Err(crate::Error::validation(
+                    format!("Temperature must be between 0.0 and 1.0, got {temp}"),
+                    Some("temperature".to_string()),
+                ));
+            }
+        }
+
+        // Validate top_p if present
+        if let Some(top_p) = self.top_p {
+            if !(0.0..=1.0).contains(&top_p) {
+                return Err(crate::Error::validation(
+                    format!("top_p must be between 0.0 and 1.0, got {top_p}"),
+                    Some("top_p".to_string()),
+                ));
+            }
+        }
+
+        // Validate thinking config if present
+        if let Some(ref thinking) = self.thinking {
+            match thinking {
+                ThinkingConfig::Enabled { budget_tokens } => {
+                    // When thinking is enabled, the budget must be at least 1024
+                    if *budget_tokens < 1024 {
+                        return Err(crate::Error::validation(
+                            format!(
+                                "Thinking budget must be at least 1024 tokens, got {budget_tokens}"
+                            ),
+                            Some("thinking.budget_tokens".to_string()),
+                        ));
+                    }
+                    // Budget must not exceed max_tokens
+                    if *budget_tokens > self.max_tokens {
+                        return Err(crate::Error::validation(
+                            format!(
+                                "Thinking budget ({budget_tokens}) cannot exceed max_tokens ({})",
+                                self.max_tokens
+                            ),
+                            Some("thinking.budget_tokens".to_string()),
+                        ));
+                    }
+                }
+                ThinkingConfig::Disabled => {
+                    // No validation needed for disabled state
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Create a simple message request with sensible defaults.
@@ -310,7 +393,8 @@ mod tests {
             Model::Known(KnownModel::Claude37Sonnet20250219),
         )
         .with_system_string("You are a helpful assistant.".to_string())
-        .with_temperature(0.125);
+        .with_temperature(0.125)
+        .unwrap();
 
         let json = to_value(&params).unwrap();
         assert!(!params.stream);

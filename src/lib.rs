@@ -11,6 +11,7 @@ mod backoff;
 mod client;
 mod error;
 mod json_schema;
+mod sse;
 mod types;
 
 pub use agent::{

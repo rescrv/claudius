@@ -1,6 +1,4 @@
-use bytes::Bytes;
 use futures::Stream;
-use futures::stream::{self, StreamExt};
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client as ReqwestClient, Response, header};
 use serde::Deserialize;
@@ -10,11 +8,10 @@ use tokio::time::sleep;
 
 use crate::backoff::ExponentialBackoff;
 use crate::error::{Error, Result};
+use crate::sse::process_sse;
 use crate::types::{
-    ContentBlockDeltaEvent, ContentBlockStartEvent, ContentBlockStopEvent, Message,
-    MessageCountTokensParams, MessageCreateParams, MessageDeltaEvent, MessageStartEvent,
-    MessageStopEvent, MessageStreamEvent, MessageTokensCount, ModelInfo, ModelListParams,
-    ModelListResponse,
+    Message, MessageCountTokensParams, MessageCreateParams, MessageStreamEvent, MessageTokensCount,
+    ModelInfo, ModelListParams, ModelListResponse,
 };
 
 const DEFAULT_API_URL: &str = "https://api.anthropic.com/v1/";
@@ -84,17 +81,22 @@ impl Anthropic {
     /// Set a custom timeout for this client.
     ///
     /// This method allows you to specify a different timeout for API requests.
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+    pub fn with_timeout(mut self, timeout: Duration) -> Result<Self> {
         self.timeout = timeout;
 
         // Recreate the client with the new timeout
         let client = ReqwestClient::builder()
             .timeout(timeout)
             .build()
-            .expect("Failed to build HTTP client with new timeout");
+            .map_err(|e| {
+                Error::http_client(
+                    "Failed to build HTTP client with new timeout",
+                    Some(Box::new(e)),
+                )
+            })?;
 
         self.client = client;
-        self
+        Ok(self)
     }
 
     /// Set the maximum number of retries for this client.
@@ -117,12 +119,12 @@ impl Anthropic {
     /// Set both a custom base URL and timeout for this client.
     ///
     /// This is a convenience method that chains with_base_url and with_timeout.
-    pub fn with_base_url_and_timeout(self, base_url: String, timeout: Duration) -> Self {
+    pub fn with_base_url_and_timeout(self, base_url: String, timeout: Duration) -> Result<Self> {
         self.with_base_url(base_url).with_timeout(timeout)
     }
 
     /// Create and return default headers for API requests.
-    fn default_headers(&self) -> HeaderMap {
+    fn default_headers(&self) -> Result<HeaderMap> {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::CONTENT_TYPE,
@@ -131,13 +133,18 @@ impl Anthropic {
         headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
         headers.insert(
             "x-api-key",
-            HeaderValue::from_str(&self.api_key).expect("API key should be valid"),
+            HeaderValue::from_str(&self.api_key).map_err(|e| {
+                Error::validation(
+                    format!("Invalid API key format: {e}"),
+                    Some("api_key".to_string()),
+                )
+            })?,
         );
         headers.insert(
             "anthropic-version",
             HeaderValue::from_static(ANTHROPIC_API_VERSION),
         );
-        headers
+        Ok(headers)
     }
 
     /// Retry wrapper that implements exponential backoff with header-based retry-after
@@ -192,7 +199,8 @@ impl Anthropic {
             }
         }
 
-        Err(last_error.unwrap())
+        Err(last_error
+            .unwrap_or_else(|| Error::unknown("Failed after retries without capturing error")))
     }
 
     /// Process API response errors and convert to our Error type
@@ -270,6 +278,9 @@ impl Anthropic {
 
     /// Send a message to the API and get a non-streaming response.
     pub async fn send(&self, mut params: MessageCreateParams) -> Result<Message> {
+        // Validate parameters first
+        params.validate()?;
+
         // Ensure stream is disabled
         params.stream = false;
 
@@ -279,7 +290,7 @@ impl Anthropic {
             let response = self
                 .client
                 .post(&url)
-                .headers(self.default_headers())
+                .headers(self.default_headers()?)
                 .json(&params)
                 .send()
                 .await
@@ -314,6 +325,9 @@ impl Anthropic {
         &self,
         mut params: MessageCreateParams,
     ) -> Result<impl Stream<Item = Result<MessageStreamEvent>>> {
+        // Validate parameters first
+        params.validate()?;
+
         // Ensure stream is enabled
         params.stream = true;
 
@@ -321,7 +335,7 @@ impl Anthropic {
             .retry_with_backoff(|| async {
                 let url = format!("{}messages", self.base_url);
 
-                let mut headers = self.default_headers();
+                let mut headers = self.default_headers()?;
                 headers.insert(
                     header::ACCEPT,
                     HeaderValue::from_static("text/event-stream"),
@@ -376,7 +390,7 @@ impl Anthropic {
             let response = self
                 .client
                 .post(&url)
-                .headers(self.default_headers())
+                .headers(self.default_headers()?)
                 .json(&params)
                 .send()
                 .await
@@ -411,7 +425,7 @@ impl Anthropic {
     pub async fn list_models(&self, params: Option<ModelListParams>) -> Result<ModelListResponse> {
         self.retry_with_backoff(|| async {
             let url = format!("{}models", self.base_url);
-            let mut request = self.client.get(&url).headers(self.default_headers());
+            let mut request = self.client.get(&url).headers(self.default_headers()?);
 
             // Add query parameters if provided
             if let Some(ref params) = params {
@@ -463,7 +477,7 @@ impl Anthropic {
             let response = self
                 .client
                 .get(&url)
-                .headers(self.default_headers())
+                .headers(self.default_headers()?)
                 .send()
                 .await
                 .map_err(|e| {
@@ -488,125 +502,6 @@ impl Anthropic {
             })
         })
         .await
-    }
-}
-
-/// Process a stream of bytes into a stream of server-sent events
-fn process_sse<S>(byte_stream: S) -> impl Stream<Item = Result<MessageStreamEvent>>
-where
-    S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Unpin + 'static,
-{
-    // Convert reqwest errors to our error type
-    let stream = byte_stream.map(|result| {
-        result
-            .map_err(|e| Error::streaming(format!("Error in HTTP stream: {e}"), Some(Box::new(e))))
-    });
-
-    // Use a state machine to process the SSE stream
-    let buffer = String::new();
-
-    stream::unfold(
-        (stream, buffer),
-        move |(mut stream, mut buffer)| async move {
-            loop {
-                // First check if we have a complete event in the buffer
-                if let Some((event, remaining)) = extract_event(&buffer) {
-                    buffer = remaining;
-                    return Some((event, (stream, buffer)));
-                }
-
-                // Read more data
-                match stream.next().await {
-                    Some(Ok(bytes)) => match String::from_utf8(bytes.to_vec()) {
-                        Ok(text) => buffer.push_str(&text),
-                        Err(e) => {
-                            return Some((
-                                Err(Error::encoding(
-                                    format!("Invalid UTF-8 in stream: {e}"),
-                                    Some(Box::new(e)),
-                                )),
-                                (stream, buffer),
-                            ));
-                        }
-                    },
-                    Some(Err(e)) => {
-                        return Some((Err(e), (stream, buffer)));
-                    }
-                    None => {
-                        // End of stream
-                        if !buffer.is_empty() {
-                            if let Some((event, _)) = extract_event(&buffer) {
-                                return Some((event, (stream, buffer)));
-                            }
-                        }
-                        return None;
-                    }
-                }
-            }
-        },
-    )
-}
-
-/// Extract a complete SSE event from a buffer string
-fn extract_event(buffer: &str) -> Option<(Result<MessageStreamEvent>, String)> {
-    // Simple SSE parsing - each event is delimited by double newlines
-    let parts: Vec<&str> = buffer.splitn(2, "\n\n").collect();
-    if parts.len() != 2 {
-        return None;
-    }
-    let event_text = parts[0];
-    let rest = parts[1].to_string();
-    let Some((event_type, event_data)) = event_text.split_once('\n') else {
-        return Some((
-            Err(Error::serialization(
-                format!("Malformed SSE event: missing newline separator in '{event_text}'"),
-                None,
-            )),
-            rest,
-        ));
-    };
-    let Some(event_data) = event_data.strip_prefix("data:").map(str::trim) else {
-        return Some((
-            Err(Error::serialization(
-                format!("Malformed SSE event: missing 'data:' prefix in '{event_data}'"),
-                None,
-            )),
-            rest,
-        ));
-    };
-    match event_type {
-        "event: ping" => Some((Ok(MessageStreamEvent::Ping), rest)),
-        "event: message_start" => match serde_json::from_str::<MessageStartEvent>(event_data) {
-            Ok(event) => Some((Ok(MessageStreamEvent::MessageStart(event)), rest)),
-            Err(e) => Some((Err(e.into()), rest)),
-        },
-        "event: message_delta" => match serde_json::from_str::<MessageDeltaEvent>(event_data) {
-            Ok(event) => Some((Ok(MessageStreamEvent::MessageDelta(event)), rest)),
-            Err(e) => Some((Err(e.into()), rest)),
-        },
-        "event: message_stop" => match serde_json::from_str::<MessageStopEvent>(event_data) {
-            Ok(event) => Some((Ok(MessageStreamEvent::MessageStop(event)), rest)),
-            Err(e) => Some((Err(e.into()), rest)),
-        },
-        "event: content_block_start" => {
-            match serde_json::from_str::<ContentBlockStartEvent>(event_data) {
-                Ok(event) => Some((Ok(MessageStreamEvent::ContentBlockStart(event)), rest)),
-                Err(e) => Some((Err(e.into()), rest)),
-            }
-        }
-        "event: content_block_delta" => {
-            match serde_json::from_str::<ContentBlockDeltaEvent>(event_data) {
-                Ok(event) => Some((Ok(MessageStreamEvent::ContentBlockDelta(event)), rest)),
-                Err(e) => Some((Err(e.into()), rest)),
-            }
-        }
-        "event: content_block_stop" => {
-            match serde_json::from_str::<ContentBlockStopEvent>(event_data) {
-                Ok(event) => Some((Ok(MessageStreamEvent::ContentBlockStop(event)), rest)),
-                Err(e) => Some((Err(e.into()), rest)),
-            }
-        }
-        event_type => Some((Err(Error::todo(format!("handle {event_type}"))), rest)),
     }
 }
 
