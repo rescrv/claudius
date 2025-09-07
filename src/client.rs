@@ -57,7 +57,6 @@ impl Anthropic {
             .pool_max_idle_per_host(10) // Connection pooling optimization
             .pool_idle_timeout(Duration::from_secs(90))
             .tcp_keepalive(Duration::from_secs(60))
-            .http2_prior_knowledge() // Use HTTP/2 for better performance
             .build()
             .map_err(|e| {
                 Error::http_client(
@@ -101,7 +100,6 @@ impl Anthropic {
             .pool_max_idle_per_host(10)
             .pool_idle_timeout(Duration::from_secs(90))
             .tcp_keepalive(Duration::from_secs(60))
-            .http2_prior_knowledge()
             .build()
             .map_err(|e| {
                 Error::http_client(
