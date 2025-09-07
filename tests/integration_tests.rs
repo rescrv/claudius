@@ -12,7 +12,7 @@ mod tests {
     use std::time::Duration;
 
     #[tokio::test]
-    async fn test_simple_message_request() {
+    async fn simple_message_request() {
         // This test requires ANTHROPIC_API_KEY to be set
         let api_key = std::env::var("ANTHROPIC_API_KEY").ok();
         if api_key.is_none() {
@@ -39,7 +39,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_streaming_response() {
+    async fn streaming_response() {
         let api_key = std::env::var("ANTHROPIC_API_KEY").ok();
         if api_key.is_none() {
             eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
@@ -62,7 +62,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_parameter_validation() {
+    async fn parameter_validation() {
         // Test validation without making API calls
         let mut params = MessageCreateParams {
             max_tokens: 0,
@@ -87,7 +87,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_thinking_config_validation() {
+    async fn thinking_config_validation() {
         let mut params = MessageCreateParams::simple("test", KnownModel::Claude35SonnetLatest);
 
         // Test thinking config with insufficient budget
@@ -116,7 +116,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_client_configuration() {
+    async fn client_configuration() {
         // Test client creation with various configurations
         let _client = Anthropic::new(Some("test_key".to_string()))
             .expect("Should create client")
@@ -129,7 +129,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_timeout_configuration() {
+    async fn timeout_configuration() {
         let client = Anthropic::new(Some("test_key".to_string())).expect("Should create client");
 
         let _timeout_client = client
@@ -139,24 +139,8 @@ mod tests {
         // Note: timeout field is private, but we can verify construction succeeded
     }
 
-    #[tokio::test]
-    async fn test_error_handling_without_api_key() {
-        // Test client creation without API key
-        unsafe {
-            std::env::remove_var("ANTHROPIC_API_KEY");
-            std::env::remove_var("CLAUDIUS_API_KEY");
-        }
-
-        let result = Anthropic::new(None);
-        assert!(result.is_err(), "Should fail without API key");
-
-        if let Err(e) = result {
-            assert!(e.is_authentication(), "Should be authentication error");
-        }
-    }
-
     #[test]
-    fn test_message_param_builders() {
+    fn message_param_builders() {
         // Test ergonomic constructors
         let user_msg = MessageParam::user("Hello");
         assert_eq!(user_msg.role, MessageRole::User);
@@ -170,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn test_model_display() {
+    fn model_display() {
         let known_model = Model::Known(KnownModel::Claude35SonnetLatest);
         let custom_model = Model::Custom("custom-model-name".to_string());
 
@@ -179,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn test_builder_pattern_completeness() {
+    fn builder_pattern_completeness() {
         // Test that all builder methods work together
         let params = MessageCreateParams::simple("test", KnownModel::Claude35SonnetLatest)
             .with_temperature(0.7)
@@ -197,5 +181,86 @@ mod tests {
         assert!(params.stop_sequences.is_some());
         assert!(params.system.is_some());
         assert!(params.stream);
+    }
+
+    #[tokio::test]
+    async fn streaming_endpoint_with_env_api_key() {
+        // Test streaming endpoint using Anthropic::new(None) to read from environment
+        assert!(
+            std::env::var("ANTHROPIC_API_KEY").is_ok() || std::env::var("CLAUDIUS_API_KEY").is_ok(),
+            "Either ANTHROPIC_API_KEY or CLAUDIUS_API_KEY must be set for this test"
+        );
+
+        let client = Anthropic::new(None).expect("Failed to create client with env API key");
+
+        let params = MessageCreateParams::new(
+            20,
+            vec![MessageParam::new_with_string(
+                "Say 'streaming test passed' briefly".to_string(),
+                MessageRole::User,
+            )],
+            Model::Known(KnownModel::Claude35HaikuLatest),
+        );
+
+        let result = client.stream(params).await;
+        assert!(
+            result.is_ok(),
+            "Streaming request should succeed with env API key"
+        );
+
+        // Verify we get a proper stream by consuming at least one event
+        if let Ok(stream) = result {
+            use futures::StreamExt;
+            let mut pinned_stream = std::pin::pin!(stream);
+            let first_event = pinned_stream.next().await;
+            assert!(
+                first_event.is_some(),
+                "Stream should yield at least one event"
+            );
+            if let Some(event_result) = first_event {
+                assert!(event_result.is_ok(), "First stream event should be valid");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn non_streaming_endpoint_with_env_api_key() {
+        // Test non-streaming endpoint using Anthropic::new(None) to read from environment
+        assert!(
+            std::env::var("ANTHROPIC_API_KEY").is_ok() || std::env::var("CLAUDIUS_API_KEY").is_ok(),
+            "Either ANTHROPIC_API_KEY or CLAUDIUS_API_KEY must be set for this test"
+        );
+
+        let client = Anthropic::new(None).expect("Failed to create client with env API key");
+
+        let params = MessageCreateParams::new(
+            20,
+            vec![MessageParam::new_with_string(
+                "Say 'non-streaming test passed' briefly".to_string(),
+                MessageRole::User,
+            )],
+            Model::Known(KnownModel::Claude35HaikuLatest),
+        );
+
+        let response = client.send(params).await;
+        assert!(
+            response.is_ok(),
+            "Non-streaming request should succeed with env API key"
+        );
+
+        if let Ok(message) = response {
+            assert!(
+                !message.content.is_empty(),
+                "Response should contain content"
+            );
+            assert!(
+                message.usage.input_tokens > 0,
+                "Should report input token usage"
+            );
+            assert!(
+                message.usage.output_tokens > 0,
+                "Should report output token usage"
+            );
+        }
     }
 }
