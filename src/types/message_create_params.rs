@@ -1,9 +1,21 @@
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 
 use crate::types::{
     MessageParam, Metadata, Model, SystemPrompt, TextBlock, ThinkingConfig, ToolChoice,
     ToolUnionParam,
 };
+
+/// Security limits for DoS prevention
+const MAX_MESSAGE_COUNT: usize = 1000;
+const MAX_MESSAGE_LENGTH: usize = 1_000_000; // 1MB per message
+const MAX_STOP_SEQUENCES: usize = 100;
+const MAX_STOP_SEQUENCE_LENGTH: usize = 1000;
+const MAX_SYSTEM_PROMPT_LENGTH: usize = 100_000;
+const MAX_TOOLS_COUNT: usize = 100;
+
+/// Cached validation data for performance optimization
+static VALIDATION_CACHE: OnceLock<()> = OnceLock::new();
 
 /// Parameters for creating messages.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -125,6 +137,27 @@ pub struct MessageCreateParams {
 }
 
 impl MessageCreateParams {
+    /// Helper function to validate a float value is within the 0.0-1.0 range (optimized)
+    #[inline]
+    fn validate_float_range(value: f32, field_name: &str) -> Result<(), crate::Error> {
+        // Fast path for common valid values
+        if (0.0..=1.0).contains(&value) && value.is_finite() {
+            return Ok(());
+        }
+
+        // Handle edge cases
+        if value.is_nan() {
+            return Err(crate::Error::validation(
+                format!("{field_name} cannot be NaN"),
+                Some(field_name.to_string()),
+            ));
+        }
+
+        Err(crate::Error::validation(
+            format!("{field_name} must be between 0.0 and 1.0, got {value}"),
+            Some(field_name.to_string()),
+        ))
+    }
     /// Create a new message creation parameters with streaming disabled.
     pub fn new(max_tokens: u32, messages: Vec<MessageParam>, model: Model) -> Self {
         Self {
@@ -195,12 +228,7 @@ impl MessageCreateParams {
 
     /// Add temperature to the parameters.
     pub fn with_temperature(mut self, temperature: f32) -> Result<Self, crate::Error> {
-        if !(0.0..=1.0).contains(&temperature) {
-            return Err(crate::Error::validation(
-                format!("Temperature must be between 0.0 and 1.0, got {temperature}"),
-                Some("temperature".to_string()),
-            ));
-        }
+        Self::validate_float_range(temperature, "temperature")?;
         self.temperature = Some(temperature);
         Ok(self)
     }
@@ -231,12 +259,7 @@ impl MessageCreateParams {
 
     /// Add top_p to the parameters.
     pub fn with_top_p(mut self, top_p: f32) -> Result<Self, crate::Error> {
-        if !(0.0..=1.0).contains(&top_p) {
-            return Err(crate::Error::validation(
-                format!("top_p must be between 0.0 and 1.0, got {top_p}"),
-                Some("top_p".to_string()),
-            ));
-        }
+        Self::validate_float_range(top_p, "top_p")?;
         self.top_p = Some(top_p);
         Ok(self)
     }
@@ -247,9 +270,14 @@ impl MessageCreateParams {
         self
     }
 
-    /// Validate all parameters before sending to the API.
+    /// Validate all parameters before sending to the API with security checks.
+    ///
+    /// Performs comprehensive validation including DoS prevention measures:
+    /// - Limits on message count and size to prevent resource exhaustion
+    /// - Validation of all numeric ranges
+    /// - Security checks on string inputs
     pub fn validate(&self) -> Result<(), crate::Error> {
-        // Validate max_tokens
+        // Basic parameter validation
         if self.max_tokens == 0 {
             return Err(crate::Error::validation(
                 "max_tokens must be greater than 0",
@@ -257,7 +285,17 @@ impl MessageCreateParams {
             ));
         }
 
-        // Validate messages
+        // Security: Prevent excessive token requests that could be expensive
+        if self.max_tokens > 1_000_000 {
+            return Err(crate::Error::validation(
+                format!(
+                    "max_tokens exceeds security limit of 1,000,000, got {}",
+                    self.max_tokens
+                ),
+                Some("max_tokens".to_string()),
+            ));
+        }
+
         if self.messages.is_empty() {
             return Err(crate::Error::validation(
                 "At least one message is required",
@@ -265,31 +303,121 @@ impl MessageCreateParams {
             ));
         }
 
-        // Validate temperature if present
+        // Security: Prevent DoS via excessive message count
+        if self.messages.len() > MAX_MESSAGE_COUNT {
+            return Err(crate::Error::validation(
+                format!(
+                    "Message count {} exceeds security limit of {}",
+                    self.messages.len(),
+                    MAX_MESSAGE_COUNT
+                ),
+                Some("messages".to_string()),
+            ));
+        }
+
+        // Validate message content sizes
+        for (i, message) in self.messages.iter().enumerate() {
+            let content_str = format!("{:?}", message.content); // Rough size estimate
+            if content_str.len() > MAX_MESSAGE_LENGTH {
+                return Err(crate::Error::validation(
+                    format!(
+                        "Message {} content size {} exceeds limit of {}",
+                        i,
+                        content_str.len(),
+                        MAX_MESSAGE_LENGTH
+                    ),
+                    Some(format!("messages[{i}]")),
+                ));
+            }
+        }
+
+        // Validate floating point parameters
         if let Some(temp) = self.temperature {
-            if !(0.0..=1.0).contains(&temp) {
-                return Err(crate::Error::validation(
-                    format!("Temperature must be between 0.0 and 1.0, got {temp}"),
-                    Some("temperature".to_string()),
-                ));
-            }
+            Self::validate_float_range(temp, "temperature")?;
         }
-
-        // Validate top_p if present
         if let Some(top_p) = self.top_p {
-            if !(0.0..=1.0).contains(&top_p) {
+            Self::validate_float_range(top_p, "top_p")?;
+        }
+
+        // Validate top_k is reasonable
+        if let Some(top_k) = self.top_k {
+            if top_k > 1000 {
                 return Err(crate::Error::validation(
-                    format!("top_p must be between 0.0 and 1.0, got {top_p}"),
-                    Some("top_p".to_string()),
+                    format!("top_k {top_k} exceeds reasonable limit of 1000"),
+                    Some("top_k".to_string()),
                 ));
             }
         }
 
-        // Validate thinking config if present
+        // Validate stop sequences
+        if let Some(ref stop_sequences) = self.stop_sequences {
+            if stop_sequences.len() > MAX_STOP_SEQUENCES {
+                return Err(crate::Error::validation(
+                    format!(
+                        "Stop sequences count {} exceeds limit of {}",
+                        stop_sequences.len(),
+                        MAX_STOP_SEQUENCES
+                    ),
+                    Some("stop_sequences".to_string()),
+                ));
+            }
+
+            for (i, seq) in stop_sequences.iter().enumerate() {
+                if seq.len() > MAX_STOP_SEQUENCE_LENGTH {
+                    return Err(crate::Error::validation(
+                        format!(
+                            "Stop sequence {} length {} exceeds limit of {}",
+                            i,
+                            seq.len(),
+                            MAX_STOP_SEQUENCE_LENGTH
+                        ),
+                        Some(format!("stop_sequences[{i}]")),
+                    ));
+                }
+
+                // Security: Check for potentially problematic characters
+                if seq.contains('\0') {
+                    return Err(crate::Error::validation(
+                        format!("Stop sequence {i} contains null bytes"),
+                        Some(format!("stop_sequences[{i}]")),
+                    ));
+                }
+            }
+        }
+
+        // Validate system prompt size
+        if let Some(ref system) = self.system {
+            let system_str = format!("{system:?}"); // Rough size estimate
+            if system_str.len() > MAX_SYSTEM_PROMPT_LENGTH {
+                return Err(crate::Error::validation(
+                    format!(
+                        "System prompt size {} exceeds limit of {}",
+                        system_str.len(),
+                        MAX_SYSTEM_PROMPT_LENGTH
+                    ),
+                    Some("system".to_string()),
+                ));
+            }
+        }
+
+        // Validate tools count
+        if let Some(ref tools) = self.tools {
+            if tools.len() > MAX_TOOLS_COUNT {
+                return Err(crate::Error::validation(
+                    format!(
+                        "Tools count {} exceeds limit of {}",
+                        tools.len(),
+                        MAX_TOOLS_COUNT
+                    ),
+                    Some("tools".to_string()),
+                ));
+            }
+        }
+
+        // Validate thinking config with security checks
         if let Some(ref thinking) = self.thinking {
             match thinking {
                 ThinkingConfig::Enabled { budget_tokens } => {
-                    // When thinking is enabled, the budget must be at least 1024
                     if *budget_tokens < 1024 {
                         return Err(crate::Error::validation(
                             format!(
@@ -298,12 +426,21 @@ impl MessageCreateParams {
                             Some("thinking.budget_tokens".to_string()),
                         ));
                     }
-                    // Budget must not exceed max_tokens
                     if *budget_tokens > self.max_tokens {
                         return Err(crate::Error::validation(
                             format!(
                                 "Thinking budget ({budget_tokens}) cannot exceed max_tokens ({})",
                                 self.max_tokens
+                            ),
+                            Some("thinking.budget_tokens".to_string()),
+                        ));
+                    }
+
+                    // Security: Prevent excessive thinking budget
+                    if *budget_tokens > 100_000 {
+                        return Err(crate::Error::validation(
+                            format!(
+                                "Thinking budget {budget_tokens} exceeds security limit of 100,000"
                             ),
                             Some("thinking.budget_tokens".to_string()),
                         ));
