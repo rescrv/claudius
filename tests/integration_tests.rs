@@ -64,10 +64,10 @@ mod tests {
     #[tokio::test]
     async fn test_parameter_validation() {
         // Test validation without making API calls
-        let mut params = MessageCreateParams::default();
-
-        // Test max_tokens validation
-        params.max_tokens = 0;
+        let mut params = MessageCreateParams {
+            max_tokens: 0,
+            ..Default::default()
+        };
         assert!(params.validate().is_err(), "Should reject max_tokens = 0");
 
         // Test empty messages validation

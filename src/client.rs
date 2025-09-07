@@ -122,6 +122,11 @@ impl Anthropic {
         self
     }
 
+    /// Get the API key being used by this client.
+    pub fn api_key(&self) -> &str {
+        &self.api_key
+    }
+
     /// Set the backoff parameters for this client.
     ///
     /// This method allows you to configure the exponential backoff algorithm.

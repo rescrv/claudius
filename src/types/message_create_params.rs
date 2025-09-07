@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::sync::OnceLock;
 
 use crate::types::{
     MessageParam, Metadata, Model, SystemPrompt, TextBlock, ThinkingConfig, ToolChoice,
@@ -13,9 +12,6 @@ const MAX_STOP_SEQUENCES: usize = 100;
 const MAX_STOP_SEQUENCE_LENGTH: usize = 1000;
 const MAX_SYSTEM_PROMPT_LENGTH: usize = 100_000;
 const MAX_TOOLS_COUNT: usize = 100;
-
-/// Cached validation data for performance optimization
-static VALIDATION_CACHE: OnceLock<()> = OnceLock::new();
 
 /// Parameters for creating messages.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -340,13 +336,13 @@ impl MessageCreateParams {
         }
 
         // Validate top_k is reasonable
-        if let Some(top_k) = self.top_k {
-            if top_k > 1000 {
-                return Err(crate::Error::validation(
-                    format!("top_k {top_k} exceeds reasonable limit of 1000"),
-                    Some("top_k".to_string()),
-                ));
-            }
+        if let Some(top_k) = self.top_k
+            && top_k > 1000
+        {
+            return Err(crate::Error::validation(
+                format!("top_k {top_k} exceeds reasonable limit of 1000"),
+                Some("top_k".to_string()),
+            ));
         }
 
         // Validate stop sequences
@@ -401,17 +397,17 @@ impl MessageCreateParams {
         }
 
         // Validate tools count
-        if let Some(ref tools) = self.tools {
-            if tools.len() > MAX_TOOLS_COUNT {
-                return Err(crate::Error::validation(
-                    format!(
-                        "Tools count {} exceeds limit of {}",
-                        tools.len(),
-                        MAX_TOOLS_COUNT
-                    ),
-                    Some("tools".to_string()),
-                ));
-            }
+        if let Some(ref tools) = self.tools
+            && tools.len() > MAX_TOOLS_COUNT
+        {
+            return Err(crate::Error::validation(
+                format!(
+                    "Tools count {} exceeds limit of {}",
+                    tools.len(),
+                    MAX_TOOLS_COUNT
+                ),
+                Some("tools".to_string()),
+            ));
         }
 
         // Validate thinking config with security checks
