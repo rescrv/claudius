@@ -23,3 +23,5 @@ jobs:
       run: cargo clippy --all-targets -- -D clippy::all -D warnings
     - name: cargo test
       run: cargo test
+      env:
+        CLAUDIUS_API_KEY: ${{ secrets.CLAUDIUS_API_KEY }}
