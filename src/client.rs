@@ -3,6 +3,7 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client as ReqwestClient, Response, header};
 use serde::Deserialize;
 use std::env;
+use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -34,20 +35,50 @@ pub struct Anthropic {
 }
 
 impl Anthropic {
+    /// Resolve an API key value, handling file:// URLs
+    fn resolve_api_key(key_value: &str) -> Result<String> {
+        if let Some(stripped) = key_value.strip_prefix("file://") {
+            // Handle file:// URLs
+            let path = if stripped.starts_with('/') {
+                // Absolute path: file:///root/.env -> /root/.env
+                stripped.to_string()
+            } else {
+                // Relative path: file://../foo -> ../foo
+                stripped.to_string()
+            };
+
+            fs::read_to_string(&path)
+                .map(|content| content.trim().to_string())
+                .map_err(|e| {
+                    Error::validation(
+                        format!("Failed to read API key from file '{}': {}", path, e),
+                        Some("api_key".to_string()),
+                    )
+                })
+        } else {
+            // Regular API key value
+            Ok(key_value.to_string())
+        }
+    }
+
     /// Create a new Anthropic client.
     ///
     /// The API key can be provided directly or read from the CLAUDIUS_API_KEY or ANTHROPIC_API_KEY
-    /// environment variables.
+    /// environment variables. If an environment variable value starts with "file://", it will be
+    /// treated as a file path and the API key will be read from that file.
     pub fn new(api_key: Option<String>) -> Result<Self> {
         let api_key = match api_key {
-            Some(key) => key,
+            Some(key) => Self::resolve_api_key(&key)?,
             None => match env::var("CLAUDIUS_API_KEY").ok() {
-                Some(key) => key,
-                None => env::var("ANTHROPIC_API_KEY").map_err(|_| {
-                    Error::authentication(
-                        "API key not provided and ANTHROPIC_API_KEY environment variable not set",
-                    )
-                })?,
+                Some(key) => Self::resolve_api_key(&key)?,
+                None => {
+                    let env_key = env::var("ANTHROPIC_API_KEY").map_err(|_| {
+                        Error::authentication(
+                            "API key not provided and ANTHROPIC_API_KEY environment variable not set",
+                        )
+                    })?;
+                    Self::resolve_api_key(&env_key)?
+                }
             },
         };
 
@@ -648,6 +679,67 @@ mod tests {
         // Test that rate_limit error (which 529 now maps to) is also retryable
         let rate_limit_error = Error::rate_limit("Overloaded", Some(5));
         assert!(rate_limit_error.is_retryable());
+    }
+
+    #[test]
+    fn resolve_api_key_regular_value() {
+        let result = Anthropic::resolve_api_key("sk-test-key-123");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "sk-test-key-123");
+    }
+
+    #[test]
+    fn resolve_api_key_file_url_absolute() {
+        let test_dir = std::env::temp_dir().join(format!("claudius_test_{}", std::process::id()));
+        std::fs::create_dir_all(&test_dir).unwrap();
+        let test_file = test_dir.join("test_api_key.txt");
+        std::fs::write(&test_file, "sk-test-from-file-123\n").unwrap();
+
+        let file_url = format!("file://{}", test_file.display());
+        let result = Anthropic::resolve_api_key(&file_url);
+
+        std::fs::remove_dir_all(&test_dir).unwrap();
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "sk-test-from-file-123");
+    }
+
+    #[test]
+    fn resolve_api_key_file_url_relative() {
+        let test_file = "test_relative_key.txt";
+        std::fs::write(test_file, "sk-relative-key-456\n").unwrap();
+
+        let file_url = format!("file://{}", test_file);
+        let result = Anthropic::resolve_api_key(&file_url);
+
+        std::fs::remove_file(test_file).unwrap();
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "sk-relative-key-456");
+    }
+
+    #[test]
+    fn resolve_api_key_file_url_nonexistent() {
+        let result = Anthropic::resolve_api_key("file:///nonexistent/path/to/key.txt");
+        assert!(result.is_err());
+
+        let error = result.unwrap_err();
+        assert!(error.is_validation());
+        assert!(format!("{}", error).contains("Failed to read API key from file"));
+    }
+
+    #[test]
+    fn resolve_api_key_file_url_with_whitespace() {
+        let test_file = "test_whitespace_key.txt";
+        std::fs::write(test_file, "  sk-whitespace-key-789  \n  ").unwrap();
+
+        let file_url = format!("file://{}", test_file);
+        let result = Anthropic::resolve_api_key(&file_url);
+
+        std::fs::remove_file(test_file).unwrap();
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "sk-whitespace-key-789");
     }
 
     #[test]

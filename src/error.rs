@@ -420,6 +420,11 @@ impl Error {
         matches!(self, Error::ToDo { .. })
     }
 
+    /// Returns true if this error is a validation error.
+    pub fn is_validation(&self) -> bool {
+        matches!(self, Error::Validation { .. })
+    }
+
     /// Returns the request ID associated with this error, if any.
     pub fn request_id(&self) -> Option<&str> {
         match self {
