@@ -1,7 +1,7 @@
 # Claudius
 
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
-![Version](https://img.shields.io/badge/version-0.13.0-green.svg)
+![Version](https://img.shields.io/badge/version-0.14.0-green.svg)
 
 Claudius is a comprehensive Rust SDK for the Anthropic API, providing both low-level API access and a 
 powerful agent framework for building AI-powered applications. This library enables seamless integration 
@@ -71,7 +71,7 @@ Add Claudius to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-claudius = "0.13.0"
+claudius = "0.14.0"
 ```
 
 ## Authentication
