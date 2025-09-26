@@ -9,8 +9,8 @@ use crate::{
     Anthropic, ContentBlock, Error, KnownModel, Message, MessageCreateParams, MessageParam,
     MessageParamContent, MessageRole, Metadata, Model, StopReason, SystemPrompt, ThinkingConfig,
     ToolBash20241022, ToolBash20250124, ToolChoice, ToolParam, ToolResultBlock,
-    ToolResultBlockContent, ToolTextEditor20250124, ToolTextEditor20250429, ToolUnionParam,
-    ToolUseBlock, WebSearchTool20250305, push_or_merge_message,
+    ToolResultBlockContent, ToolTextEditor20250124, ToolTextEditor20250429, ToolTextEditor20250728,
+    ToolUnionParam, ToolUseBlock, WebSearchTool20250305, push_or_merge_message,
 };
 
 //////////////////////////////////////////// ToolResult ////////////////////////////////////////////
@@ -387,6 +387,20 @@ impl<A: Agent> Tool<A> for ToolTextEditor20250429 {
     }
 }
 
+impl<A: Agent> Tool<A> for ToolTextEditor20250728 {
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn callback(&self) -> Box<dyn ToolCallback<A>> {
+        Box::new(TextEditorCallback)
+    }
+
+    fn to_param(&self) -> ToolUnionParam {
+        ToolUnionParam::TextEditor20250728(self.clone())
+    }
+}
+
 impl<A: Agent> Tool<A> for WebSearchTool20250305 {
     fn name(&self) -> String {
         self.name.clone()
@@ -554,6 +568,9 @@ pub trait FileSystem: Send + Sync {
         insert_line: u32,
         new_str: &str,
     ) -> Result<String, std::io::Error>;
+
+    /// Create a file or error if it already exists.
+    async fn create(&self, path: &str, file_text: &str) -> Result<String, std::io::Error>;
 }
 
 /////////////////////////////////////////////// Agent //////////////////////////////////////////////
@@ -903,6 +920,15 @@ pub trait Agent: Send + Sync + Sized {
                 self.insert(&args.path, args.insert_line, &args.new_str)
                     .await
             }
+            "create" => {
+                #[derive(serde::Deserialize)]
+                struct CreateTool {
+                    path: String,
+                    file_text: String,
+                }
+                let args: CreateTool = serde_json::from_value(tool_use.input)?;
+                self.create(&args.path, &args.file_text).await
+            }
             _ => Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
                 format!("{} is not a supported tool", tool_use.name),
@@ -974,6 +1000,18 @@ pub trait Agent: Send + Sync + Sized {
     ) -> Result<String, std::io::Error> {
         if let Some(fs) = self.filesystem().await {
             fs.insert(path, insert_line, new_str).await
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "insert is not supported",
+            ))
+        }
+    }
+
+    /// Create a file or error if it exists.
+    async fn create(&self, path: &str, file_text: &str) -> Result<String, std::io::Error> {
+        if let Some(fs) = self.filesystem().await {
+            fs.create(path, file_text).await
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
@@ -1106,6 +1144,19 @@ impl FileSystem for Path<'_> {
             ))
         }
     }
+
+    async fn create(&self, path: &str, file_text: &str) -> Result<String, std::io::Error> {
+        let path = sanitize_path(self.clone(), path)?;
+        if !path.exists() {
+            std::fs::write(&path, file_text)?;
+            Ok("success".to_string())
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "EEXISTS:  file exists",
+            ))
+        }
+    }
 }
 
 /////////////////////////////////////////////// Mount //////////////////////////////////////////////
@@ -1176,6 +1227,19 @@ impl FileSystem for Mount {
             )),
             Permissions::WriteOnly | Permissions::ReadWrite => {
                 self.fs.insert(path, insert_line, new_str).await
+            }
+        }
+    }
+
+    /// Create a file or error if it already exists.
+    async fn create(&self, path: &str, file_text: &str) -> Result<String, std::io::Error> {
+        match self.perm {
+            Permissions::ReadOnly => Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "insert not allowed with ReadOnly permissions",
+            )),
+            Permissions::WriteOnly | Permissions::ReadWrite => {
+                self.fs.create(path, file_text).await
             }
         }
     }
@@ -1276,6 +1340,11 @@ impl FileSystem for MountHierarchy {
     ) -> Result<String, std::io::Error> {
         let (fs, path) = self.fs_for_path(path)?;
         fs.insert(path.as_str(), insert_line, new_str).await
+    }
+
+    async fn create(&self, path: &str, file_text: &str) -> Result<String, std::io::Error> {
+        let (fs, path) = self.fs_for_path(path)?;
+        fs.create(path.as_str(), file_text).await
     }
 }
 
@@ -1643,6 +1712,7 @@ mod tests {
         view_result: MockResult,
         str_replace_result: MockResult,
         insert_result: MockResult,
+        create_result: MockResult,
     }
 
     impl MockFileSystem {
@@ -1652,6 +1722,7 @@ mod tests {
                 view_result: MockResult::Ok(format!("view from {name}")),
                 str_replace_result: MockResult::Ok(format!("str_replace from {name}")),
                 insert_result: MockResult::Ok(format!("insert from {name}")),
+                create_result: MockResult::Ok(format!("create from {name}")),
             }
         }
 
@@ -1661,6 +1732,7 @@ mod tests {
                 view_result: MockResult::Err(kind, format!("view error from {name}")),
                 str_replace_result: MockResult::Err(kind, format!("str_replace error from {name}")),
                 insert_result: MockResult::Err(kind, format!("insert error from {name}")),
+                create_result: MockResult::Err(kind, format!("create error from {name}")),
             }
         }
     }
@@ -1704,6 +1776,10 @@ mod tests {
             _new_str: &str,
         ) -> Result<String, std::io::Error> {
             self.insert_result.to_result()
+        }
+
+        async fn create(&self, _path: &str, _file_text: &str) -> Result<String, std::io::Error> {
+            self.create_result.to_result()
         }
     }
 
