@@ -1,0 +1,7 @@
+name: "Error Case - Invalid Model"
+prompt: "Hello, world!"
+model: "nonexistent-model-12345"
+max_tokens: 100
+temperature: 0.5
+expect_error: true
+expected_error_message: "model: nonexistent-model-12345"

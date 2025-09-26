@@ -1,0 +1,15 @@
+name: "Long Response Test"
+prompt: "Explain the concept of memory safety in Rust in detail, covering ownership, borrowing, lifetimes, and how they prevent common memory bugs. Use the word 'dangling' when discussing dangling pointer prevention.  Avoid mentioning techniques unless they are built into rust.  Explicitly tell me about lifetimes and how they help borrow memory.  Avoid discussing garbage collection."
+system: "You are a computer science professor explaining concepts clearly and thoroughly."
+model: "claude-3-5-haiku-latest"
+max_tokens: 1500
+temperature: 0.4
+expected_contains:
+  - "ownership"
+  - "borrow"
+  - "lifetimes"
+  - "memory safety"
+  - "dangling"
+expected_not_contains:
+  - "garbage collector"
+min_response_length: 500
