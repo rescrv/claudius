@@ -1,0 +1,8 @@
+name: "Base Configuration"
+model: "claude-3-5-haiku-latest"
+max_tokens: 100
+temperature: 0.5
+system: "You are a helpful assistant."
+expected_contains:
+  - "helpful"
+min_response_length: 1

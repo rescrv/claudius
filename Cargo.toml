@@ -25,10 +25,19 @@ tokio = { version = "1.36", features = ["full"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 async-trait = "0.1.88"
 utf8path = "0.9.1"
+serde_yaml = "0.9.34"
+arrrg = "0.8.0"
+arrrg_derive = "0.8.0"
+getopts = "0.2.24"
 
 [[bin]]
 name = "median-text"
 path = "src/bin/median-text.rs"
+required-features=["binaries"]
+
+[[bin]]
+name = "claudius-prompt"
+path = "src/bin/claudius-prompt.rs"
 required-features=["binaries"]
 
 [dev-dependencies]

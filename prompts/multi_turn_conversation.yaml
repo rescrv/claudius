@@ -1,0 +1,18 @@
+name: "Multi-turn Conversation Test"
+messages:
+  - role: "user"
+    content: "I'm learning Rust programming."
+  - role: "assistant"
+    content: "That's great! Rust is a wonderful language. What would you like to learn about first?"
+  - role: "user"
+    content: "Tell me about ownership and borrowing."
+system: "You are a helpful Rust programming tutor."
+model: "claude-3-5-haiku-latest"
+max_tokens: 400
+temperature: 0.3
+expected_contains:
+  - "ownership"
+  - "borrowing"
+expected_not_contains:
+  - "garbage collection"
+min_response_length: 100

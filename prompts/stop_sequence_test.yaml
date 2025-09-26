@@ -1,0 +1,15 @@
+name: "Stop Sequence Test"
+prompt: "Count from 1 to 100, separating each number with a comma."
+model: "claude-3-5-haiku-latest"
+max_tokens: 500
+temperature: 0.0
+stop_sequences:
+  - "10"
+expected_contains:
+  - "1"
+  - "2"
+  - "9"
+expected_not_contains:
+  - "11"
+  - "12"
+  - "100"

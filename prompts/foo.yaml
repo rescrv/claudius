@@ -1,0 +1,6 @@
+inherits: "../base.yaml"
+name: "Foo Test"
+prompt: "What is 2 + 2?"
+expected_contains:
+  - "4"
+max_tokens: 50

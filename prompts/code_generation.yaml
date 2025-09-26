@@ -1,0 +1,12 @@
+name: "Code Generation Test"
+prompt: "Write a simple Rust function that adds two numbers. Include proper documentation and return type annotation."
+system: "You are an expert Rust programmer who writes clean, well-documented code."
+model: "claude-3-5-haiku-latest"
+max_tokens: 500
+temperature: 0.2
+expected_contains:
+  - "fn"
+  - "///"
+expected_not_contains:
+  - "unsafe"
+min_response_length: 50
