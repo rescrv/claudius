@@ -1,7 +1,7 @@
 # Claudius
 
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
-![Version](https://img.shields.io/badge/version-0.14.0-green.svg)
+![Version](https://img.shields.io/badge/version-0.15.0-green.svg)
 
 Claudius is a comprehensive Rust SDK for the Anthropic API, providing both low-level API access and a 
 powerful agent framework for building AI-powered applications. This library enables seamless integration 
@@ -60,6 +60,8 @@ async fn main() -> claudius::Result<()> {
 - **Built-in Tools**: Filesystem operations, shell commands, text editing, and web search capabilities
 - **Budget System**: Token allocation and tracking for cost control and resource management
 - **Streaming Support**: Real-time streaming for conversational applications
+- **Prompt Testing Framework**: Comprehensive testing utilities for prompts with assertions and configurable test vectors
+- **Command Line Tools**: Ready-to-use binaries for prompt testing and text processing
 - **Strongly Typed**: Take advantage of Rust's type system for predictable API interactions
 - **Async First**: Built with async/await for efficient I/O operations
 - **Error Handling**: Comprehensive error types for robust application development
@@ -71,7 +73,7 @@ Add Claudius to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-claudius = "0.14.0"
+claudius = "0.15.0"
 ```
 
 ## Authentication
@@ -336,6 +338,219 @@ use claudius::{ToolBash20250124, Tool};
 let bash_tool = ToolBash20250124::new();
 // Integrated into agent workflows
 ```
+
+## Command Line Tools
+
+Claudius includes several command-line tools for working with the Anthropic API:
+
+### median-text
+
+The `median-text` binary is designed for document transcription improvement. Given multiple transcriptions of the same document, it uses Claude to select and provide the best unified transcription.
+
+```bash
+# Provide the best transcription from multiple files
+cargo run --bin median-text -- transcription1.txt transcription2.txt transcription3.txt
+
+# The tool will output the improved/unified transcription to stdout
+```
+
+This tool is particularly useful for:
+- Improving OCR results by comparing multiple scans
+- Consolidating different transcription attempts
+- Cleaning up and unifying document content
+
+The tool uses Claude Opus with thinking enabled to analyze the provided documents and output a single, improved transcription.
+
+## Prompt Testing Framework
+
+Claudius includes a comprehensive prompt testing framework that allows you to test prompts against the Anthropic API with configurable assertions and test vectors. This is especially useful for ensuring prompt reliability, regression testing, and CI/CD integration.
+
+### Using the claudius-prompt Binary
+
+The `claudius-prompt` binary provides a command-line interface for running prompt tests:
+
+```bash
+# Run a simple text prompt file
+cargo run --bin claudius-prompt -- prompts/basic_hello.txt
+
+# Run a YAML configuration with assertions
+cargo run --bin claudius-prompt -- prompts/simple_math.yaml
+
+# Run multiple tests
+cargo run --bin claudius-prompt -- prompts/test1.yaml prompts/test2.yaml
+
+# Test mode with exit codes (useful for CI/CD)
+cargo run --bin claudius-prompt -- --test prompts/*.yaml
+
+# Get verbose output with timing and token information
+cargo run --bin claudius-prompt -- --verbose prompts/simple_math.yaml
+
+# Output in different formats
+cargo run --bin claudius-prompt -- --format json prompts/test.yaml
+cargo run --bin claudius-prompt -- --format yaml prompts/test.yaml
+```
+
+### Prompt Test Configuration
+
+Test configurations can be written in YAML format with comprehensive assertion support:
+
+```yaml
+name: "Simple Math Test"
+prompt: "What is 2 + 2? Please respond with just the number."
+model: "claude-3-5-haiku-latest"
+max_tokens: 50
+temperature: 0.0
+system: "You are a helpful math assistant."
+
+# Assertion configuration
+expected_contains:
+  - "4"
+expected_not_contains:
+  - "5"
+  - "3"
+min_response_length: 1
+max_response_length: 10
+```
+
+Advanced configurations support multi-turn conversations, tool usage, and inheritance:
+
+```yaml
+name: "Multi-turn Conversation Test"
+messages:
+  - role: "user"
+    content: "I'm learning Rust programming."
+  - role: "assistant"
+    content: "That's great! What would you like to learn about first?"
+  - role: "user"
+    content: "Tell me about ownership and borrowing."
+system: "You are a helpful Rust programming tutor."
+model: "claude-3-5-haiku-latest"
+max_tokens: 400
+temperature: 0.3
+expected_contains:
+  - "ownership"
+  - "borrowing"
+expected_not_contains:
+  - "garbage collection"
+min_response_length: 100
+```
+
+Configuration inheritance allows for reusable base configurations:
+
+```yaml
+# base.yaml
+name: "Base Configuration"
+model: "claude-3-5-haiku-latest"
+max_tokens: 100
+temperature: 0.5
+system: "You are a helpful assistant."
+
+# specific_test.yaml
+inherits: "../base.yaml"
+name: "Specific Test"
+prompt: "What is the capital of France?"
+expected_contains:
+  - "Paris"
+```
+
+File references enable modular prompt and system configurations:
+
+```yaml
+# Using external files for prompt and system content
+name: "File Reference Test"
+prompt: "prompt.yaml"      # Contents loaded from prompt.yaml
+system: "system.md"        # Contents loaded from system.md
+model: "claude-3-5-haiku-latest"
+max_tokens: 400
+expected_contains:
+  - "helpful"
+```
+
+File references support relative paths and work with configuration inheritance:
+
+```yaml
+# In subdirectory: prompts/test.yaml
+name: "Modular Configuration"
+prompt: "prompt.yaml"           # Loaded from prompts/prompt.yaml
+system: "../common/system.md"  # Loaded from common/system.md
+inherits: "../base.yaml"        # Configuration inheritance
+```
+
+### Programmatic Testing
+
+You can also use the testing framework programmatically in Rust:
+
+```rust
+use claudius::{Anthropic, PromptTestConfig};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Anthropic::new(None)?;
+
+    // Create a test configuration
+    let config = PromptTestConfig::new("What is 2 + 2?")
+        .with_name("Simple Math Test")
+        .with_model("claude-3-5-haiku-latest")
+        .with_max_tokens(50)
+        .with_temperature(0.0)
+        .expect_contains("4")
+        .expect_not_contains("5")
+        .with_min_length(1)
+        .with_max_length(10);
+
+    // Run the test
+    let result = config.run(&client).await?;
+
+    // Check results
+    println!("Response: {}", result.response);
+    println!("Assertions passed: {}", result.assertions_passed);
+    println!("Duration: {:?}", result.duration);
+    println!("Input tokens: {}", result.input_tokens);
+    println!("Output tokens: {}", result.output_tokens);
+
+    if !result.assertions_passed {
+        for failure in &result.assertion_failures {
+            eprintln!("Assertion failed: {}", failure);
+        }
+    }
+
+    Ok(())
+}
+```
+
+### Assertion Types
+
+The testing framework supports several types of assertions:
+
+- **Content assertions**: `expected_contains` and `expected_not_contains` check for specific text in responses
+- **Length assertions**: `min_response_length` and `max_response_length` validate response size
+- **Tool call assertions**: `expected_tool_calls` verifies that specific tools were called (when tools are configured)
+- **Error assertions**: `expect_error` and `expected_error_message` test error handling
+
+### File References
+
+The framework supports loading content from external files to enable modular configurations:
+
+- **Prompt files**: Use `prompt: "prompt.yaml"` to load prompt content from external files
+- **System files**: Use `system: "system.md"` to load system prompts from external files
+- **Relative paths**: File references are resolved relative to the configuration file's directory
+- **Security**: Only files named exactly `prompt.yaml` or `system.md` are automatically resolved
+- **Compatibility**: File references work seamlessly with configuration inheritance
+
+### CI/CD Integration
+
+The `claudius-prompt` binary is designed for CI/CD integration:
+
+```yaml
+# .github/workflows/prompt-tests.yml
+- name: Run prompt tests
+  run: |
+    cargo run --bin claudius-prompt -- --test --verbose prompts/*.yaml
+  env:
+    CLAUDIUS_API_KEY: ${{ secrets.CLAUDIUS_API_KEY }}
+```
+
+The binary exits with status code 0 on success and 1 on failure when using the `--test` flag, making it suitable for automated testing pipelines.
 
 ## Custom Tools
 
