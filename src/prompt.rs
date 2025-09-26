@@ -261,18 +261,39 @@ impl PromptTestConfig {
         let content = std::fs::read_to_string(path)?;
         let mut config: Self = serde_yaml::from_str(&content)?;
 
+        // Determine the directory containing the current file for relative path resolution
+        let current_dir = if let Some(base) = base_dir {
+            base.to_path_buf()
+        } else {
+            path.parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf()
+        };
+
+        // Handle prompt file reference (if prompt basename is "prompt.yaml", resolve relative to containing file)
+        if let Some(ref prompt_value) = config.prompt {
+            let prompt_path = Path::new(prompt_value);
+            if prompt_path.file_name().and_then(|n| n.to_str()) == Some("prompt.yaml")
+                && !prompt_path.is_absolute()
+            {
+                let prompt_file_path = current_dir.join(prompt_value);
+                config.prompt = Some(std::fs::read_to_string(&prompt_file_path)?);
+            }
+        }
+
+        // Handle system file reference (if system basename is "system.md", resolve relative to containing file)
+        if let Some(ref system_value) = config.system {
+            let system_path = Path::new(system_value);
+            if system_path.file_name().and_then(|n| n.to_str()) == Some("system.md")
+                && !system_path.is_absolute()
+            {
+                let system_file_path = current_dir.join(system_value);
+                config.system = Some(std::fs::read_to_string(&system_file_path)?);
+            }
+        }
+
         // Handle inheritance
         if let Some(ref inherits_file) = config.inherits {
-            // Determine base directory for inheritance
-            let inherit_base_dir = if let Some(base) = base_dir {
-                base.to_path_buf()
-            } else {
-                // Use directory containing the current file as base
-                path.parent()
-                    .unwrap_or_else(|| Path::new("."))
-                    .to_path_buf()
-            };
-
             // Security check: prevent absolute paths, and parent directory traversal except for base.yaml
             let path_obj = Path::new(inherits_file);
             let filename = path_obj.file_name().and_then(|n| n.to_str());
@@ -294,9 +315,8 @@ impl PromptTestConfig {
                 .into());
             }
 
-            let inherit_path = inherit_base_dir.join(inherits_file);
-            let base_config =
-                Self::from_file_with_base_dir(&inherit_path, Some(&inherit_base_dir))?;
+            let inherit_path = current_dir.join(inherits_file);
+            let base_config = Self::from_file_with_base_dir(&inherit_path, Some(&current_dir))?;
 
             // Merge base config with current config (current takes precedence)
             config = base_config.merge_with(config);
@@ -886,6 +906,177 @@ prompt: "Child prompt 2"
         let loaded2 = PromptTestConfig::from_file(&child2_file).unwrap();
         assert_eq!(loaded2.name, Some("Child Config 2".to_string()));
         assert_eq!(loaded2.system, Some("Base system".to_string()));
+
+        // Clean up
+        std::fs::remove_dir_all(&test_dir).ok();
+    }
+
+    #[test]
+    fn relative_prompt_yaml_resolution() {
+        // Create temporary directory for test files
+        let temp_dir = std::env::temp_dir();
+        let test_dir = temp_dir.join("test_relative_prompt_resolution");
+        std::fs::create_dir_all(&test_dir).unwrap();
+
+        // Create prompt.yaml file
+        let prompt_content = "This is the content from prompt.yaml file";
+        let prompt_file = test_dir.join("prompt.yaml");
+        std::fs::write(&prompt_file, prompt_content).unwrap();
+
+        // Create config file that references prompt.yaml as basename
+        let config_yaml = r#"
+name: "Relative Prompt Test"
+prompt: "prompt.yaml"
+model: "claude-3-5-haiku-latest"
+max_tokens: 100
+"#;
+        let config_file = test_dir.join("config.yaml");
+        std::fs::write(&config_file, config_yaml).unwrap();
+
+        // Load the config (should resolve prompt.yaml relative to config file)
+        let loaded = PromptTestConfig::from_file(&config_file).unwrap();
+
+        assert_eq!(loaded.name, Some("Relative Prompt Test".to_string()));
+        assert_eq!(loaded.prompt, Some(prompt_content.to_string()));
+
+        // Clean up
+        std::fs::remove_dir_all(&test_dir).ok();
+    }
+
+    #[test]
+    fn relative_system_md_resolution() {
+        // Create temporary directory for test files
+        let temp_dir = std::env::temp_dir();
+        let test_dir = temp_dir.join("test_relative_system_resolution");
+        std::fs::create_dir_all(&test_dir).unwrap();
+
+        // Create system.md file
+        let system_content = "You are a helpful assistant from system.md file";
+        let system_file = test_dir.join("system.md");
+        std::fs::write(&system_file, system_content).unwrap();
+
+        // Create config file that references system.md as basename
+        let config_yaml = r#"
+name: "Relative System Test"
+prompt: "Hello world"
+system: "system.md"
+model: "claude-3-5-haiku-latest"
+max_tokens: 100
+"#;
+        let config_file = test_dir.join("config.yaml");
+        std::fs::write(&config_file, config_yaml).unwrap();
+
+        // Load the config (should resolve system.md relative to config file)
+        let loaded = PromptTestConfig::from_file(&config_file).unwrap();
+
+        assert_eq!(loaded.name, Some("Relative System Test".to_string()));
+        assert_eq!(loaded.prompt, Some("Hello world".to_string()));
+        assert_eq!(loaded.system, Some(system_content.to_string()));
+
+        // Clean up
+        std::fs::remove_dir_all(&test_dir).ok();
+    }
+
+    #[test]
+    fn relative_path_resolution_with_subdirectory() {
+        // Create temporary directory structure for test files
+        let temp_dir = std::env::temp_dir();
+        let test_dir = temp_dir.join("test_relative_path_subdirs");
+        let subdir = test_dir.join("configs");
+        std::fs::create_dir_all(&subdir).unwrap();
+
+        // Create prompt.yaml in subdirectory
+        let prompt_content = "Prompt from subdirectory";
+        let prompt_file = subdir.join("prompt.yaml");
+        std::fs::write(&prompt_file, prompt_content).unwrap();
+
+        // Create system.md in subdirectory
+        let system_content = "System from subdirectory";
+        let system_file = subdir.join("system.md");
+        std::fs::write(&system_file, system_content).unwrap();
+
+        // Create config file in subdirectory that references both
+        let config_yaml = r#"
+name: "Subdirectory Test"
+prompt: "prompt.yaml"
+system: "system.md"
+model: "claude-3-5-haiku-latest"
+"#;
+        let config_file = subdir.join("config.yaml");
+        std::fs::write(&config_file, config_yaml).unwrap();
+
+        // Load the config (should resolve files relative to subdirectory)
+        let loaded = PromptTestConfig::from_file(&config_file).unwrap();
+
+        assert_eq!(loaded.name, Some("Subdirectory Test".to_string()));
+        assert_eq!(loaded.prompt, Some(prompt_content.to_string()));
+        assert_eq!(loaded.system, Some(system_content.to_string()));
+
+        // Clean up
+        std::fs::remove_dir_all(&test_dir).ok();
+    }
+
+    #[test]
+    fn absolute_paths_not_resolved() {
+        // Test that absolute paths in prompt/system fields are not resolved
+        let temp_dir = std::env::temp_dir();
+        let test_dir = temp_dir.join("test_absolute_paths_not_resolved");
+        std::fs::create_dir_all(&test_dir).unwrap();
+
+        // Create config file with absolute path references (should NOT be resolved)
+        let config_yaml = r#"
+name: "Absolute Path Test"
+prompt: "/absolute/path/prompt.yaml"
+system: "/absolute/path/system.md"
+model: "claude-3-5-haiku-latest"
+"#;
+        let config_file = test_dir.join("config.yaml");
+        std::fs::write(&config_file, config_yaml).unwrap();
+
+        // Load the config (absolute paths should remain as literal strings)
+        let loaded = PromptTestConfig::from_file(&config_file).unwrap();
+
+        assert_eq!(loaded.name, Some("Absolute Path Test".to_string()));
+        assert_eq!(
+            loaded.prompt,
+            Some("/absolute/path/prompt.yaml".to_string())
+        );
+        assert_eq!(loaded.system, Some("/absolute/path/system.md".to_string()));
+
+        // Clean up
+        std::fs::remove_dir_all(&test_dir).ok();
+    }
+
+    #[test]
+    fn include_system_md_from_parent_directory() {
+        // Create temporary directory structure for test files
+        let temp_dir = std::env::temp_dir();
+        let test_dir = temp_dir.join("test_parent_system_include");
+        let subdir = test_dir.join("prompts");
+        std::fs::create_dir_all(&subdir).unwrap();
+
+        // Create system.md in parent directory
+        let system_content = "# Parent System\n\nYou are an AI from the parent directory.";
+        let system_file = test_dir.join("system.md");
+        std::fs::write(&system_file, system_content).unwrap();
+
+        // Create config file in subdirectory that references parent system.md
+        let config_yaml = r#"
+name: "Parent System Test"
+prompt: "Hello world"
+system: "../system.md"
+model: "claude-3-5-haiku-latest"
+max_tokens: 100
+"#;
+        let config_file = subdir.join("test.yaml");
+        std::fs::write(&config_file, config_yaml).unwrap();
+
+        // Load the config (should resolve system.md from parent directory)
+        let loaded = PromptTestConfig::from_file(&config_file).unwrap();
+
+        assert_eq!(loaded.name, Some("Parent System Test".to_string()));
+        assert_eq!(loaded.prompt, Some("Hello world".to_string()));
+        assert_eq!(loaded.system, Some(system_content.to_string()));
 
         // Clean up
         std::fs::remove_dir_all(&test_dir).ok();
