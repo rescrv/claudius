@@ -388,14 +388,20 @@ impl<A: Agent> Tool<A> for ToolTextEditor20250429 {
 }
 
 impl<A: Agent> Tool<A> for ToolTextEditor20250728 {
+    /// Return the name of the text editor tool.
     fn name(&self) -> String {
         self.name.clone()
     }
 
+    /// Return a callback that handles text editor operations.
+    ///
+    /// This uses the same [`TextEditorCallback`] as other text editor tool versions,
+    /// providing consistent functionality across tool versions.
     fn callback(&self) -> Box<dyn ToolCallback<A>> {
         Box::new(TextEditorCallback)
     }
 
+    /// Convert this tool to the union parameter type for API serialization.
     fn to_param(&self) -> ToolUnionParam {
         ToolUnionParam::TextEditor20250728(self.clone())
     }
@@ -570,6 +576,21 @@ pub trait FileSystem: Send + Sync {
     ) -> Result<String, std::io::Error>;
 
     /// Create a file or error if it already exists.
+    ///
+    /// This method creates a new file with the specified content. If the file already exists,
+    /// it returns an error with [`std::io::ErrorKind::AlreadyExists`].
+    ///
+    /// # Parameters
+    ///
+    /// * `path` - The path where the file should be created
+    /// * `file_text` - The content to write to the new file
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The file already exists
+    /// - Permission is denied
+    /// - Other I/O errors occur during file creation
     async fn create(&self, path: &str, file_text: &str) -> Result<String, std::io::Error>;
 }
 
@@ -921,9 +942,12 @@ pub trait Agent: Send + Sync + Sized {
                     .await
             }
             "create" => {
+                /// Tool parameters for file creation.
                 #[derive(serde::Deserialize)]
                 struct CreateTool {
+                    /// Path where the new file should be created.
                     path: String,
+                    /// Content to write to the new file.
                     file_text: String,
                 }
                 let args: CreateTool = serde_json::from_value(tool_use.input)?;
@@ -1009,13 +1033,45 @@ pub trait Agent: Send + Sync + Sized {
     }
 
     /// Create a file or error if it exists.
+    ///
+    /// This is a convenience method that delegates to the underlying filesystem's
+    /// `create` method. The file will be created with the specified content only
+    /// if it doesn't already exist.
+    ///
+    /// # Parameters
+    ///
+    /// * `path` - The path where the file should be created
+    /// * `file_text` - The content to write to the new file
+    ///
+    /// # Returns
+    ///
+    /// Returns "success" on successful file creation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No filesystem is available
+    /// - The file already exists
+    /// - Permission is denied
+    /// - Other I/O errors occur
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use claudius::Agent;
+    /// # async fn example<A: Agent>(agent: &A) -> Result<(), std::io::Error> {
+    /// let result = agent.create("new_file.txt", "Hello, world!").await?;
+    /// assert_eq!(result, "success");
+    /// # Ok(())
+    /// # }
+    /// ```
     async fn create(&self, path: &str, file_text: &str) -> Result<String, std::io::Error> {
         if let Some(fs) = self.filesystem().await {
             fs.create(path, file_text).await
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
-                "insert is not supported",
+                "create is not supported",
             ))
         }
     }
@@ -1145,6 +1201,15 @@ impl FileSystem for Path<'_> {
         }
     }
 
+    /// Create a file within the filesystem path, ensuring it doesn't already exist.
+    ///
+    /// This implementation uses atomic file creation semantics - the file is only
+    /// created if it doesn't already exist, preventing accidental overwrites.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`std::io::ErrorKind::AlreadyExists`] if the file already exists.
+    /// Returns other I/O errors if file creation fails for other reasons.
     async fn create(&self, path: &str, file_text: &str) -> Result<String, std::io::Error> {
         let path = sanitize_path(self.clone(), path)?;
         if !path.exists() {
@@ -1232,11 +1297,19 @@ impl FileSystem for Mount {
     }
 
     /// Create a file or error if it already exists.
+    ///
+    /// This method respects the mount's permission settings and delegates to the
+    /// underlying filesystem for actual file creation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`std::io::ErrorKind::PermissionDenied`] if the mount has read-only permissions.
+    /// Otherwise, returns any errors from the underlying filesystem.
     async fn create(&self, path: &str, file_text: &str) -> Result<String, std::io::Error> {
         match self.perm {
             Permissions::ReadOnly => Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
-                "insert not allowed with ReadOnly permissions",
+                "create not allowed with ReadOnly permissions",
             )),
             Permissions::WriteOnly | Permissions::ReadWrite => {
                 self.fs.create(path, file_text).await

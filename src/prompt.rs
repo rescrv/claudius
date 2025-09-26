@@ -1,7 +1,24 @@
 //! Prompt testing utilities for the Claudius library.
 //!
 //! This module provides structures and functions for testing prompts against
-//! the Anthropic API, with support for file-based configurations and unit testing.
+//! the Anthropic API, with support for file-based configurations, inheritance,
+//! file reference resolution, and comprehensive unit testing capabilities.
+//!
+//! ## File Reference Resolution
+//!
+//! The configuration system automatically loads content from external files when:
+//! - `prompt` field contains a relative path ending with "prompt.yaml"
+//! - `system` field contains a relative path ending with "system.md"
+//!
+//! This enables clean separation of configuration from content while maintaining
+//! security through filename restrictions.
+//!
+//! ## Security Model
+//!
+//! File operations are restricted for security:
+//! - Only specific filenames ("prompt.yaml", "system.md") are automatically resolved
+//! - Absolute paths are treated as literal strings, not file references
+//! - Configuration inheritance only allows parent directory traversal for "base.yaml" files
 
 use crate::{
     Anthropic, ContentBlock, KnownModel, MessageCreateParams, MessageParam, MessageRole, Model,
@@ -11,7 +28,57 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-/// Configuration for a prompt test.
+/// Configuration for a prompt test with support for inheritance and file references.
+///
+/// This structure represents a complete prompt test configuration that can be loaded
+/// from YAML files, inherit from base configurations, and automatically resolve
+/// file references for content.
+///
+/// # File Reference Resolution
+///
+/// When loading from files, the following fields support automatic file resolution:
+/// - `prompt`: If the value is a relative path ending with "prompt.yaml", the file content is loaded
+/// - `system`: If the value is a relative path ending with "system.md", the file content is loaded
+///
+/// # Security Considerations
+///
+/// File resolution is restricted for security:
+/// - Only relative paths are resolved (absolute paths remain as literal strings)
+/// - Only specific filenames ("prompt.yaml", "system.md") trigger file loading
+/// - Files are resolved relative to the configuration file's directory
+///
+/// # Examples
+///
+/// ## Creating a basic configuration:
+/// ```rust
+/// # use claudius::PromptTestConfig;
+/// let config = PromptTestConfig::new("What is the capital of France?")
+///     .with_model("claude-3-5-haiku-latest")
+///     .expect_contains("Paris");
+/// ```
+///
+/// ## Loading from file with automatic file references:
+/// If `test.yaml` contains:
+/// ```yaml
+/// name: "Geography Test"
+/// prompt: "prompt.yaml"    # Content loaded from prompt.yaml
+/// system: "system.md"      # Content loaded from system.md
+/// model: "claude-3-5-haiku-latest"
+/// expected_contains:
+///   - "capital"
+/// ```
+///
+/// Then:
+/// ```rust,no_run
+/// # use claudius::PromptTestConfig;
+/// # use std::error::Error;
+/// # fn main() -> Result<(), Box<dyn Error>> {
+/// let config = PromptTestConfig::from_file("test.yaml")?;
+/// // config.prompt now contains the contents of prompt.yaml
+/// // config.system now contains the contents of system.md
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptTestConfig {
     /// Base configuration to inherit from (filename within prompts directory).
@@ -21,12 +88,18 @@ pub struct PromptTestConfig {
     pub name: Option<String>,
 
     /// The prompt text to send (for single-turn conversations).
+    ///
+    /// When loading from files, if this field contains a relative path ending with
+    /// "prompt.yaml", the content will be automatically loaded from that file.
     pub prompt: Option<String>,
 
     /// Multi-turn conversation messages (alternative to prompt).
     pub messages: Option<Vec<MessageParam>>,
 
     /// Optional system prompt.
+    ///
+    /// When loading from files, if this field contains a relative path ending with
+    /// "system.md", the content will be automatically loaded from that file.
     pub system: Option<String>,
 
     /// Model to use for testing.
@@ -72,13 +145,11 @@ pub struct PromptTestConfig {
     pub expected_error_message: Option<String>,
 }
 
-fn default_model() -> String {
-    "claude-3-5-haiku-latest".to_string()
-}
+/// Default model to use for prompt tests when none is specified.
+const DEFAULT_MODEL: &str = "claude-3-5-haiku-latest";
 
-fn default_max_tokens() -> u32 {
-    1000
-}
+/// Default maximum tokens for prompt tests when none is specified.
+const DEFAULT_MAX_TOKENS: u32 = 1000;
 
 /// Result of running a prompt test.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +184,14 @@ pub struct PromptTestResult {
 
 impl PromptTestConfig {
     /// Create a new prompt test configuration with just a prompt.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use claudius::PromptTestConfig;
+    /// let config = PromptTestConfig::new("What is the capital of France?");
+    /// assert_eq!(config.prompt, Some("What is the capital of France?".to_string()));
+    /// ```
     pub fn new(prompt: impl Into<String>) -> Self {
         Self {
             inherits: None,
@@ -138,6 +217,20 @@ impl PromptTestConfig {
     }
 
     /// Create a new multi-turn conversation test.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use claudius::{PromptTestConfig, MessageParam};
+    /// let messages = vec![
+    ///     MessageParam::user("Hello"),
+    ///     MessageParam::assistant("Hi there! How can I help you?"),
+    ///     MessageParam::user("What's the weather like?"),
+    /// ];
+    /// let config = PromptTestConfig::new_conversation(messages);
+    /// assert!(config.messages.is_some());
+    /// assert!(config.prompt.is_none());
+    /// ```
     pub fn new_conversation(messages: Vec<MessageParam>) -> Self {
         Self {
             inherits: None,
@@ -247,12 +340,115 @@ impl PromptTestConfig {
         self
     }
 
-    /// Load a prompt test configuration from a YAML file with inheritance support.
+    /// Load a prompt test configuration from a YAML file with inheritance and file reference support.
+    ///
+    /// This method provides several key features:
+    ///
+    /// ## Configuration Inheritance
+    /// Supports configuration inheritance via the `inherits` field, allowing you to build
+    /// configuration hierarchies. Security restrictions apply: only relative paths are allowed,
+    /// and parent directory traversal is only permitted for `base.yaml` files.
+    ///
+    /// ## File Reference Resolution
+    /// Automatically loads content from external files when:
+    /// - `prompt` field contains a relative path ending with "prompt.yaml"
+    /// - `system` field contains a relative path ending with "system.md"
+    ///
+    /// Files are resolved relative to the configuration file's directory. Absolute paths
+    /// are treated as literal strings for security reasons.
+    ///
+    /// # Examples
+    ///
+    /// ## Basic usage:
+    /// ```rust,no_run
+    /// # use claudius::PromptTestConfig;
+    /// # use std::error::Error;
+    /// # fn main() -> Result<(), Box<dyn Error>> {
+    /// let config = PromptTestConfig::from_file("test_config.yaml")?;
+    /// println!("Loaded test: {:?}", config.name);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// ## File references:
+    /// If your config file contains:
+    /// ```yaml
+    /// name: "My Test"
+    /// prompt: "prompt.yaml"     # This file will be loaded
+    /// system: "system.md"       # This file will be loaded
+    /// model: "claude-3-5-haiku-latest"
+    /// ```
+    ///
+    /// The content of `prompt.yaml` and `system.md` (relative to the config file)
+    /// will be automatically loaded into the `prompt` and `system` fields.
+    ///
+    /// ## Inheritance with file references:
+    /// ```yaml
+    /// inherits: "../base.yaml"   # Inheritance (base.yaml only for parent dirs)
+    /// name: "Specialized Test"
+    /// prompt: "custom_prompt.yaml"  # File reference
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The file cannot be read
+    /// - The YAML is invalid
+    /// - Referenced `prompt.yaml` or `system.md` files cannot be read
+    /// - Inheritance files use absolute paths or unsafe traversal
+    /// - Inherited files cannot be found or loaded
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
         Self::from_file_with_base_dir(path, None)
     }
 
-    /// Load a prompt test configuration from a YAML file with a specific base directory for inheritance.
+    /// Load a prompt test configuration from a YAML file with a specific base directory.
+    ///
+    /// This is the core method that handles both configuration inheritance and file
+    /// reference resolution. The `base_dir` parameter allows you to override the
+    /// directory used for resolving relative file paths.
+    ///
+    /// ## File Reference Resolution
+    /// Files are automatically loaded when:
+    /// - The `prompt` field contains a relative path ending with "prompt.yaml"
+    /// - The `system` field contains a relative path ending with "system.md"
+    ///
+    /// Only these specific filenames are resolved for security reasons. Other filenames
+    /// or absolute paths are treated as literal strings.
+    ///
+    /// ## Base Directory Resolution
+    /// - If `base_dir` is provided, all relative paths are resolved relative to it
+    /// - If `base_dir` is None, paths are resolved relative to the config file's directory
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use claudius::PromptTestConfig;
+    /// # use std::path::Path;
+    /// # use std::error::Error;
+    /// # fn main() -> Result<(), Box<dyn Error>> {
+    /// // Load config with custom base directory
+    /// let config = PromptTestConfig::from_file_with_base_dir(
+    ///     "config.yaml",
+    ///     Some(Path::new("/custom/base/dir"))
+    /// )?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Security
+    ///
+    /// File resolution is restricted to specific patterns for security:
+    /// - Only relative paths ending with "prompt.yaml" or "system.md" are resolved
+    /// - Absolute paths are treated as literal strings
+    /// - Parent directory traversal in inheritance is only allowed for "base.yaml" files
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The configuration file cannot be read
+    /// - Referenced prompt.yaml or system.md files cannot be read
+    /// - The YAML syntax is invalid
+    /// - Inheritance security restrictions are violated
     pub fn from_file_with_base_dir<P: AsRef<Path>>(
         path: P,
         base_dir: Option<&Path>,
@@ -397,16 +593,44 @@ impl PromptTestConfig {
     }
 
     /// Run the prompt test using the provided Anthropic client.
+    ///
+    /// This method executes the prompt against the Anthropic API and validates
+    /// all configured assertions. It handles both successful responses and API errors
+    /// gracefully, allowing tests to verify error conditions.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use claudius::{Anthropic, PromptTestConfig};
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Anthropic::new(None)?;
+    /// let config = PromptTestConfig::new("Hello, world!")
+    ///     .expect_contains("hello")
+    ///     .with_min_length(5);
+    ///
+    /// let result = config.run(&client).await?;
+    /// assert!(result.api_success);
+    /// println!("Response: {}", result.response);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`crate::Error`] if:
+    /// - Neither `prompt` nor `messages` is provided
+    /// - Invalid parameter values (e.g., temperature out of range)
+    /// - Other validation errors during request building
     pub async fn run(&self, client: &Anthropic) -> Result<PromptTestResult, crate::Error> {
         let start = Instant::now();
 
         // Parse the model
-        let default_model_str = default_model();
-        let model_str = self.model.as_ref().unwrap_or(&default_model_str);
+        let model_str = self.model.as_deref().unwrap_or(DEFAULT_MODEL);
         let model = if let Ok(known) = model_str.parse::<KnownModel>() {
             Model::Known(known)
         } else {
-            Model::Custom(model_str.clone())
+            Model::Custom(model_str.to_string())
         };
 
         // Build messages from either prompt or messages
@@ -425,7 +649,7 @@ impl PromptTestConfig {
         };
 
         // Build the request parameters
-        let max_tokens = self.max_tokens.unwrap_or(default_max_tokens());
+        let max_tokens = self.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS);
         let mut params = MessageCreateParams::new(max_tokens, messages, model);
 
         // Add system prompt if provided
@@ -620,7 +844,25 @@ impl PromptTestConfig {
 
 /// Helper function for unit tests - runs a prompt test and returns the result.
 ///
-/// The input is treated as a literal prompt string.
+/// The input is treated as a literal prompt string. This is a convenience function
+/// that creates a client, builds a basic test configuration, and runs it.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # use claudius::test_prompt;
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// let result = test_prompt("What is 2 + 2?").await?;
+/// assert!(result.api_success);
+/// assert!(result.response.len() > 0);
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if the client cannot be created or the API call fails.
 pub async fn test_prompt(
     input: &str,
 ) -> Result<PromptTestResult, Box<dyn std::error::Error + Send + Sync>> {
@@ -637,6 +879,22 @@ pub async fn test_prompt(
 }
 
 /// Assert that a prompt test result contains specific text.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # use claudius::{test_prompt, assert_contains};
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// let result = test_prompt("What is the capital of France?").await?;
+/// assert_contains(&result, "Paris");
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # Panics
+///
+/// Panics if the response does not contain the expected text.
 pub fn assert_contains(result: &PromptTestResult, expected: &str) {
     assert!(
         result.response.contains(expected),
@@ -647,6 +905,22 @@ pub fn assert_contains(result: &PromptTestResult, expected: &str) {
 }
 
 /// Assert that a prompt test result does not contain specific text.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # use claudius::{test_prompt, assert_not_contains};
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// let result = test_prompt("What is the capital of France?").await?;
+/// assert_not_contains(&result, "London");
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # Panics
+///
+/// Panics if the response contains the unexpected text.
 pub fn assert_not_contains(result: &PromptTestResult, unexpected: &str) {
     assert!(
         !result.response.contains(unexpected),
@@ -657,6 +931,22 @@ pub fn assert_not_contains(result: &PromptTestResult, unexpected: &str) {
 }
 
 /// Assert that a prompt test result has a minimum length.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # use claudius::{test_prompt, assert_min_length};
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// let result = test_prompt("Write a short story").await?;
+/// assert_min_length(&result, 100);
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # Panics
+///
+/// Panics if the response is shorter than the minimum length.
 pub fn assert_min_length(result: &PromptTestResult, min_length: usize) {
     assert!(
         result.response.len() >= min_length,
@@ -668,6 +958,22 @@ pub fn assert_min_length(result: &PromptTestResult, min_length: usize) {
 }
 
 /// Assert that a prompt test result has a maximum length.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # use claudius::{test_prompt, assert_max_length};
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// let result = test_prompt("Say hello").await?;
+/// assert_max_length(&result, 50);
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # Panics
+///
+/// Panics if the response is longer than the maximum length.
 pub fn assert_max_length(result: &PromptTestResult, max_length: usize) {
     assert!(
         result.response.len() <= max_length,
@@ -679,6 +985,28 @@ pub fn assert_max_length(result: &PromptTestResult, max_length: usize) {
 }
 
 /// Assert that all built-in assertions in the test config passed.
+///
+/// This is a convenience function for checking that all assertions configured
+/// in the test (like `expected_contains`, `min_response_length`, etc.) passed.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # use claudius::{PromptTestConfig, Anthropic, assert_test_passed};
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = Anthropic::new(None)?;
+/// let config = PromptTestConfig::new("What is 2 + 2?")
+///     .expect_contains("4");
+/// let result = config.run(&client).await?;
+/// assert_test_passed(&result);
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # Panics
+///
+/// Panics if any of the built-in assertions failed.
 pub fn assert_test_passed(result: &PromptTestResult) {
     if !result.assertions_passed {
         panic!(
