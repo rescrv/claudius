@@ -60,7 +60,7 @@ impl Agent for AgentKB {
 async fn main() {
     let client = Anthropic::new(None).unwrap();
     let mut agent = AgentKB::new("kb".into());
-    let budget = Arc::new(Budget::new(10_000));
+    let budget = Arc::new(Budget::from_dollars_flat_rate(0.25, 1000));
     let mut messages = vec![claudius::MessageParam {
         role: claudius::MessageRole::User,
         content: claudius::MessageParamContent::String(
