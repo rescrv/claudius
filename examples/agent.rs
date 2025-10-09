@@ -20,7 +20,7 @@ impl Agent for MyAgent {
 #[tokio::main]
 async fn main() {
     let client = Anthropic::new(None).unwrap();
-    let budget = Arc::new(Budget::new(1024));
+    let budget = Arc::new(Budget::from_dollars_flat_rate(0.25, 1000));
     let mut agent = MyAgent {
         root: Path::from("kb"),
     };

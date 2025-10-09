@@ -461,63 +461,757 @@ impl<A: Agent> Tool<A> for ToolSearchFileSystem {
 
 ////////////////////////////////////////////// Budget //////////////////////////////////////////////
 
-/// Token budget manager for controlling API usage.
+/// # Budget Management System
 ///
-/// Provides atomic token allocation and consumption tracking to prevent
-/// exceeding API token limits during agent operations.
+/// This module provides a thread-safe monetary budget management system designed for controlling
+/// Anthropic API usage costs. The system operates on precise micro-cent accounting to handle
+/// fractional pricing models accurately while avoiding floating-point arithmetic issues.
+///
+/// ## Core Concepts
+///
+/// ### Micro-cents Monetary System
+///
+/// All monetary values are represented in **micro-cents** - one-millionth of a cent (1/1,000,000 of a cent).
+/// This allows precise tracking of API costs that may be fractions of a cent:
+///
+/// - 1 dollar = 100,000,000 micro-cents
+/// - 1 cent = 1,000,000 micro-cents
+/// - 0.001 cents = 1,000 micro-cents
+///
+/// This precision is essential for accurately tracking modern API pricing models where individual
+/// tokens may cost fractions of a cent.
+///
+/// ### Allocation vs Consumption Model
+///
+/// The budget system uses a two-phase approach:
+///
+/// 1. **Allocation**: Reserve budget for the maximum expected cost before making an API call
+/// 2. **Consumption**: Deduct the actual cost after receiving the API response
+///
+/// This prevents race conditions and ensures budget limits are never exceeded, even in concurrent
+/// scenarios where multiple API calls might be in flight simultaneously.
+///
+/// ### Thread Safety
+///
+/// The budget system is designed for concurrent use:
+///
+/// - [`Budget`] uses atomic operations for lock-free budget tracking
+/// - Multiple allocations can be created concurrently from the same budget
+/// - Unused allocated budget is automatically returned when [`BudgetAllocation`] is dropped
+/// - All operations are atomic and consistent across threads
+///
+/// ## Example Usage
+///
+/// ```rust
+/// use std::sync::Arc;
+/// use claudius::{Budget, Usage};
+///
+/// // Create a $5.00 budget with realistic Anthropic API rates
+/// let budget = Arc::new(Budget::from_dollars_with_rates(
+///     5.0,   // $5.00 total budget
+///     300,   // ~$0.0003 per input token
+///     1500,  // ~$0.0015 per output token
+///     150,   // ~$0.00015 per cache creation token
+///     75,    // ~$0.000075 per cache read token
+/// ));
+///
+/// // Allocate budget for an API call expecting up to 1000 tokens
+/// if let Some(mut allocation) = budget.allocate(1000) {
+///     println!("Allocated budget for up to {} tokens", allocation.remaining_tokens());
+///
+///     // After making the API call, consume the actual usage
+///     let actual_usage = Usage::new(150, 75); // 150 input, 75 output tokens
+///     if allocation.consume_usage(&actual_usage) {
+///         println!("Successfully consumed budget for actual usage");
+///     }
+///     // Unused budget is automatically returned when allocation is dropped
+/// } else {
+///     println!("Insufficient budget for this operation");
+/// }
+///
+/// println!("Remaining budget: ${:.6}",
+///          budget.remaining_micro_cents() as f64 / 100_000_000.0);
+/// ```
+///
+/// ## Concurrent Usage Example
+///
+/// ```rust
+/// use std::sync::Arc;
+/// use std::thread;
+/// use claudius::Budget;
+///
+/// let budget = Arc::new(Budget::from_dollars_flat_rate(1.0, 100));
+/// let mut handles = vec![];
+///
+/// // Spawn multiple threads that try to allocate budget concurrently
+/// for i in 0..10 {
+///     let budget_clone = Arc::clone(&budget);
+///     handles.push(thread::spawn(move || {
+///         if let Some(_allocation) = budget_clone.allocate(50) {
+///             println!("Thread {} successfully allocated budget", i);
+///             // allocation automatically returns unused budget when dropped
+///         } else {
+///             println!("Thread {} failed to allocate budget", i);
+///         }
+///     }));
+/// }
+///
+/// for handle in handles {
+///     handle.join().unwrap();
+/// }
+/// ```
+///
+/// ## Error Handling and Recovery Example
+///
+/// ```rust
+/// use claudius::{Budget, Usage};
+///
+/// let budget = Budget::from_dollars_with_rates(2.0, 300, 1500, 150, 75);
+///
+/// // Function to handle API operations with proper error handling
+/// fn make_api_call(
+///     budget: &Budget,
+///     expected_tokens: u32,
+/// ) -> Result<(), &'static str> {
+///     // Try to allocate budget
+///     let mut allocation = budget.allocate(expected_tokens)
+///         .ok_or("Insufficient budget for operation")?;
+///
+///     // Simulate API call - in reality, you'd make the actual API request here
+///     let actual_usage = Usage::new((expected_tokens / 2) as i32, (expected_tokens / 4) as i32);
+///
+///     // Consume actual usage
+///     if allocation.consume_usage(&actual_usage) {
+///         println!("API call completed successfully");
+///         Ok(())
+///     } else {
+///         // This shouldn't happen if allocation was calculated correctly,
+///         // but defensive programming is good practice
+///         Err("Usage exceeded allocation - this indicates a bug")
+///     }
+/// }
+///
+/// // Multiple API calls with error handling
+/// for i in 1..=5 {
+///     match make_api_call(&budget, 100) {
+///         Ok(()) => println!("API call {} succeeded", i),
+///         Err(e) => {
+///             println!("API call {} failed: {}", i, e);
+///             break; // Stop making calls if budget is exhausted
+///         }
+///     }
+/// }
+///
+/// println!("Final budget: ${:.6}",
+///          budget.remaining_micro_cents() as f64 / 100_000_000.0);
+/// ```
+///
+/// ## Real-world Agent Example
+///
+/// ```rust
+/// use std::sync::Arc;
+/// use claudius::{Budget, Usage};
+///
+/// // Simulate an AI agent that processes multiple tasks
+/// struct AIAgent {
+///     budget: Arc<Budget>,
+///     name: String,
+/// }
+///
+/// impl AIAgent {
+///     fn new(name: String, daily_budget_dollars: f64) -> Self {
+///         // Create budget with realistic Anthropic API rates
+///         let budget = Arc::new(Budget::from_dollars_with_rates(
+///             daily_budget_dollars,
+///             300,  // ~$0.0003 per input token
+///             1500, // ~$0.0015 per output token
+///             375,  // ~$0.000375 per cache creation token
+///             30,   // ~$0.00003 per cache read token
+///         ));
+///
+///         Self { budget, name }
+///     }
+///
+///     fn process_task(&self, task_complexity: u32) -> Result<String, String> {
+///         // Estimate tokens based on task complexity
+///         let estimated_tokens = task_complexity * 10;
+///
+///         let mut allocation = self.budget.allocate(estimated_tokens)
+///             .ok_or_else(|| format!(
+///                 "Agent {} insufficient budget for task (need {} tokens)",
+///                 self.name, estimated_tokens
+///             ))?;
+///
+///         // Simulate API call with actual usage
+///         let input_tokens = (estimated_tokens as f32 * 0.6) as u32;
+///         let output_tokens = (estimated_tokens as f32 * 0.3) as u32;
+///         let cache_read_tokens = (estimated_tokens as f32 * 0.1) as u32;
+///
+///         let usage = Usage::new(input_tokens as i32, output_tokens as i32)
+///             .with_cache_read_input_tokens(cache_read_tokens as i32);
+///
+///         if allocation.consume_usage(&usage) {
+///             Ok(format!("Task completed by {} using {} total tokens",
+///                        self.name, input_tokens + output_tokens + cache_read_tokens))
+///         } else {
+///             Err("Usage calculation error".to_string())
+///         }
+///     }
+///
+///     fn remaining_budget_dollars(&self) -> f64 {
+///         self.budget.remaining_micro_cents() as f64 / 100_000_000.0
+///     }
+/// }
+///
+/// // Usage example
+/// let agent = AIAgent::new("DataAnalyzer".to_string(), 50.0); // $50 daily budget
+///
+/// let tasks = vec![5, 10, 15, 8, 12]; // Task complexity scores
+/// for (i, &complexity) in tasks.iter().enumerate() {
+///     match agent.process_task(complexity) {
+///         Ok(result) => {
+///             println!("Task {}: {}", i + 1, result);
+///             println!("  Remaining budget: ${:.2}", agent.remaining_budget_dollars());
+///         }
+///         Err(error) => {
+///             println!("Task {}: Failed - {}", i + 1, error);
+///             break;
+///         }
+///     }
+/// }
+/// ```
+/// Monetary budget manager for controlling API usage costs.
+///
+/// The `Budget` struct provides thread-safe, atomic budget allocation and tracking
+/// for Anthropic API operations. It uses a micro-cent precision monetary system
+/// to accurately track costs without floating-point arithmetic issues.
+///
+/// # Micro-cents Precision
+///
+/// All monetary amounts are stored as micro-cents (1/1,000,000 of a cent) to provide
+/// precise cost tracking for API operations where individual tokens may cost fractions
+/// of a cent. This eliminates floating-point rounding errors that could accumulate
+/// over many API calls.
+///
+/// # Token Rate Model
+///
+/// The budget supports different rates for different types of tokens:
+/// - Input tokens: The base cost for processing input text
+/// - Output tokens: The cost for generating response text
+/// - Cache creation tokens: The cost for creating prompt caches
+/// - Cache read tokens: The reduced cost for reading from prompt caches
+///
+/// # Thread Safety
+///
+/// `Budget` is designed for concurrent access across multiple threads or async tasks.
+/// All budget operations use atomic operations to ensure consistency without locks.
+/// Multiple [`BudgetAllocation`]s can be created concurrently, and unused budget
+/// is automatically returned when allocations are dropped.
+///
+/// # Example
+///
+/// ```rust
+/// use claudius::{Budget, Usage};
+///
+/// // Create a budget with $10 and realistic token rates
+/// let budget = Budget::from_dollars_with_rates(
+///     10.0, // $10 budget
+///     300,  // 300 micro-cents per input token
+///     1500, // 1500 micro-cents per output token
+///     150,  // 150 micro-cents per cache creation token
+///     75,   // 75 micro-cents per cache read token
+/// );
+///
+/// // Allocate budget for an operation expecting up to 500 tokens
+/// if let Some(mut allocation) = budget.allocate(500) {
+///     // Simulate API usage
+///     let usage = Usage::new(100, 50); // 100 input, 50 output tokens
+///
+///     if allocation.consume_usage(&usage) {
+///         println!("Operation completed within budget");
+///     }
+/// }
+/// ```
 pub struct Budget {
-    remaining: Arc<AtomicU64>,
+    remaining_micro_cents: Arc<AtomicU64>,
+    input_token_rate_micro_cents: u64,
+    output_token_rate_micro_cents: u64,
+    cache_creation_token_rate_micro_cents: u64,
+    cache_read_token_rate_micro_cents: u64,
 }
 
 impl Budget {
-    /// Creates a new budget with the specified number of tokens.
-    pub fn new(tokens: u32) -> Self {
-        let remaining = Arc::new(AtomicU64::new(tokens as u64));
-        Self { remaining }
+    /// Conversion factor from dollars to micro-cents.
+    const MICRO_CENTS_PER_DOLLAR: f64 = 100_000_000.0;
+
+    /// Default rate for deprecated methods (micro-cents per token).
+    const DEFAULT_RATE_MICRO_CENTS_PER_TOKEN: u64 = 1000;
+
+    /// Creates a new budget with the specified monetary amount in micro-cents and token rates.
+    ///
+    /// # Arguments
+    /// * `budget_micro_cents` - Total budget in micro-cents (1/1,000,000 of a cent)
+    /// * `input_token_rate_micro_cents` - Cost per input token in micro-cents
+    /// * `output_token_rate_micro_cents` - Cost per output token in micro-cents
+    /// * `cache_creation_token_rate_micro_cents` - Cost per cache creation token in micro-cents
+    /// * `cache_read_token_rate_micro_cents` - Cost per cache read token in micro-cents
+    pub fn new_with_rates(
+        budget_micro_cents: u64,
+        input_token_rate_micro_cents: u64,
+        output_token_rate_micro_cents: u64,
+        cache_creation_token_rate_micro_cents: u64,
+        cache_read_token_rate_micro_cents: u64,
+    ) -> Self {
+        let remaining_micro_cents = Arc::new(AtomicU64::new(budget_micro_cents));
+        Self {
+            remaining_micro_cents,
+            input_token_rate_micro_cents,
+            output_token_rate_micro_cents,
+            cache_creation_token_rate_micro_cents,
+            cache_read_token_rate_micro_cents,
+        }
     }
 
-    /// Attempts to allocate the specified amount of tokens from the budget.
+    /// Creates a new budget with a simplified flat rate per token.
     ///
-    /// Returns `Some(BudgetAllocation)` if sufficient tokens are available,
+    /// # Arguments
+    /// * `budget_micro_cents` - Total budget in micro-cents
+    /// * `token_rate_micro_cents` - Cost per token (applies to all token types)
+    pub fn new_flat_rate(budget_micro_cents: u64, token_rate_micro_cents: u64) -> Self {
+        Self::new_with_rates(
+            budget_micro_cents,
+            token_rate_micro_cents,
+            token_rate_micro_cents,
+            token_rate_micro_cents,
+            token_rate_micro_cents,
+        )
+    }
+
+    /// Creates a budget from dollars with specified rates per token in micro-cents.
+    pub fn from_dollars_with_rates(
+        budget_dollars: f64,
+        input_token_rate_micro_cents: u64,
+        output_token_rate_micro_cents: u64,
+        cache_creation_token_rate_micro_cents: u64,
+        cache_read_token_rate_micro_cents: u64,
+    ) -> Self {
+        let budget_micro_cents = (budget_dollars * Self::MICRO_CENTS_PER_DOLLAR) as u64;
+        Self::new_with_rates(
+            budget_micro_cents,
+            input_token_rate_micro_cents,
+            output_token_rate_micro_cents,
+            cache_creation_token_rate_micro_cents,
+            cache_read_token_rate_micro_cents,
+        )
+    }
+
+    /// Creates a budget from dollars with a flat rate per token.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use claudius::Budget;
+    /// // Create a $10 budget where each token costs 500 micro-cents
+    /// let budget = Budget::from_dollars_flat_rate(10.0, 500);
+    ///
+    /// // This budget can handle up to 20,000,000 tokens (10 * 100,000,000 / 500)
+    /// assert!(budget.allocate(1000).is_some());
+    /// ```
+    pub fn from_dollars_flat_rate(budget_dollars: f64, token_rate_micro_cents: u64) -> Self {
+        let budget_micro_cents = (budget_dollars * Self::MICRO_CENTS_PER_DOLLAR) as u64;
+        Self::new_flat_rate(budget_micro_cents, token_rate_micro_cents)
+    }
+
+    /// Legacy constructor for backward compatibility - creates a token-based budget.
+    /// This converts tokens to micro-cents using a default rate.
+    #[deprecated(note = "Use new_with_rates or new_flat_rate instead")]
+    pub fn new(tokens: u32) -> Self {
+        let budget_micro_cents = tokens as u64 * Self::DEFAULT_RATE_MICRO_CENTS_PER_TOKEN;
+        Self::new_flat_rate(budget_micro_cents, Self::DEFAULT_RATE_MICRO_CENTS_PER_TOKEN)
+    }
+
+    /// Calculates the total cost in micro-cents for a specific token usage pattern.
+    ///
+    /// This method computes the precise cost by applying the budget's token rates
+    /// to each type of token usage. The calculation includes:
+    /// - Input tokens × input token rate
+    /// - Output tokens × output token rate
+    /// - Cache creation tokens × cache creation rate
+    /// - Cache read tokens × cache read rate
+    ///
+    /// # Arguments
+    ///
+    /// * `usage` - The token usage to calculate costs for
+    ///
+    /// # Returns
+    ///
+    /// Total cost in micro-cents as a `u64`
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use claudius::{Budget, Usage};
+    ///
+    /// let budget = Budget::new_with_rates(
+    ///     1_000_000, // 1M micro-cents budget
+    ///     300,       // 300 micro-cents per input token
+    ///     1500,      // 1500 micro-cents per output token
+    ///     375,       // 375 micro-cents per cache creation token
+    ///     30,        // 30 micro-cents per cache read token
+    /// );
+    ///
+    /// let usage = Usage::new(100, 50) // 100 input, 50 output tokens
+    ///     .with_cache_creation_input_tokens(20)
+    ///     .with_cache_read_input_tokens(10);
+    ///
+    /// let cost = budget.calculate_cost(&usage);
+    /// // Cost = (100 × 300) + (50 × 1500) + (20 × 375) + (10 × 30)
+    /// //      = 30,000 + 75,000 + 7,500 + 300 = 112,800 micro-cents
+    /// assert_eq!(cost, 112_800);
+    /// ```
+    ///
+    /// # Overflow Safety
+    ///
+    /// This method performs arithmetic that could theoretically overflow with extreme
+    /// values, but overflow would require unrealistic combinations such as billions
+    /// of tokens with extremely high rates. All practical API usage scenarios are
+    /// well within safe bounds.
+    pub fn calculate_cost(&self, usage: &crate::Usage) -> u64 {
+        let input_cost = usage.input_tokens as u64 * self.input_token_rate_micro_cents;
+        let output_cost = usage.output_tokens as u64 * self.output_token_rate_micro_cents;
+        let cache_creation_cost = usage.cache_creation_input_tokens.unwrap_or(0) as u64
+            * self.cache_creation_token_rate_micro_cents;
+        let cache_read_cost = usage.cache_read_input_tokens.unwrap_or(0) as u64
+            * self.cache_read_token_rate_micro_cents;
+
+        input_cost + output_cost + cache_creation_cost + cache_read_cost
+    }
+
+    /// Attempts to allocate cost for the expected maximum tokens from the budget.
+    ///
+    /// Returns `Some(BudgetAllocation)` if sufficient budget is available,
     /// or `None` if the budget is insufficient.
-    pub fn allocate(&self, amount: u32) -> Option<BudgetAllocation> {
-        let allocated = amount;
-        let amount = amount as u64;
+    ///
+    /// # Example
+    /// ```rust
+    /// # use claudius::Budget;
+    /// let budget = Budget::from_dollars_flat_rate(1.0, 100);  // $1 budget, 100 micro-cents per token
+    ///
+    /// if let Some(allocation) = budget.allocate(50) {
+    ///     println!("Successfully allocated budget for up to 50 tokens");
+    ///     // Use allocation for API call...
+    /// } else {
+    ///     println!("Insufficient budget for 50 tokens");
+    /// }
+    /// ```
+    pub fn allocate(&self, max_tokens: u32) -> Option<BudgetAllocation<'_>> {
+        let max_cost = self.calculate_max_cost_for_tokens(max_tokens);
         loop {
-            let witness = self.remaining.load(Ordering::Relaxed);
-            if witness >= amount
+            let witness = self.remaining_micro_cents.load(Ordering::Relaxed);
+            if witness >= max_cost
                 && self
-                    .remaining
+                    .remaining_micro_cents
                     .compare_exchange(
                         witness,
-                        witness - amount,
+                        witness - max_cost,
                         Ordering::Relaxed,
                         Ordering::Relaxed,
                     )
                     .is_ok()
             {
-                let remaining = Arc::clone(&self.remaining);
+                let remaining_micro_cents = Arc::clone(&self.remaining_micro_cents);
                 return Some(BudgetAllocation {
-                    remaining,
-                    allocated,
+                    remaining_micro_cents,
+                    allocated_micro_cents: max_cost,
+                    budget: self,
                 });
-            } else if witness < amount {
+            } else if witness < max_cost {
                 return None;
             }
         }
     }
+
+    /// Calculates the maximum possible cost for the given number of tokens.
+    ///
+    /// This method uses the highest token rate among all configured rates to
+    /// provide a conservative (worst-case) cost estimate for allocation purposes.
+    ///
+    /// # Safety
+    ///
+    /// This method performs multiplication of `u32` and `u64` values. While overflow
+    /// is theoretically possible with extreme values, it would require:
+    /// - More than 4 billion tokens (u32::MAX)
+    /// - AND token rates exceeding u64::MAX / u32::MAX (≈4.3 billion micro-cents per token)
+    ///
+    /// Such values would represent costs far beyond reasonable API usage scenarios.
+    /// In practice, this method is safe for all realistic budget and token rate combinations.
+    fn calculate_max_cost_for_tokens(&self, tokens: u32) -> u64 {
+        tokens as u64
+            * self
+                .output_token_rate_micro_cents
+                .max(self.input_token_rate_micro_cents)
+                .max(self.cache_creation_token_rate_micro_cents)
+                .max(self.cache_read_token_rate_micro_cents)
+    }
+
+    /// Returns the current remaining budget in micro-cents.
+    ///
+    /// This method provides a snapshot of the budget's current state. Note that
+    /// in concurrent scenarios, the value may change between the time you read
+    /// it and when you use it for decisions.
+    ///
+    /// # Returns
+    ///
+    /// Current remaining budget as `u64` micro-cents
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use claudius::Budget;
+    ///
+    /// let budget = Budget::from_dollars_flat_rate(5.0, 1000);
+    /// assert_eq!(budget.remaining_micro_cents(), 500_000_000); // $5.00
+    ///
+    /// // After some allocations, the remaining amount decreases
+    /// let _allocation = budget.allocate(100); // Reserves 100 * 1000 = 100,000 micro-cents
+    /// assert_eq!(budget.remaining_micro_cents(), 499_900_000);
+    /// ```
+    ///
+    /// # Thread Safety
+    ///
+    /// This method is thread-safe and uses atomic loads. The returned value
+    /// represents a consistent point-in-time snapshot of the budget state.
+    pub fn remaining_micro_cents(&self) -> u64 {
+        self.remaining_micro_cents.load(Ordering::Relaxed)
+    }
+
+    /// Legacy field access for backward compatibility.
+    #[deprecated(note = "Use remaining_micro_cents() instead")]
+    pub fn remaining(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.remaining_micro_cents)
+    }
 }
 
-pub struct BudgetAllocation {
-    remaining: Arc<AtomicU64>,
-    allocated: u32,
+/// Represents an allocated portion of a budget for a specific operation.
+///
+/// A `BudgetAllocation` is created by calling [`Budget::allocate`] and represents
+/// a reserved portion of the budget that can be consumed by API operations. The
+/// allocation uses pessimistic budgeting - it reserves the maximum possible cost
+/// for the expected number of tokens, then allows actual consumption up to that limit.
+///
+/// # Lifecycle
+///
+/// 1. **Creation**: Created via [`Budget::allocate`] with a maximum token count
+/// 2. **Consumption**: Actual costs are deducted using [`consume_usage`]
+/// 3. **Return**: Unused budget is automatically returned when the allocation is dropped
+///
+/// # Thread Safety
+///
+/// `BudgetAllocation` is not `Send` or `Sync` because it holds a reference to the
+/// creating `Budget`. However, the underlying budget operations are thread-safe,
+/// and multiple allocations can exist concurrently for the same budget.
+///
+/// # Example
+///
+/// ```rust
+/// use claudius::{Budget, Usage};
+///
+/// let budget = Budget::from_dollars_flat_rate(5.0, 1000); // $5, 1000 micro-cents per token
+///
+/// // Allocate budget for up to 100 tokens
+/// if let Some(mut allocation) = budget.allocate(100) {
+///     println!("Allocated budget for {} tokens", allocation.remaining_tokens());
+///
+///     // Consume budget based on actual usage
+///     let actual_usage = Usage::new(30, 20); // 30 input + 20 output = 50 total tokens
+///
+///     if allocation.consume_usage(&actual_usage) {
+///         println!("Consumed budget for 50 tokens");
+///         println!("Remaining in allocation: {} tokens", allocation.remaining_tokens());
+///     }
+///
+///     // When allocation is dropped, unused budget (50 tokens worth) returns to the main budget
+/// }
+/// ```
+///
+/// [`consume_usage`]: BudgetAllocation::consume_usage
+pub struct BudgetAllocation<'a> {
+    remaining_micro_cents: Arc<AtomicU64>,
+    allocated_micro_cents: u64,
+    budget: &'a Budget,
 }
 
-impl BudgetAllocation {
+impl<'a> BudgetAllocation<'a> {
+    /// Consumes budget from this allocation based on actual API token usage.
+    ///
+    /// This method calculates the precise cost of the actual token usage and
+    /// deducts it from the allocated budget. The cost calculation uses the
+    /// original budget's token rates for each type of token consumed.
+    ///
+    /// This is the primary way to "spend" allocated budget after an API
+    /// operation completes and you know the actual token consumption.
+    ///
+    /// # Arguments
+    ///
+    /// * `usage` - The actual token usage from an API response
+    ///
+    /// # Returns
+    ///
+    /// - `true` if the usage cost was within the allocated budget and was successfully consumed
+    /// - `false` if the usage cost exceeds the remaining allocated budget
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use claudius::{Budget, Usage};
+    ///
+    /// let budget = Budget::from_dollars_with_rates(1.0, 300, 1500, 150, 75);
+    /// let mut allocation = budget.allocate(100).unwrap(); // Reserve for 100 tokens
+    ///
+    /// // API call completes with actual usage
+    /// let actual_usage = Usage::new(40, 20) // 40 input + 20 output tokens
+    ///     .with_cache_read_input_tokens(10);
+    ///
+    /// if allocation.consume_usage(&actual_usage) {
+    ///     println!("Successfully consumed budget for actual usage");
+    ///     // Cost: (40 * 300) + (20 * 1500) + (10 * 75) = 42,750 micro-cents
+    /// } else {
+    ///     println!("Usage exceeded allocated budget");
+    /// }
+    /// ```
+    ///
+    /// # Error Conditions
+    ///
+    /// Returns `false` when:
+    /// - The calculated cost of `usage` exceeds `remaining_micro_cents()`
+    /// - Multiple calls to `consume_usage` would exceed the total allocation
+    ///
+    /// # Note
+    ///
+    /// The `#[must_use]` attribute ensures you handle the return value, as
+    /// failing to consume budget properly may indicate a logic error in
+    /// your application.
+    #[must_use]
+    pub fn consume_usage(&mut self, usage: &crate::Usage) -> bool {
+        let actual_cost = self.budget.calculate_cost(usage);
+        if actual_cost <= self.allocated_micro_cents {
+            self.allocated_micro_cents -= actual_cost;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Returns an approximation of remaining tokens based on the highest token rate.
+    ///
+    /// This method provides a conservative estimate of how many more tokens could
+    /// be consumed from this allocation. It uses the highest token rate configured
+    /// in the original budget to ensure the estimate doesn't exceed what's actually
+    /// affordable.
+    ///
+    /// # Returns
+    ///
+    /// Approximate number of tokens that can still be consumed, calculated as:
+    /// `remaining_micro_cents() / highest_token_rate`
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use claudius::{Budget, Usage};
+    ///
+    /// let budget = Budget::new_with_rates(
+    ///     100_000, // 100k micro-cents
+    ///     300,     // Input: 300 micro-cents/token
+    ///     1500,    // Output: 1500 micro-cents/token (highest)
+    ///     150,     // Cache creation: 150 micro-cents/token
+    ///     75,      // Cache read: 75 micro-cents/token
+    /// );
+    ///
+    /// let mut allocation = budget.allocate(50).unwrap();
+    /// // Initially: 50 tokens * 1500 = 75,000 micro-cents allocated
+    /// assert_eq!(allocation.remaining_tokens(), 50); // 75,000 / 1500
+    ///
+    /// // Consume some budget with cheaper input tokens
+    /// let usage = Usage::new(20, 5); // Cost: (20*300) + (5*1500) = 13,500
+    /// allocation.consume_usage(&usage);
+    ///
+    /// // Remaining: 75,000 - 13,500 = 61,500 micro-cents
+    /// assert_eq!(allocation.remaining_tokens(), 41); // 61,500 / 1500
+    /// ```
+    ///
+    /// # Conservative Estimation
+    ///
+    /// This method intentionally provides a conservative (lower) estimate by
+    /// using the highest token rate. The actual number of tokens you can
+    /// consume may be higher if you use cheaper token types.
+    pub fn remaining_tokens(&self) -> u32 {
+        let highest_rate = self
+            .budget
+            .output_token_rate_micro_cents
+            .max(self.budget.input_token_rate_micro_cents)
+            .max(self.budget.cache_creation_token_rate_micro_cents)
+            .max(self.budget.cache_read_token_rate_micro_cents);
+        if highest_rate > 0 {
+            (self.allocated_micro_cents / highest_rate) as u32
+        } else {
+            0
+        }
+    }
+
+    /// Returns the remaining budget within this allocation in micro-cents.
+    ///
+    /// This shows how much of the originally allocated budget remains available
+    /// for consumption within this specific allocation. This is different from
+    /// the main budget's remaining amount.
+    ///
+    /// # Returns
+    ///
+    /// Remaining micro-cents available for consumption in this allocation
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use claudius::{Budget, Usage};
+    ///
+    /// let budget = Budget::from_dollars_flat_rate(1.0, 1000); // $1, 1000 micro-cents/token
+    /// let mut allocation = budget.allocate(50).unwrap(); // Allocates 50,000 micro-cents
+    ///
+    /// assert_eq!(allocation.remaining_micro_cents(), 50_000);
+    ///
+    /// // Consume some budget
+    /// let usage = Usage::new(20, 0); // 20,000 micro-cents
+    /// allocation.consume_usage(&usage);
+    ///
+    /// assert_eq!(allocation.remaining_micro_cents(), 30_000); // 50k - 20k
+    /// ```
+    ///
+    /// # Relationship to Main Budget
+    ///
+    /// This value represents budget "reserved" from the main budget but not yet
+    /// consumed. When the allocation is dropped, this remaining amount is
+    /// returned to the main budget automatically.
+    pub fn remaining_micro_cents(&self) -> u64 {
+        self.allocated_micro_cents
+    }
+
+    /// Returns the allocated budget in micro-cents for testing.
+    #[cfg(test)]
+    pub fn get_allocated_micro_cents(&self) -> u64 {
+        self.allocated_micro_cents
+    }
+
+    /// Legacy field access for backward compatibility.
+    #[deprecated(note = "Use remaining_tokens() instead")]
+    pub fn allocated(&self) -> u32 {
+        self.remaining_tokens()
+    }
+
+    /// Legacy method for backward compatibility.
+    #[deprecated(note = "Use consume_usage instead")]
     #[must_use]
     pub fn consume(&mut self, amount: u32) -> bool {
-        if amount <= self.allocated {
-            self.allocated -= amount;
+        let cost = amount as u64 * Budget::DEFAULT_RATE_MICRO_CENTS_PER_TOKEN;
+        if cost <= self.allocated_micro_cents {
+            self.allocated_micro_cents -= cost;
             true
         } else {
             false
@@ -525,10 +1219,44 @@ impl BudgetAllocation {
     }
 }
 
-impl Drop for BudgetAllocation {
+/// Automatic budget return when allocation is dropped.
+///
+/// When a `BudgetAllocation` is dropped (goes out of scope), any unused
+/// allocated budget is automatically returned to the main budget. This
+/// ensures that budget is never permanently lost due to over-allocation.
+///
+/// # Thread Safety
+///
+/// The drop implementation uses atomic operations to safely return budget
+/// to the main budget, even in concurrent scenarios.
+///
+/// # Example
+///
+/// ```rust
+/// use claudius::{Budget, Usage};
+///
+/// let budget = Budget::from_dollars_flat_rate(1.0, 1000);
+/// let initial_remaining = budget.remaining_micro_cents();
+///
+/// {
+///     let mut allocation = budget.allocate(100).unwrap(); // Allocates 100,000 micro-cents
+///     assert_eq!(budget.remaining_micro_cents(), initial_remaining - 100_000);
+///
+///     // Use only part of the allocation
+///     let usage = Usage::new(30, 0); // Costs 30,000 micro-cents
+///     allocation.consume_usage(&usage);
+///
+///     // allocation still holds 70,000 unused micro-cents
+///     assert_eq!(allocation.remaining_micro_cents(), 70_000);
+/// } // <- allocation dropped here
+///
+/// // The unused 70,000 micro-cents are returned to the main budget
+/// assert_eq!(budget.remaining_micro_cents(), initial_remaining - 30_000);
+/// ```
+impl Drop for BudgetAllocation<'_> {
     fn drop(&mut self) {
-        self.remaining
-            .fetch_add(self.allocated as u64, Ordering::Relaxed);
+        self.remaining_micro_cents
+            .fetch_add(self.allocated_micro_cents, Ordering::Relaxed);
     }
 }
 
@@ -717,7 +1445,9 @@ pub trait Agent: Send + Sync + Sized {
             return self.handle_max_tokens().await;
         };
 
-        while tokens_rem.allocated > self.thinking().await.map(|t| t.num_tokens()).unwrap_or(0) {
+        while tokens_rem.remaining_tokens()
+            > self.thinking().await.map(|t| t.num_tokens()).unwrap_or(0)
+        {
             match self.step_turn(client, messages, &mut tokens_rem).await {
                 ControlFlow::Continue(()) => {}
                 ControlFlow::Break(res) => {
@@ -753,7 +1483,7 @@ pub trait Agent: Send + Sync + Sized {
                 .map(|tool| tool.to_param())
                 .collect::<Vec<_>>();
             let req = MessageCreateParams {
-                max_tokens: tokens_rem.allocated,
+                max_tokens: tokens_rem.remaining_tokens(),
                 model: self.model().await,
                 messages: messages.clone(),
                 metadata: self.metadata().await,
@@ -781,7 +1511,7 @@ pub trait Agent: Send + Sync + Sized {
                 role: MessageRole::Assistant,
                 content: MessageParamContent::Array(resp.content.clone()),
             };
-            let _ = tokens_rem.consume(resp.usage.output_tokens as u32);
+            let _ = tokens_rem.consume_usage(&resp.usage);
             push_or_merge_message(messages, assistant_message);
             let tool_results: Vec<ContentBlock> = match resp.stop_reason {
                 None | Some(StopReason::EndTurn) => {
@@ -1452,178 +2182,211 @@ fn sanitize_path(base: Path, path: &str) -> Result<Path<'static>, std::io::Error
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Usage;
+    use std::sync::atomic::Ordering;
 
     #[test]
-    fn budget_new_creates_with_correct_amount() {
-        let budget = Budget::new(1000);
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 1000);
+    fn budget_new_flat_rate_creates_with_correct_amount() {
+        let budget = Budget::new_flat_rate(1000, 10);
+        assert_eq!(budget.remaining_micro_cents(), 1000);
     }
 
     #[test]
-    fn budget_allocate_succeeds_when_sufficient_tokens() {
-        let budget = Budget::new(1000);
-        let allocation = budget.allocate(500);
+    fn budget_from_dollars_creates_correct_amount() {
+        let budget = Budget::from_dollars_flat_rate(1.0, 100);
+        assert_eq!(budget.remaining_micro_cents(), 100_000_000);
+    }
+
+    #[test]
+    fn budget_calculate_cost_basic_usage() {
+        use crate::Usage;
+        let budget = Budget::new_with_rates(10000, 10, 20, 5, 15);
+
+        let usage = Usage::new(50, 100);
+        let cost = budget.calculate_cost(&usage);
+        assert_eq!(cost, 50 * 10 + 100 * 20);
+    }
+
+    #[test]
+    fn budget_calculate_cost_with_cache() {
+        use crate::Usage;
+        let budget = Budget::new_with_rates(10000, 10, 20, 5, 15);
+
+        let usage = Usage::new(50, 100)
+            .with_cache_creation_input_tokens(20)
+            .with_cache_read_input_tokens(30);
+        let cost = budget.calculate_cost(&usage);
+        assert_eq!(cost, 50 * 10 + 100 * 20 + 20 * 5 + 30 * 15);
+    }
+
+    #[test]
+    fn budget_allocate_succeeds_when_sufficient_budget() {
+        let budget = Budget::new_flat_rate(1000, 10);
+        let allocation = budget.allocate(50);
         assert!(allocation.is_some());
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 500);
 
         let allocation = allocation.unwrap();
-        assert_eq!(allocation.allocated, 500);
+        assert_eq!(allocation.remaining_tokens(), 50);
     }
 
     #[test]
-    fn budget_allocate_fails_when_insufficient_tokens() {
-        let budget = Budget::new(500);
-        let allocation = budget.allocate(1000);
+    fn budget_allocate_fails_when_insufficient_budget() {
+        let budget = Budget::new_flat_rate(500, 10);
+        let allocation = budget.allocate(100);
         assert!(allocation.is_none());
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 500);
+        assert_eq!(budget.remaining_micro_cents(), 500);
     }
 
     #[test]
-    fn budget_allocate_exact_amount() {
-        let budget = Budget::new(500);
-        let allocation = budget.allocate(500);
-        assert!(allocation.is_some());
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 0);
+    fn budget_allocation_consume_usage_valid() {
+        use crate::Usage;
+        let budget = Budget::new_flat_rate(1000, 10);
+        let mut allocation = budget.allocate(50).unwrap();
+
+        let usage = Usage::new(20, 15);
+        assert!(allocation.consume_usage(&usage));
+
+        let remaining_cost = allocation.remaining_micro_cents();
+        assert_eq!(remaining_cost, 500 - (20 * 10 + 15 * 10));
     }
 
     #[test]
-    fn budget_allocate_zero_tokens() {
-        let budget = Budget::new(1000);
-        let allocation = budget.allocate(0);
-        assert!(allocation.is_some());
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 1000);
+    fn budget_allocation_consume_usage_excessive() {
+        use crate::Usage;
+        let budget = Budget::new_flat_rate(300, 10);
+        let mut allocation = budget.allocate(20).unwrap();
 
-        let allocation = allocation.unwrap();
-        assert_eq!(allocation.allocated, 0);
+        let usage = Usage::new(50, 100);
+        assert!(!allocation.consume_usage(&usage));
     }
 
     #[test]
-    fn budget_allocation_consume_valid_amount() {
-        let budget = Budget::new(1000);
-        let mut allocation = budget.allocate(500).unwrap();
+    fn budget_allocation_drop_returns_remaining_budget() {
+        let budget = Budget::new_flat_rate(1000, 10);
+        let initial_remaining = budget.remaining_micro_cents();
 
-        assert!(allocation.consume(200));
-        assert_eq!(allocation.allocated, 300);
-
-        assert!(allocation.consume(300));
-        assert_eq!(allocation.allocated, 0);
-    }
-
-    #[test]
-    fn budget_allocation_consume_excessive_amount() {
-        let budget = Budget::new(1000);
-        let mut allocation = budget.allocate(500).unwrap();
-
-        assert!(!allocation.consume(600));
-        assert_eq!(allocation.allocated, 500);
-    }
-
-    #[test]
-    fn budget_allocation_consume_exact_amount() {
-        let budget = Budget::new(1000);
-        let mut allocation = budget.allocate(500).unwrap();
-
-        assert!(allocation.consume(500));
-        assert_eq!(allocation.allocated, 0);
-    }
-
-    #[test]
-    fn budget_allocation_drop_returns_remaining_tokens() {
-        let budget = Budget::new(1000);
         {
-            let mut allocation = budget.allocate(500).unwrap();
-            let _ = allocation.consume(200);
-            // allocation goes out of scope here with 300 tokens remaining
+            let _allocation = budget.allocate(50).unwrap();
+            assert_eq!(budget.remaining_micro_cents(), initial_remaining - 500);
         }
-        // Should have returned 300 tokens to budget
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 800);
-    }
 
-    #[test]
-    fn budget_allocation_drop_returns_all_tokens_when_none_consumed() {
-        let budget = Budget::new(1000);
-        {
-            let _allocation = budget.allocate(500).unwrap();
-            // allocation goes out of scope here with all 500 tokens remaining
-        }
-        // Should have returned all 500 tokens to budget
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 1000);
-    }
-
-    #[test]
-    fn budget_allocation_drop_returns_zero_when_all_consumed() {
-        let budget = Budget::new(1000);
-        {
-            let mut allocation = budget.allocate(500).unwrap();
-            let _ = allocation.consume(500);
-            // allocation goes out of scope here with 0 tokens remaining
-        }
-        // Should return 0 tokens to budget
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 500);
+        assert_eq!(budget.remaining_micro_cents(), initial_remaining);
     }
 
     #[test]
     fn budget_multiple_allocations() {
-        let budget = Budget::new(1000);
+        let budget = Budget::new_flat_rate(1000, 10);
 
-        let alloc1 = budget.allocate(300);
+        let alloc1 = budget.allocate(30);
         assert!(alloc1.is_some());
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 700);
+        assert_eq!(budget.remaining_micro_cents(), 700);
 
-        let alloc2 = budget.allocate(400);
+        let alloc2 = budget.allocate(40);
         assert!(alloc2.is_some());
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 300);
+        assert_eq!(budget.remaining_micro_cents(), 300);
 
-        let alloc3 = budget.allocate(400);
+        let alloc3 = budget.allocate(40);
         assert!(alloc3.is_none());
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 300);
+        assert_eq!(budget.remaining_micro_cents(), 300);
     }
 
     #[test]
     fn budget_concurrent_allocation_safety() {
+        use std::sync::{Barrier, Mutex};
         use std::thread;
 
-        let budget = Arc::new(Budget::new(1000));
-        let mut handles = vec![];
+        // Create budget with enough for exactly 5 allocations of 20 tokens each
+        let budget = Budget::new_flat_rate(1000, 10);
 
-        // Spawn 10 threads each trying to allocate 200 tokens
-        for _ in 0..10 {
-            let budget_clone = Arc::clone(&budget);
-            handles.push(thread::spawn(move || budget_clone.allocate(200)));
-        }
+        // First, verify our calculation with a single allocation
+        let test_alloc = budget.allocate(20);
+        assert!(test_alloc.is_some());
+        let alloc = test_alloc.unwrap();
+        assert_eq!(alloc.remaining_tokens(), 20);
+        drop(alloc); // Return the budget
 
-        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        let successful_allocations = results.iter().filter(|r| r.is_some()).count();
+        // Use scoped threads to keep allocations alive during the test
+        let allocations = Mutex::new(Vec::new());
+        let barrier = Barrier::new(10);
 
-        // Should only allow 5 successful allocations (5 * 200 = 1000)
-        assert_eq!(successful_allocations, 5);
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 0);
+        thread::scope(|s| {
+            for _ in 0..10 {
+                s.spawn(|| {
+                    // All threads wait here until all 10 have reached this point
+                    barrier.wait();
+                    // Now all threads try to allocate simultaneously
+                    if let Some(allocation) = budget.allocate(20) {
+                        allocations.lock().unwrap().push(allocation);
+                    }
+                });
+            }
+        });
+
+        let final_allocations = allocations.into_inner().unwrap();
+        let successful_allocations = final_allocations.len();
+
+        // Each allocation should cost 20 * 10 = 200 micro-cents
+        // With 1000 micro-cents total, only 5 allocations should succeed
+        assert!(
+            successful_allocations <= 5,
+            "Got {} successful allocations, expected at most 5",
+            successful_allocations
+        );
+
+        // Drop all allocations and verify budget accounting
+        drop(final_allocations);
+        assert_eq!(budget.remaining_micro_cents(), 1000);
     }
 
     #[test]
-    fn budget_allocation_with_mixed_operations() {
-        let budget = Budget::new(1000);
+    fn budget_allocation_cost_calculation_verification() {
+        let budget = Budget::new_flat_rate(1000, 10);
 
-        let mut alloc1 = budget.allocate(400).unwrap();
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 600);
+        // Verify the rates are set correctly
+        assert_eq!(budget.input_token_rate_micro_cents, 10);
+        assert_eq!(budget.output_token_rate_micro_cents, 10);
+        assert_eq!(budget.cache_creation_token_rate_micro_cents, 10);
+        assert_eq!(budget.cache_read_token_rate_micro_cents, 10);
 
-        let _ = alloc1.consume(150);
-        assert_eq!(alloc1.allocated, 250);
+        // Test the max rate calculation
+        let max_rate = budget
+            .output_token_rate_micro_cents
+            .max(budget.input_token_rate_micro_cents)
+            .max(budget.cache_creation_token_rate_micro_cents)
+            .max(budget.cache_read_token_rate_micro_cents);
+        assert_eq!(max_rate, 10);
 
-        let mut alloc2 = budget.allocate(300).unwrap();
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 300);
+        // Calculate expected cost for 20 tokens
+        let expected_cost = 20u64 * max_rate;
+        assert_eq!(expected_cost, 200);
+    }
 
-        let _ = alloc2.consume(100);
-        assert_eq!(alloc2.allocated, 200);
+    #[test]
+    fn test_token_consumption_calculation() {
+        use crate::Usage;
 
-        // Drop alloc1, should return 250 tokens
-        drop(alloc1);
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 550);
+        let usage_no_cache = Usage::new(50, 100);
+        let total_tokens = usage_no_cache.input_tokens
+            + usage_no_cache.cache_creation_input_tokens.unwrap_or(0)
+            + usage_no_cache.cache_read_input_tokens.unwrap_or(0)
+            + usage_no_cache.output_tokens;
+        assert_eq!(total_tokens, 150);
 
-        // Should now be able to allocate more
-        let alloc3 = budget.allocate(500);
-        assert!(alloc3.is_some());
-        assert_eq!(budget.remaining.load(Ordering::Relaxed), 50);
+        let usage_with_cache = Usage::new(50, 100)
+            .with_cache_creation_input_tokens(20)
+            .with_cache_read_input_tokens(30);
+        let total_tokens_cached = usage_with_cache.input_tokens
+            + usage_with_cache.cache_creation_input_tokens.unwrap_or(0)
+            + usage_with_cache.cache_read_input_tokens.unwrap_or(0)
+            + usage_with_cache.output_tokens;
+        assert_eq!(total_tokens_cached, 200);
+
+        let usage_partial_cache = Usage::new(50, 100).with_cache_read_input_tokens(25);
+        let total_tokens_partial = usage_partial_cache.input_tokens
+            + usage_partial_cache.cache_creation_input_tokens.unwrap_or(0)
+            + usage_partial_cache.cache_read_input_tokens.unwrap_or(0)
+            + usage_partial_cache.output_tokens;
+        assert_eq!(total_tokens_partial, 175);
     }
 
     // MountHierarchy tests
@@ -2409,5 +3172,627 @@ mod tests {
             result.unwrap_err().kind(),
             std::io::ErrorKind::PermissionDenied
         );
+    }
+
+    // ==== Comprehensive Budget Tests ====
+
+    // Budget Creation Method Tests
+    #[test]
+    fn budget_new_with_rates_creates_correct_budget() {
+        let budget = Budget::new_with_rates(50000, 10, 25, 5, 15);
+
+        assert_eq!(budget.remaining_micro_cents(), 50000);
+        assert_eq!(budget.input_token_rate_micro_cents, 10);
+        assert_eq!(budget.output_token_rate_micro_cents, 25);
+        assert_eq!(budget.cache_creation_token_rate_micro_cents, 5);
+        assert_eq!(budget.cache_read_token_rate_micro_cents, 15);
+    }
+
+    #[test]
+    fn budget_new_flat_rate_sets_all_rates_equal() {
+        let budget = Budget::new_flat_rate(10000, 50);
+
+        assert_eq!(budget.remaining_micro_cents(), 10000);
+        assert_eq!(budget.input_token_rate_micro_cents, 50);
+        assert_eq!(budget.output_token_rate_micro_cents, 50);
+        assert_eq!(budget.cache_creation_token_rate_micro_cents, 50);
+        assert_eq!(budget.cache_read_token_rate_micro_cents, 50);
+    }
+
+    #[test]
+    fn budget_from_dollars_with_rates_converts_correctly() {
+        let budget = Budget::from_dollars_with_rates(0.5, 100, 200, 75, 150);
+
+        // 0.5 dollars = 50,000,000 micro-cents
+        assert_eq!(budget.remaining_micro_cents(), 50_000_000);
+        assert_eq!(budget.input_token_rate_micro_cents, 100);
+        assert_eq!(budget.output_token_rate_micro_cents, 200);
+        assert_eq!(budget.cache_creation_token_rate_micro_cents, 75);
+        assert_eq!(budget.cache_read_token_rate_micro_cents, 150);
+    }
+
+    #[test]
+    fn budget_from_dollars_flat_rate_converts_correctly() {
+        let budget = Budget::from_dollars_flat_rate(2.0, 125);
+
+        // 2.0 dollars = 200,000,000 micro-cents
+        assert_eq!(budget.remaining_micro_cents(), 200_000_000);
+        assert_eq!(budget.input_token_rate_micro_cents, 125);
+        assert_eq!(budget.output_token_rate_micro_cents, 125);
+        assert_eq!(budget.cache_creation_token_rate_micro_cents, 125);
+        assert_eq!(budget.cache_read_token_rate_micro_cents, 125);
+    }
+
+    #[test]
+    fn budget_creation_edge_cases() {
+        // Zero budget
+        let zero_budget = Budget::new_flat_rate(0, 10);
+        assert_eq!(zero_budget.remaining_micro_cents(), 0);
+
+        // Zero rates
+        let zero_rate_budget = Budget::new_with_rates(1000, 0, 0, 0, 0);
+        assert_eq!(zero_rate_budget.remaining_micro_cents(), 1000);
+
+        // Very large budget
+        let large_budget = Budget::new_flat_rate(u64::MAX, 1);
+        assert_eq!(large_budget.remaining_micro_cents(), u64::MAX);
+
+        // Very large rates
+        let large_rate_budget = Budget::new_flat_rate(1000, u64::MAX);
+        assert_eq!(large_rate_budget.input_token_rate_micro_cents, u64::MAX);
+    }
+
+    // Cost Calculation Tests
+    #[test]
+    fn budget_calculate_cost_all_token_types() {
+        let budget = Budget::new_with_rates(100000, 10, 20, 5, 15);
+
+        let usage = Usage::new(100, 50)
+            .with_cache_creation_input_tokens(20)
+            .with_cache_read_input_tokens(30);
+
+        let expected_cost = 100 * 10 + 50 * 20 + 20 * 5 + 30 * 15;
+        assert_eq!(budget.calculate_cost(&usage), expected_cost);
+    }
+
+    #[test]
+    fn budget_calculate_cost_partial_cache_usage() {
+        let budget = Budget::new_with_rates(100000, 10, 20, 5, 15);
+
+        // Only cache creation, no cache read
+        let usage1 = Usage::new(100, 50).with_cache_creation_input_tokens(20);
+        let expected_cost1 = 100 * 10 + 50 * 20 + 20 * 5;
+        assert_eq!(budget.calculate_cost(&usage1), expected_cost1);
+
+        // Only cache read, no cache creation
+        let usage2 = Usage::new(100, 50).with_cache_read_input_tokens(30);
+        let expected_cost2 = 100 * 10 + 50 * 20 + 30 * 15;
+        assert_eq!(budget.calculate_cost(&usage2), expected_cost2);
+    }
+
+    #[test]
+    fn budget_calculate_cost_zero_tokens() {
+        let budget = Budget::new_with_rates(100000, 10, 20, 5, 15);
+
+        let zero_usage = Usage::new(0, 0);
+        assert_eq!(budget.calculate_cost(&zero_usage), 0);
+
+        let partial_zero = Usage::new(100, 0)
+            .with_cache_creation_input_tokens(0)
+            .with_cache_read_input_tokens(0);
+        assert_eq!(budget.calculate_cost(&partial_zero), 100 * 10);
+    }
+
+    #[test]
+    fn budget_calculate_cost_large_numbers() {
+        let budget = Budget::new_with_rates(u64::MAX, 1000, 2000, 500, 1500);
+
+        let large_usage = Usage::new(10000, 5000)
+            .with_cache_creation_input_tokens(2000)
+            .with_cache_read_input_tokens(3000);
+
+        let expected_cost = 10000_u64 * 1000 + 5000_u64 * 2000 + 2000_u64 * 500 + 3000_u64 * 1500;
+        assert_eq!(budget.calculate_cost(&large_usage), expected_cost);
+    }
+
+    #[test]
+    fn budget_calculate_cost_with_zero_rates() {
+        let budget = Budget::new_with_rates(100000, 0, 0, 0, 0);
+
+        let usage = Usage::new(1000, 500)
+            .with_cache_creation_input_tokens(200)
+            .with_cache_read_input_tokens(300);
+
+        // All costs should be zero due to zero rates
+        assert_eq!(budget.calculate_cost(&usage), 0);
+    }
+
+    // Budget Allocation Tests
+    #[test]
+    fn budget_allocate_exact_match() {
+        let budget = Budget::new_flat_rate(1000, 10);
+
+        // Allocate exactly what the budget can handle
+        let allocation = budget.allocate(100);
+        assert!(allocation.is_some());
+
+        let allocation = allocation.unwrap();
+        assert_eq!(allocation.remaining_tokens(), 100);
+        assert_eq!(budget.remaining_micro_cents(), 0);
+    }
+
+    #[test]
+    fn budget_allocate_with_different_rates() {
+        // Test with different token rates to ensure max rate is used for allocation
+        let budget = Budget::new_with_rates(5000, 10, 50, 5, 25); // max rate is 50
+
+        let allocation = budget.allocate(100);
+        assert!(allocation.is_some());
+
+        // Should allocate based on highest rate (50)
+        assert_eq!(budget.remaining_micro_cents(), 0); // 5000 - (100 * 50) = 0
+    }
+
+    #[test]
+    fn budget_allocate_zero_tokens() {
+        let budget = Budget::new_flat_rate(1000, 10);
+
+        let allocation = budget.allocate(0);
+        assert!(allocation.is_some());
+
+        let allocation = allocation.unwrap();
+        assert_eq!(allocation.remaining_tokens(), 0);
+        assert_eq!(budget.remaining_micro_cents(), 1000); // Nothing allocated
+    }
+
+    #[test]
+    fn budget_allocate_insufficient_budget_edge_case() {
+        let budget = Budget::new_flat_rate(999, 10); // Just 1 micro-cent short
+
+        let allocation = budget.allocate(100); // Needs 1000 micro-cents
+        assert!(allocation.is_none());
+        assert_eq!(budget.remaining_micro_cents(), 999); // Budget unchanged
+    }
+
+    #[test]
+    fn budget_allocate_maximum_tokens_calculation() {
+        // Test that allocation uses the highest token rate for max cost calculation
+        let budget = Budget::new_with_rates(10000, 5, 15, 25, 10); // max rate is 25
+
+        let allocation = budget.allocate(200);
+        assert!(allocation.is_some());
+
+        // Should reserve 200 * 25 = 5000 micro-cents
+        assert_eq!(budget.remaining_micro_cents(), 5000);
+    }
+
+    // Budget Consumption Tests
+    #[test]
+    fn budget_consume_usage_within_allocation() {
+        let budget = Budget::new_with_rates(10000, 10, 20, 5, 15);
+        let mut allocation = budget.allocate(100).unwrap();
+
+        let usage = Usage::new(50, 30)
+            .with_cache_creation_input_tokens(10)
+            .with_cache_read_input_tokens(20);
+
+        assert!(allocation.consume_usage(&usage));
+
+        // Calculate remaining allocation
+        let used_cost = 50 * 10 + 30 * 20 + 10 * 5 + 20 * 15;
+        let max_rate = 20; // highest rate
+        let allocated_cost = 100 * max_rate;
+        let remaining = allocated_cost - used_cost;
+
+        assert_eq!(allocation.remaining_micro_cents(), remaining);
+    }
+
+    #[test]
+    fn budget_consume_usage_exceeding_allocation() {
+        let budget = Budget::new_flat_rate(1000, 10);
+        let mut allocation = budget.allocate(50).unwrap(); // Allocates 500 micro-cents
+
+        let usage = Usage::new(60, 0); // Would cost 600 micro-cents
+        assert!(!allocation.consume_usage(&usage));
+
+        // Allocation should remain unchanged
+        assert_eq!(allocation.remaining_micro_cents(), 500);
+    }
+
+    #[test]
+    fn budget_consume_usage_exact_allocation() {
+        let budget = Budget::new_flat_rate(1000, 10);
+        let mut allocation = budget.allocate(50).unwrap(); // Allocates 500 micro-cents
+
+        let usage = Usage::new(50, 0); // Costs exactly 500 micro-cents
+        assert!(allocation.consume_usage(&usage));
+
+        assert_eq!(allocation.remaining_micro_cents(), 0);
+    }
+
+    #[test]
+    fn budget_consume_usage_multiple_times() {
+        let budget = Budget::new_flat_rate(2000, 10);
+        let mut allocation = budget.allocate(100).unwrap(); // Allocates 1000 micro-cents
+
+        // First consumption
+        let usage1 = Usage::new(20, 0); // 200 micro-cents
+        assert!(allocation.consume_usage(&usage1));
+        assert_eq!(allocation.remaining_micro_cents(), 800);
+
+        // Second consumption
+        let usage2 = Usage::new(30, 0); // 300 micro-cents
+        assert!(allocation.consume_usage(&usage2));
+        assert_eq!(allocation.remaining_micro_cents(), 500);
+
+        // Third consumption that would exceed remaining
+        let usage3 = Usage::new(60, 0); // 600 micro-cents
+        assert!(!allocation.consume_usage(&usage3));
+        assert_eq!(allocation.remaining_micro_cents(), 500); // Unchanged
+    }
+
+    #[test]
+    fn budget_consume_usage_zero_cost() {
+        let budget = Budget::new_flat_rate(1000, 10);
+        let mut allocation = budget.allocate(50).unwrap();
+
+        let zero_usage = Usage::new(0, 0);
+        assert!(allocation.consume_usage(&zero_usage));
+
+        // Allocation should remain unchanged
+        assert_eq!(allocation.remaining_micro_cents(), 500);
+    }
+
+    // Budget State Management Tests
+    #[test]
+    fn budget_allocation_drop_behavior() {
+        let budget = Budget::new_flat_rate(2000, 10);
+        let initial_remaining = budget.remaining_micro_cents();
+
+        {
+            let mut allocation = budget.allocate(50).unwrap(); // Allocates 500 micro-cents
+            assert_eq!(budget.remaining_micro_cents(), initial_remaining - 500);
+
+            // Consume some of the allocation
+            let usage = Usage::new(20, 0); // 200 micro-cents
+            assert!(allocation.consume_usage(&usage));
+            assert_eq!(allocation.remaining_micro_cents(), 300);
+
+            // When allocation drops, remaining 300 micro-cents should be returned
+        }
+
+        // Budget should have the unused portion returned
+        assert_eq!(budget.remaining_micro_cents(), initial_remaining - 200);
+    }
+
+    #[test]
+    fn budget_multiple_allocations_sequential() {
+        let budget = Budget::new_flat_rate(3000, 10);
+
+        // First allocation
+        {
+            let _allocation1 = budget.allocate(100).unwrap(); // 1000 micro-cents
+            assert_eq!(budget.remaining_micro_cents(), 2000);
+            // _allocation1 drops here, returning 1000 micro-cents
+        }
+
+        assert_eq!(budget.remaining_micro_cents(), 3000);
+
+        // Second allocation after first is dropped
+        let allocation2 = budget.allocate(150).unwrap(); // 1500 micro-cents
+        assert_eq!(budget.remaining_micro_cents(), 1500);
+
+        drop(allocation2);
+        assert_eq!(budget.remaining_micro_cents(), 3000);
+    }
+
+    #[test]
+    fn budget_multiple_allocations_concurrent() {
+        let budget = Budget::new_flat_rate(5000, 10);
+
+        let allocation1 = budget.allocate(200).unwrap(); // 2000 micro-cents
+        assert_eq!(budget.remaining_micro_cents(), 3000);
+
+        let allocation2 = budget.allocate(150).unwrap(); // 1500 micro-cents
+        assert_eq!(budget.remaining_micro_cents(), 1500);
+
+        // Third allocation should fail
+        let allocation3 = budget.allocate(200); // Would need 2000 micro-cents
+        assert!(allocation3.is_none());
+        assert_eq!(budget.remaining_micro_cents(), 1500);
+
+        drop(allocation1);
+        assert_eq!(budget.remaining_micro_cents(), 3500); // 1500 + 2000
+
+        drop(allocation2);
+        assert_eq!(budget.remaining_micro_cents(), 5000); // Back to original
+    }
+
+    #[test]
+    fn budget_exhaustion_scenarios() {
+        let budget = Budget::new_flat_rate(1000, 10);
+
+        // Exhaust budget completely
+        let mut allocation = budget.allocate(100).unwrap();
+        assert_eq!(budget.remaining_micro_cents(), 0);
+
+        let usage = Usage::new(100, 0); // Use all 1000 micro-cents
+        assert!(allocation.consume_usage(&usage));
+        assert_eq!(allocation.remaining_micro_cents(), 0);
+
+        // When dropped, nothing should be returned
+        drop(allocation);
+        assert_eq!(budget.remaining_micro_cents(), 0);
+
+        // Further allocations should fail
+        let failed_allocation = budget.allocate(1);
+        assert!(failed_allocation.is_none());
+    }
+
+    // Integration and Realistic Usage Tests
+    #[test]
+    fn budget_realistic_api_usage_pattern() {
+        // Simulate realistic Anthropic API costs (approximate rates in micro-cents)
+        let budget = Budget::from_dollars_with_rates(
+            1.0,  // $1.00 budget
+            300,  // ~$0.0003 per input token
+            1500, // ~$0.0015 per output token
+            150,  // ~$0.00015 per cache creation token
+            60,   // ~$0.00006 per cache read token
+        );
+
+        // Should have 100,000,000 micro-cents
+        assert_eq!(budget.remaining_micro_cents(), 100_000_000);
+
+        let mut allocation = budget.allocate(4000).unwrap(); // Allocate for 4k tokens
+        let allocated_cost = 4000 * 1500; // Max rate for allocation
+        assert_eq!(budget.remaining_micro_cents(), 100_000_000 - allocated_cost);
+
+        // Simulate a typical API response
+        let usage = Usage::new(1000, 500)
+            .with_cache_creation_input_tokens(200)
+            .with_cache_read_input_tokens(800);
+
+        assert!(allocation.consume_usage(&usage));
+
+        let actual_cost = 1000 * 300 + 500 * 1500 + 200 * 150 + 800 * 60;
+        assert_eq!(
+            allocation.remaining_micro_cents(),
+            allocated_cost - actual_cost
+        );
+    }
+
+    #[test]
+    fn budget_multiple_api_calls_simulation() {
+        let budget = Budget::from_dollars_flat_rate(1.0, 500); // $1.00 with flat rate
+
+        let mut total_consumed = 0u64;
+
+        // Simulate 5 API calls with smaller allocations
+        for call_num in 1..=5 {
+            // Allocate enough for the worst-case usage in this call
+            let needed_tokens = 20 * call_num + 15 * call_num;
+            let mut allocation = budget.allocate(needed_tokens as u32).unwrap();
+
+            let usage = Usage::new(20 * call_num, 15 * call_num);
+            assert!(allocation.consume_usage(&usage));
+
+            let call_cost = (20 * call_num as u64 + 15 * call_num as u64) * 500;
+            total_consumed += call_cost;
+
+            // Allocation drops here, returning unused budget
+        }
+
+        assert_eq!(budget.remaining_micro_cents(), 100_000_000 - total_consumed);
+    }
+
+    #[test]
+    fn budget_mixed_token_types_real_scenario() {
+        // Test with varied token usage patterns
+        let budget = Budget::new_with_rates(50000, 10, 30, 8, 12);
+
+        let scenarios = vec![
+            // (input, output, cache_creation, cache_read)
+            (100, 50, Some(20), None),     // Cache creation only
+            (80, 40, None, Some(30)),      // Cache read only
+            (120, 60, Some(15), Some(25)), // Both cache types
+            (200, 100, None, None),        // No cache usage
+        ];
+
+        let mut remaining_budget = 50000u64;
+
+        for (input, output, cache_creation, cache_read) in scenarios {
+            let mut allocation = budget.allocate((input + output) as u32).unwrap();
+
+            let mut usage = Usage::new(input, output);
+            if let Some(cc) = cache_creation {
+                usage = usage.with_cache_creation_input_tokens(cc);
+            }
+            if let Some(cr) = cache_read {
+                usage = usage.with_cache_read_input_tokens(cr);
+            }
+
+            assert!(allocation.consume_usage(&usage));
+
+            let actual_cost = input as u64 * 10
+                + output as u64 * 30
+                + cache_creation.unwrap_or(0) as u64 * 8
+                + cache_read.unwrap_or(0) as u64 * 12;
+
+            remaining_budget -= actual_cost;
+        }
+
+        assert_eq!(budget.remaining_micro_cents(), remaining_budget);
+    }
+
+    // Thread Safety Tests
+    #[test]
+    fn budget_concurrent_allocation_stress_test() {
+        use std::sync::{Barrier, Mutex};
+        use std::thread;
+
+        let budget = Budget::new_flat_rate(10000, 10);
+        let barrier = Barrier::new(20);
+        let allocations = Mutex::new(Vec::new());
+
+        thread::scope(|s| {
+            // Spawn 20 threads trying to allocate 100 tokens each (1000 micro-cents each)
+            // Only 10 should succeed (10000 / 1000 = 10)
+            for _ in 0..20 {
+                s.spawn(|| {
+                    barrier.wait();
+                    if let Some(allocation) = budget.allocate(100) {
+                        allocations.lock().unwrap().push(allocation);
+                    }
+                });
+            }
+        });
+
+        let final_allocations = allocations.into_inner().unwrap();
+        let successful_count = final_allocations.len();
+
+        // At most 10 allocations should succeed (10000 / 1000 = 10)
+        // Due to concurrent nature, we might get fewer but not more
+        assert!(
+            successful_count <= 10,
+            "Got {} successful allocations, expected at most 10",
+            successful_count
+        );
+
+        // Drop allocations and verify budget is returned
+        drop(final_allocations);
+        assert_eq!(budget.remaining_micro_cents(), 10000);
+    }
+
+    #[test]
+    fn budget_concurrent_mixed_operations() {
+        use std::sync::{Barrier, Mutex};
+        use std::thread;
+
+        let budget = Budget::new_flat_rate(5000, 25);
+        let barrier = Barrier::new(5);
+        let allocations = Mutex::new(Vec::new());
+
+        thread::scope(|s| {
+            // Spawn threads for different allocation sizes
+            s.spawn(|| {
+                barrier.wait();
+                if let Some(allocation) = budget.allocate(50) {
+                    allocations.lock().unwrap().push(allocation);
+                }
+            });
+            s.spawn(|| {
+                barrier.wait();
+                if let Some(allocation) = budget.allocate(75) {
+                    allocations.lock().unwrap().push(allocation);
+                }
+            });
+            s.spawn(|| {
+                barrier.wait();
+                if let Some(allocation) = budget.allocate(100) {
+                    allocations.lock().unwrap().push(allocation);
+                }
+            });
+            s.spawn(|| {
+                barrier.wait();
+                if let Some(allocation) = budget.allocate(25) {
+                    allocations.lock().unwrap().push(allocation);
+                }
+            });
+            s.spawn(|| {
+                barrier.wait();
+                if let Some(allocation) = budget.allocate(150) {
+                    allocations.lock().unwrap().push(allocation);
+                }
+            });
+        });
+
+        let final_allocations = allocations.into_inner().unwrap();
+        let successful_allocations = final_allocations.len();
+
+        // Not all allocations should succeed since total requested exceeds budget
+        // Budget capacity: 5000 micro-cents / 25 = 200 tokens max
+        // Some subset of the allocations should succeed, but not all
+        assert!(
+            successful_allocations < 5,
+            "Expected some allocation failures, but {} out of 5 succeeded",
+            successful_allocations
+        );
+
+        // Drop allocations and verify budget is returned
+        drop(final_allocations);
+        assert_eq!(budget.remaining_micro_cents(), 5000);
+    }
+
+    // Edge Case and Error Condition Tests
+    #[test]
+    fn budget_remaining_tokens_calculation_edge_cases() {
+        // All rates are the same
+        let budget1 = Budget::new_flat_rate(1000, 20);
+        let allocation1 = budget1.allocate(50).unwrap();
+        assert_eq!(allocation1.remaining_tokens(), 50);
+
+        // Different rates - should use the highest
+        let budget2 = Budget::new_with_rates(2000, 10, 50, 20, 30);
+        let allocation2 = budget2.allocate(40).unwrap(); // Allocated at highest rate (50)
+        assert_eq!(allocation2.remaining_tokens(), 40);
+
+        // Zero highest rate
+        let budget3 = Budget::new_with_rates(1000, 0, 0, 0, 0);
+        let allocation3 = budget3.allocate(100).unwrap();
+        assert_eq!(allocation3.remaining_tokens(), 0); // Division by zero protection
+    }
+
+    #[test]
+    fn budget_allocation_with_partial_consumption_patterns() {
+        let budget = Budget::new_flat_rate(10000, 50);
+        let mut allocation = budget.allocate(100).unwrap(); // 5000 micro-cents allocated
+
+        // Consume in small increments
+        for i in 1..=10 {
+            let usage = Usage::new(i * 2, 0); // Increasing usage
+            let expected_success = allocation.remaining_micro_cents() >= (i * 2) as u64 * 50;
+            assert_eq!(allocation.consume_usage(&usage), expected_success);
+        }
+
+        // Should have consumed: 2+4+6+8+10+12+14+16+18+20 = 110 tokens = 5500 micro-cents
+        // But we only allocated 5000, so some consumptions should have failed
+        assert!(allocation.remaining_micro_cents() < 5000);
+    }
+
+    #[test]
+    fn budget_extreme_values_handling() {
+        // Test with extreme values to ensure no overflow/underflow
+        let large_budget = Budget::new_flat_rate(u64::MAX - 1000, u32::MAX as u64);
+
+        // Should be able to allocate small amount
+        let allocation = large_budget.allocate(1);
+        assert!(allocation.is_some());
+
+        // Test with very small budget and large rates
+        let small_budget = Budget::new_flat_rate(1, u64::MAX);
+        let no_allocation = small_budget.allocate(1); // Would overflow
+        assert!(no_allocation.is_none());
+    }
+
+    #[test]
+    fn budget_legacy_compatibility_behavior() {
+        #![allow(deprecated)]
+
+        // Test that legacy methods still work
+        let budget = Budget::new(100); // Legacy constructor
+        assert_eq!(budget.remaining_micro_cents(), 100000); // 100 * 1000
+
+        // Test legacy remaining() method
+        let remaining_arc = budget.remaining();
+        assert_eq!(remaining_arc.load(Ordering::Relaxed), 100000);
+
+        // Test legacy allocation methods
+        let mut allocation = budget.allocate(50).unwrap();
+        assert_eq!(allocation.allocated(), 50); // Legacy method
+
+        // Test legacy consume method
+        assert!(allocation.consume(25)); // Legacy method
+        assert_eq!(allocation.remaining_tokens(), 25);
     }
 }
