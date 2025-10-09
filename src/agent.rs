@@ -578,7 +578,11 @@ impl<A: Agent> Tool<A> for ToolSearchFileSystem {
 ///         .ok_or("Insufficient budget for operation")?;
 ///
 ///     // Simulate API call - in reality, you'd make the actual API request here
-///     let actual_usage = Usage::new((expected_tokens / 2) as i32, (expected_tokens / 4) as i32);
+///     let prompt_tokens = i32::try_from(expected_tokens / 2)
+///         .map_err(|_| "Token count too large for i32")?;
+///     let completion_tokens = i32::try_from(expected_tokens / 4)
+///         .map_err(|_| "Token count too large for i32")?;
+///     let actual_usage = Usage::new(prompt_tokens, completion_tokens);
 ///
 ///     // Consume actual usage
 ///     if allocation.consume_usage(&actual_usage) {
@@ -643,12 +647,19 @@ impl<A: Agent> Tool<A> for ToolSearchFileSystem {
 ///             ))?;
 ///
 ///         // Simulate API call with actual usage
-///         let input_tokens = (estimated_tokens as f32 * 0.6) as u32;
-///         let output_tokens = (estimated_tokens as f32 * 0.3) as u32;
-///         let cache_read_tokens = (estimated_tokens as f32 * 0.1) as u32;
+///         let input_tokens = (estimated_tokens * 6) / 10;
+///         let output_tokens = (estimated_tokens * 3) / 10;
+///         let cache_read_tokens = estimated_tokens / 10;
 ///
-///         let usage = Usage::new(input_tokens as i32, output_tokens as i32)
-///             .with_cache_read_input_tokens(cache_read_tokens as i32);
+///         let input_i32 = i32::try_from(input_tokens)
+///             .map_err(|_| "Input token count too large for i32".to_string())?;
+///         let output_i32 = i32::try_from(output_tokens)
+///             .map_err(|_| "Output token count too large for i32".to_string())?;
+///         let cache_i32 = i32::try_from(cache_read_tokens)
+///             .map_err(|_| "Cache read token count too large for i32".to_string())?;
+///
+///         let usage = Usage::new(input_i32, output_i32)
+///             .with_cache_read_input_tokens(cache_i32);
 ///
 ///         if allocation.consume_usage(&usage) {
 ///             Ok(format!("Task completed by {} using {} total tokens",
