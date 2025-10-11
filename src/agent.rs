@@ -1179,9 +1179,12 @@ impl<'a> BudgetAllocation<'a> {
             .max(self.budget.cache_creation_token_rate_micro_cents)
             .max(self.budget.cache_read_token_rate_micro_cents);
         if highest_rate > 0 {
-            self.allocated_micro_cents
-                .checked_div(highest_rate)
-                .unwrap_or(0) as u32
+            std::cmp::min(
+                self.allocated_micro_cents
+                    .checked_div(highest_rate)
+                    .unwrap_or(0),
+                u32::MAX as u64,
+            ) as u32
         } else {
             0
         }
