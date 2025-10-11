@@ -3695,7 +3695,7 @@ mod tests {
                 })
                 .unwrap_or(u64::MAX);
 
-            remaining_budget -= actual_cost;
+            remaining_budget = remaining_budget.saturating_sub(actual_cost);
         }
 
         assert_eq!(budget.remaining_micro_cents(), remaining_budget);
