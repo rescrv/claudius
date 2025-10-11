@@ -806,7 +806,12 @@ impl Budget {
         cache_creation_token_rate_micro_cents: u64,
         cache_read_token_rate_micro_cents: u64,
     ) -> Self {
-        let budget_micro_cents = (budget_dollars * Self::MICRO_CENTS_PER_DOLLAR) as u64;
+        let result = budget_dollars * Self::MICRO_CENTS_PER_DOLLAR;
+        let budget_micro_cents = if result.is_finite() && result >= 0.0 {
+            result as u64
+        } else {
+            u64::MAX
+        };
         Self::new_with_rates(
             budget_micro_cents,
             input_token_rate_micro_cents,
@@ -828,7 +833,12 @@ impl Budget {
     /// assert!(budget.allocate(1000).is_some());
     /// ```
     pub fn from_dollars_flat_rate(budget_dollars: f64, token_rate_micro_cents: u64) -> Self {
-        let budget_micro_cents = (budget_dollars * Self::MICRO_CENTS_PER_DOLLAR) as u64;
+        let result = budget_dollars * Self::MICRO_CENTS_PER_DOLLAR;
+        let budget_micro_cents = if result.is_finite() && result >= 0.0 {
+            result as u64
+        } else {
+            u64::MAX
+        };
         Self::new_flat_rate(budget_micro_cents, token_rate_micro_cents)
     }
 
@@ -836,7 +846,8 @@ impl Budget {
     /// This converts tokens to micro-cents using a default rate.
     #[deprecated(note = "Use new_with_rates or new_flat_rate instead")]
     pub fn new(tokens: u32) -> Self {
-        let budget_micro_cents = tokens as u64 * Self::DEFAULT_RATE_MICRO_CENTS_PER_TOKEN;
+        let budget_micro_cents =
+            (tokens as u64).saturating_mul(Self::DEFAULT_RATE_MICRO_CENTS_PER_TOKEN);
         Self::new_flat_rate(budget_micro_cents, Self::DEFAULT_RATE_MICRO_CENTS_PER_TOKEN)
     }
 
@@ -887,14 +898,20 @@ impl Budget {
     /// of tokens with extremely high rates. All practical API usage scenarios are
     /// well within safe bounds.
     pub fn calculate_cost(&self, usage: &crate::Usage) -> u64 {
-        let input_cost = usage.input_tokens as u64 * self.input_token_rate_micro_cents;
-        let output_cost = usage.output_tokens as u64 * self.output_token_rate_micro_cents;
-        let cache_creation_cost = usage.cache_creation_input_tokens.unwrap_or(0) as u64
-            * self.cache_creation_token_rate_micro_cents;
-        let cache_read_cost = usage.cache_read_input_tokens.unwrap_or(0) as u64
-            * self.cache_read_token_rate_micro_cents;
+        let input_cost =
+            (usage.input_tokens as u64).saturating_mul(self.input_token_rate_micro_cents);
+        let output_cost =
+            (usage.output_tokens as u64).saturating_mul(self.output_token_rate_micro_cents);
+        let cache_creation_cost = (usage.cache_creation_input_tokens.unwrap_or(0) as u64)
+            .saturating_mul(self.cache_creation_token_rate_micro_cents);
+        let cache_read_cost = (usage.cache_read_input_tokens.unwrap_or(0) as u64)
+            .saturating_mul(self.cache_read_token_rate_micro_cents);
 
-        input_cost + output_cost + cache_creation_cost + cache_read_cost
+        input_cost
+            .checked_add(output_cost)
+            .and_then(|sum| sum.checked_add(cache_creation_cost))
+            .and_then(|sum| sum.checked_add(cache_read_cost))
+            .unwrap_or(u64::MAX)
     }
 
     /// Attempts to allocate cost for the expected maximum tokens from the budget.
@@ -923,7 +940,7 @@ impl Budget {
                     .remaining_micro_cents
                     .compare_exchange(
                         witness,
-                        witness - max_cost,
+                        witness.saturating_sub(max_cost),
                         Ordering::Relaxed,
                         Ordering::Relaxed,
                     )
@@ -956,12 +973,12 @@ impl Budget {
     /// Such values would represent costs far beyond reasonable API usage scenarios.
     /// In practice, this method is safe for all realistic budget and token rate combinations.
     fn calculate_max_cost_for_tokens(&self, tokens: u32) -> u64 {
-        tokens as u64
-            * self
-                .output_token_rate_micro_cents
+        (tokens as u64).saturating_mul(
+            self.output_token_rate_micro_cents
                 .max(self.input_token_rate_micro_cents)
                 .max(self.cache_creation_token_rate_micro_cents)
-                .max(self.cache_read_token_rate_micro_cents)
+                .max(self.cache_read_token_rate_micro_cents),
+        )
     }
 
     /// Returns the current remaining budget in micro-cents.
@@ -1162,7 +1179,12 @@ impl<'a> BudgetAllocation<'a> {
             .max(self.budget.cache_creation_token_rate_micro_cents)
             .max(self.budget.cache_read_token_rate_micro_cents);
         if highest_rate > 0 {
-            (self.allocated_micro_cents / highest_rate) as u32
+            std::cmp::min(
+                self.allocated_micro_cents
+                    .checked_div(highest_rate)
+                    .unwrap_or(0),
+                u32::MAX as u64,
+            ) as u32
         } else {
             0
         }
@@ -1220,9 +1242,9 @@ impl<'a> BudgetAllocation<'a> {
     #[deprecated(note = "Use consume_usage instead")]
     #[must_use]
     pub fn consume(&mut self, amount: u32) -> bool {
-        let cost = amount as u64 * Budget::DEFAULT_RATE_MICRO_CENTS_PER_TOKEN;
+        let cost = (amount as u64).saturating_mul(Budget::DEFAULT_RATE_MICRO_CENTS_PER_TOKEN);
         if cost <= self.allocated_micro_cents {
-            self.allocated_micro_cents -= cost;
+            self.allocated_micro_cents = self.allocated_micro_cents.saturating_sub(cost);
             true
         } else {
             false
@@ -2215,7 +2237,8 @@ mod tests {
 
         let usage = Usage::new(50, 100);
         let cost = budget.calculate_cost(&usage);
-        assert_eq!(cost, 50 * 10 + 100 * 20);
+        let expected_cost = (50u64 * 10).saturating_add(100u64 * 20);
+        assert_eq!(cost, expected_cost);
     }
 
     #[test]
@@ -2227,7 +2250,12 @@ mod tests {
             .with_cache_creation_input_tokens(20)
             .with_cache_read_input_tokens(30);
         let cost = budget.calculate_cost(&usage);
-        assert_eq!(cost, 50 * 10 + 100 * 20 + 20 * 5 + 30 * 15);
+        let expected_cost = (50u64 * 10)
+            .checked_add(100u64 * 20)
+            .and_then(|sum| sum.checked_add(20u64 * 5))
+            .and_then(|sum| sum.checked_add(30u64 * 15))
+            .unwrap_or(u64::MAX);
+        assert_eq!(cost, expected_cost);
     }
 
     #[test]
@@ -2258,7 +2286,11 @@ mod tests {
         assert!(allocation.consume_usage(&usage));
 
         let remaining_cost = allocation.remaining_micro_cents();
-        assert_eq!(remaining_cost, 500 - (20 * 10 + 15 * 10));
+        let expected_remaining = (20u64 * 10)
+            .checked_add(15u64 * 10)
+            .and_then(|consumed| 500u64.checked_sub(consumed))
+            .unwrap_or(0);
+        assert_eq!(remaining_cost, expected_remaining);
     }
 
     #[test]
@@ -2368,7 +2400,7 @@ mod tests {
         assert_eq!(max_rate, 10);
 
         // Calculate expected cost for 20 tokens
-        let expected_cost = 20u64 * max_rate;
+        let expected_cost = (20u64).saturating_mul(max_rate);
         assert_eq!(expected_cost, 200);
     }
 
@@ -3262,7 +3294,11 @@ mod tests {
             .with_cache_creation_input_tokens(20)
             .with_cache_read_input_tokens(30);
 
-        let expected_cost = 100 * 10 + 50 * 20 + 20 * 5 + 30 * 15;
+        let expected_cost = (100u64 * 10)
+            .checked_add(50u64 * 20)
+            .and_then(|sum| sum.checked_add(20u64 * 5))
+            .and_then(|sum| sum.checked_add(30u64 * 15))
+            .unwrap_or(u64::MAX);
         assert_eq!(budget.calculate_cost(&usage), expected_cost);
     }
 
@@ -3272,12 +3308,18 @@ mod tests {
 
         // Only cache creation, no cache read
         let usage1 = Usage::new(100, 50).with_cache_creation_input_tokens(20);
-        let expected_cost1 = 100 * 10 + 50 * 20 + 20 * 5;
+        let expected_cost1 = (100u64 * 10)
+            .checked_add(50u64 * 20)
+            .and_then(|sum| sum.checked_add(20u64 * 5))
+            .unwrap_or(u64::MAX);
         assert_eq!(budget.calculate_cost(&usage1), expected_cost1);
 
         // Only cache read, no cache creation
         let usage2 = Usage::new(100, 50).with_cache_read_input_tokens(30);
-        let expected_cost2 = 100 * 10 + 50 * 20 + 30 * 15;
+        let expected_cost2 = (100u64 * 10)
+            .checked_add(50u64 * 20)
+            .and_then(|sum| sum.checked_add(30u64 * 15))
+            .unwrap_or(u64::MAX);
         assert_eq!(budget.calculate_cost(&usage2), expected_cost2);
     }
 
@@ -3302,7 +3344,11 @@ mod tests {
             .with_cache_creation_input_tokens(2000)
             .with_cache_read_input_tokens(3000);
 
-        let expected_cost = 10000_u64 * 1000 + 5000_u64 * 2000 + 2000_u64 * 500 + 3000_u64 * 1500;
+        let expected_cost = (10000_u64 * 1000)
+            .checked_add(5000_u64 * 2000)
+            .and_then(|sum| sum.checked_add(2000_u64 * 500))
+            .and_then(|sum| sum.checked_add(3000_u64 * 1500))
+            .unwrap_or(u64::MAX);
         assert_eq!(budget.calculate_cost(&large_usage), expected_cost);
     }
 
@@ -3390,10 +3436,14 @@ mod tests {
         assert!(allocation.consume_usage(&usage));
 
         // Calculate remaining allocation
-        let used_cost = 50 * 10 + 30 * 20 + 10 * 5 + 20 * 15;
+        let used_cost = (50u64 * 10)
+            .checked_add(30u64 * 20)
+            .and_then(|sum| sum.checked_add(10u64 * 5))
+            .and_then(|sum| sum.checked_add(20u64 * 15))
+            .unwrap_or(u64::MAX);
         let max_rate = 20; // highest rate
-        let allocated_cost = 100 * max_rate;
-        let remaining = allocated_cost - used_cost;
+        let allocated_cost = 100u64 * max_rate;
+        let remaining = allocated_cost.saturating_sub(used_cost);
 
         assert_eq!(allocation.remaining_micro_cents(), remaining);
     }
@@ -3566,11 +3616,12 @@ mod tests {
 
         assert!(allocation.consume_usage(&usage));
 
-        let actual_cost = 1000 * 300 + 500 * 1500 + 200 * 150 + 800 * 60;
-        assert_eq!(
-            allocation.remaining_micro_cents(),
-            allocated_cost - actual_cost
-        );
+        let actual_cost = (1000u64 * 300)
+            .saturating_add(500u64 * 1500)
+            .saturating_add(200u64 * 150)
+            .saturating_add(800u64 * 60);
+        let remaining_in_allocation = allocated_cost.saturating_sub(actual_cost);
+        assert_eq!(allocation.remaining_micro_cents(), remaining_in_allocation);
     }
 
     #[test]
@@ -3588,8 +3639,11 @@ mod tests {
             let usage = Usage::new(20 * call_num, 15 * call_num);
             assert!(allocation.consume_usage(&usage));
 
-            let call_cost = (20 * call_num as u64 + 15 * call_num as u64) * 500;
-            total_consumed += call_cost;
+            let call_cost = (20 * call_num as u64)
+                .checked_add(15 * call_num as u64)
+                .and_then(|sum| sum.checked_mul(500))
+                .unwrap_or(u64::MAX); // Already converted
+            total_consumed = total_consumed.saturating_add(call_cost);
 
             // Allocation drops here, returning unused budget
         }
@@ -3625,12 +3679,26 @@ mod tests {
 
             assert!(allocation.consume_usage(&usage));
 
-            let actual_cost = input as u64 * 10
-                + output as u64 * 30
-                + cache_creation.unwrap_or(0) as u64 * 8
-                + cache_read.unwrap_or(0) as u64 * 12;
+            let actual_cost = (input as u64)
+                .checked_mul(10)
+                .and_then(|sum| sum.checked_add((output as u64).checked_mul(30).unwrap_or(0)))
+                .and_then(|sum| {
+                    sum.checked_add(
+                        (cache_creation.unwrap_or(0) as u64)
+                            .checked_mul(8)
+                            .unwrap_or(0),
+                    )
+                })
+                .and_then(|sum| {
+                    sum.checked_add(
+                        (cache_read.unwrap_or(0) as u64)
+                            .checked_mul(12)
+                            .unwrap_or(0),
+                    )
+                })
+                .unwrap_or(u64::MAX);
 
-            remaining_budget -= actual_cost;
+            remaining_budget = remaining_budget.saturating_sub(actual_cost);
         }
 
         assert_eq!(budget.remaining_micro_cents(), remaining_budget);
@@ -3761,8 +3829,9 @@ mod tests {
 
         // Consume in small increments
         for i in 1..=10 {
-            let usage = Usage::new(i * 2, 0); // Increasing usage
-            let expected_success = allocation.remaining_micro_cents() >= (i * 2) as u64 * 50;
+            let usage = Usage::new(i * 2, 0); // Increasing usage - safe for small values
+            let expected_usage_cost = ((i * 2) as u64).saturating_mul(50);
+            let expected_success = allocation.remaining_micro_cents() >= expected_usage_cost;
             assert_eq!(allocation.consume_usage(&usage), expected_success);
         }
 
