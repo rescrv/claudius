@@ -88,7 +88,7 @@ mod tests {
 
     #[tokio::test]
     async fn thinking_config_validation() {
-        let mut params = MessageCreateParams::simple("test", KnownModel::Claude35SonnetLatest);
+        let mut params = MessageCreateParams::simple("test", KnownModel::ClaudeHaiku45);
 
         // Test thinking config with insufficient budget
         params = params.with_thinking(ThinkingConfig::Enabled { budget_tokens: 500 });
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn model_display() {
-        let known_model = Model::Known(KnownModel::Claude35SonnetLatest);
+        let known_model = Model::Known(KnownModel::ClaudeHaiku45);
         let custom_model = Model::Custom("custom-model-name".to_string());
 
         assert!(!known_model.to_string().is_empty());
@@ -165,7 +165,7 @@ mod tests {
     #[test]
     fn builder_pattern_completeness() {
         // Test that all builder methods work together
-        let params = MessageCreateParams::simple("test", KnownModel::Claude35SonnetLatest)
+        let params = MessageCreateParams::simple("test", KnownModel::ClaudeHaiku45)
             .with_temperature(0.7)
             .unwrap()
             .with_top_p(0.9)
