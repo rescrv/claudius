@@ -1,6 +1,6 @@
 name: "Edge Case - Minimal Response"
 prompt: "Just say 'OK'."
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 10
 temperature: 0.0
 expected_contains:

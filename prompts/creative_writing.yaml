@@ -1,7 +1,7 @@
 name: "Creative Writing Test"
 prompt: "Write a short haiku about coding in Rust. Make sure it follows the 5-7-5 syllable pattern."
 system: "You are a creative poet who loves programming languages."
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 200
 temperature: 0.8
 expected_contains:

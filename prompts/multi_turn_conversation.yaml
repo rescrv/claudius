@@ -7,7 +7,7 @@ messages:
   - role: "user"
     content: "Tell me about ownership and borrowing."
 system: "You are a helpful Rust programming tutor."
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 400
 temperature: 0.3
 expected_contains:

@@ -59,7 +59,7 @@ YAML configuration files support the following fields:
 - `prompt`: Single prompt string (for simple tests)
 - `messages`: Array of conversation messages (for multi-turn tests)
 - `system`: System prompt (optional)
-- `model`: Model to use (default: claude-3-5-haiku-latest)
+- `model`: Model to use (default: claude-haiku-4-5)
 - `max_tokens`: Maximum tokens to generate (default: 1000)
 - `temperature`: Temperature setting (0.0-1.0, optional)
 - `top_p`: Top-p setting (0.0-1.0, optional)

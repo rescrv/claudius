@@ -1,7 +1,7 @@
 name: "Parent Directory System Test"
 prompt: "What are your key principles?"
 system: "../prompts/system.md"
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 200
 expected_contains:
   - "concise"
