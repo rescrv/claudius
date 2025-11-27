@@ -91,6 +91,10 @@ struct Args {
     /// Include verbose output with timing and token usage information.
     #[arrrg(flag, "Include timing and token usage information")]
     verbose: bool,
+
+    /// Show detailed output including all content blocks and tool calls.
+    #[arrrg(flag, "Show all content blocks and tool calls")]
+    show_details: bool,
 }
 
 /// Main entry point for the claudius-prompt command-line tool.
@@ -204,6 +208,81 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("---");
                 }
                 println!("{}", result.response);
+
+                if args.show_details {
+                    if let Some(ref message) = result.message {
+                        println!("\n--- Message Details ---");
+                        println!("ID: {}", message.id);
+                        println!("Model: {}", message.model);
+                        if let Some(ref stop_reason) = message.stop_reason {
+                            println!("Stop Reason: {:?}", stop_reason);
+                        }
+                        if let Some(ref stop_seq) = message.stop_sequence {
+                            println!("Stop Sequence: {}", stop_seq);
+                        }
+
+                        println!("\n--- Content Blocks ---");
+                        for (idx, block) in message.content.iter().enumerate() {
+                            match block {
+                                claudius::ContentBlock::Text(text_block) => {
+                                    println!("Block {}: Text", idx);
+                                    println!("  {}", text_block.text);
+                                }
+                                claudius::ContentBlock::ToolUse(tool_use_block) => {
+                                    println!("Block {}: Tool Use", idx);
+                                    println!("  Tool: {}", tool_use_block.name);
+                                    println!("  ID: {}", tool_use_block.id);
+                                    println!(
+                                        "  Input: {}",
+                                        serde_json::to_string_pretty(&tool_use_block.input)
+                                            .unwrap_or_else(|_| "invalid JSON".to_string())
+                                    );
+                                }
+                                claudius::ContentBlock::ServerToolUse(server_tool_use_block) => {
+                                    println!("Block {}: Server Tool Use", idx);
+                                    println!("  Tool: {}", server_tool_use_block.name);
+                                    println!("  ID: {}", server_tool_use_block.id);
+                                    println!(
+                                        "  Input: {}",
+                                        serde_json::to_string_pretty(&server_tool_use_block.input)
+                                            .unwrap_or_else(|_| "invalid JSON".to_string())
+                                    );
+                                }
+                                claudius::ContentBlock::Thinking(thinking_block) => {
+                                    println!("Block {}: Thinking", idx);
+                                    println!("  Signature: {}", thinking_block.signature);
+                                    println!("  Thinking: {}", thinking_block.thinking);
+                                }
+                                claudius::ContentBlock::RedactedThinking(redacted_thinking) => {
+                                    println!("Block {}: Redacted Thinking", idx);
+                                    println!("  Data: {}", redacted_thinking.data);
+                                }
+                                claudius::ContentBlock::Image(image_block) => {
+                                    println!("Block {}: Image", idx);
+                                    println!("  Source: {:?}", image_block.source);
+                                }
+                                claudius::ContentBlock::Document(document_block) => {
+                                    println!("Block {}: Document", idx);
+                                    println!("  Source: {:?}", document_block.source);
+                                }
+                                claudius::ContentBlock::ToolResult(tool_result_block) => {
+                                    println!("Block {}: Tool Result", idx);
+                                    println!("  Tool Use ID: {}", tool_result_block.tool_use_id);
+                                    println!("  Content: {:?}", tool_result_block.content);
+                                }
+                                claudius::ContentBlock::WebSearchToolResult(web_search_result) => {
+                                    println!("Block {}: Web Search Tool Result", idx);
+                                    println!("  Result: {:?}", web_search_result);
+                                }
+                            }
+                        }
+                    } else if !result.api_success {
+                        println!("\n--- Error Details ---");
+                        if let Some(ref err_msg) = result.error_message {
+                            println!("Error: {}", err_msg);
+                        }
+                    }
+                }
 
                 if files.len() > 1 && i < files.len() - 1 {
                     println!();
