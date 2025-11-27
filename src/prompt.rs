@@ -21,8 +21,8 @@
 //! - Configuration inheritance only allows parent directory traversal for "base.yaml" files
 
 use crate::{
-    Anthropic, ContentBlock, KnownModel, MessageCreateParams, MessageParam, MessageRole, Model,
-    ToolUnionParam,
+    Anthropic, ContentBlock, KnownModel, Message, MessageCreateParams, MessageParam, MessageRole,
+    Model, ToolChoice, ToolUnionParam,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -123,6 +123,9 @@ pub struct PromptTestConfig {
     /// Tools available for the conversation.
     pub tools: Option<Vec<ToolUnionParam>>,
 
+    /// How the model should use the provided tools.
+    pub tool_choice: Option<ToolChoice>,
+
     /// Expected content that should appear in the response.
     pub expected_contains: Option<Vec<String>>,
 
@@ -180,6 +183,10 @@ pub struct PromptTestResult {
 
     /// List of assertion failures, if any.
     pub assertion_failures: Vec<String>,
+
+    /// The full message object from the API (None if API call failed).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<Message>,
 }
 
 impl PromptTestConfig {
@@ -206,6 +213,7 @@ impl PromptTestConfig {
             top_k: None,
             stop_sequences: None,
             tools: None,
+            tool_choice: None,
             expected_contains: None,
             expected_not_contains: None,
             min_response_length: None,
@@ -245,6 +253,7 @@ impl PromptTestConfig {
             top_k: None,
             stop_sequences: None,
             tools: None,
+            tool_choice: None,
             expected_contains: None,
             expected_not_contains: None,
             min_response_length: None,
@@ -316,6 +325,12 @@ impl PromptTestConfig {
     /// Add a tool to the configuration.
     pub fn with_tool(mut self, tool: ToolUnionParam) -> Self {
         self.tools.get_or_insert_with(Vec::new).push(tool);
+        self
+    }
+
+    /// Set the tool choice configuration.
+    pub fn with_tool_choice(mut self, tool_choice: ToolChoice) -> Self {
+        self.tool_choice = Some(tool_choice);
         self
     }
 
@@ -561,6 +576,9 @@ impl PromptTestConfig {
         if other.tools.is_some() {
             self.tools = other.tools;
         }
+        if other.tool_choice.is_some() {
+            self.tool_choice = other.tool_choice;
+        }
         if other.expected_contains.is_some() {
             self.expected_contains = other.expected_contains;
         }
@@ -679,50 +697,64 @@ impl PromptTestConfig {
             params = params.with_tools(tools.clone());
         }
 
+        // Add tool choice if provided
+        if let Some(ref tool_choice) = self.tool_choice {
+            params = params.with_tool_choice(tool_choice.clone());
+        }
+
         // Make the API call and handle errors gracefully
         let api_result = client.send(params).await;
         let duration = start.elapsed();
 
-        let (response_text, tool_calls, api_success, error_message, input_tokens, output_tokens) =
-            match api_result {
-                Ok(response) => {
-                    // Extract response text and tool calls
-                    let mut response_text = String::new();
-                    let mut tool_calls = Vec::new();
+        let (
+            response_text,
+            tool_calls,
+            api_success,
+            error_message,
+            input_tokens,
+            output_tokens,
+            message,
+        ) = match api_result {
+            Ok(response) => {
+                // Extract response text and tool calls
+                let mut response_text = String::new();
+                let mut tool_calls = Vec::new();
 
-                    for block in &response.content {
-                        match block {
-                            ContentBlock::Text(text_block) => {
-                                if !response_text.is_empty() {
-                                    response_text.push('\n');
-                                }
-                                response_text.push_str(&text_block.text);
+                for block in &response.content {
+                    match block {
+                        ContentBlock::Text(text_block) => {
+                            if !response_text.is_empty() {
+                                response_text.push('\n');
                             }
-                            ContentBlock::ToolUse(tool_use_block) => {
-                                tool_calls.push(tool_use_block.name.clone());
-                            }
-                            _ => {}
+                            response_text.push_str(&text_block.text);
                         }
+                        ContentBlock::ToolUse(tool_use_block) => {
+                            tool_calls.push(tool_use_block.name.clone());
+                        }
+                        _ => {}
                     }
-
-                    (
-                        response_text,
-                        tool_calls,
-                        true,
-                        None,
-                        response.usage.input_tokens as u32,
-                        response.usage.output_tokens as u32,
-                    )
                 }
-                Err(error) => (
-                    String::new(),
-                    Vec::new(),
-                    false,
-                    Some(error.to_string()),
-                    0,
-                    0,
-                ),
-            };
+
+                (
+                    response_text,
+                    tool_calls,
+                    true,
+                    None,
+                    response.usage.input_tokens as u32,
+                    response.usage.output_tokens as u32,
+                    Some(response),
+                )
+            }
+            Err(error) => (
+                String::new(),
+                Vec::new(),
+                false,
+                Some(error.to_string()),
+                0,
+                0,
+                None,
+            ),
+        };
 
         // Run assertions
         let mut assertion_failures = Vec::new();
@@ -838,6 +870,7 @@ impl PromptTestConfig {
             error_message,
             assertions_passed: assertion_failures.is_empty(),
             assertion_failures,
+            message,
         })
     }
 }
