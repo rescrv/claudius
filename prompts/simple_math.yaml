@@ -1,6 +1,6 @@
 name: "Simple Math Test"
 prompt: "What is 2 + 2? Please respond with just the number."
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 50
 temperature: 0.0
 expected_contains:

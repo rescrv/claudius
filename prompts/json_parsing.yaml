@@ -1,6 +1,6 @@
 name: "JSON Parsing Test"
 prompt: "Parse this JSON and tell me the value of the 'name' field: {\"name\": \"Claude\", \"age\": 1, \"type\": \"AI\"}"
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 100
 temperature: 0.0
 expected_contains:

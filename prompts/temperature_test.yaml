@@ -1,6 +1,6 @@
 name: "High Temperature Creative Test"
 prompt: "Invent a completely new programming language concept that has never been tried before. Be creative and wild with your ideas!"
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 600
 temperature: 1.0
 expected_not_contains:
