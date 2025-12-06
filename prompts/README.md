@@ -18,6 +18,7 @@ This directory contains test vectors for the `claudius-prompt` binary. These tes
 - `stop_sequence_test.yaml` - Stop sequence functionality
 - `model_comparison.yaml` - Different model testing
 - `json_parsing.yaml` - Structured data parsing
+- `tool_calling_test.yaml` - Custom tool definitions with tool call assertions
 
 ### Edge Cases & Error Conditions
 - `refusal_test.yaml` - Testing AI safety refusal behaviors
@@ -70,6 +71,40 @@ YAML configuration files support the following fields:
 - `min_response_length`: Minimum response length in characters
 - `max_response_length`: Maximum response length in characters
 - `expected_tool_calls`: Array of tool names that should be called (optional)
+- `tools`: Array of tool definitions (see Tool Calling section below)
+- `tool_choice`: Tool selection mode: auto, any, none, or specific tool name
+
+## Tool Calling
+
+Tools are defined as an array of tool objects. Each tool requires:
+
+- `type`: Must be "custom" for user-defined tools
+- `name`: Tool identifier used in assertions and by the model
+- `description`: What the tool does (helps the model decide when to use it)
+- `input_schema`: JSON Schema defining the tool's input parameters
+
+Example:
+```yaml
+tools:
+  - type: "custom"
+    name: "calculator"
+    description: "Performs arithmetic operations"
+    input_schema:
+      type: "object"
+      properties:
+        operation:
+          type: "string"
+          enum: ["add", "subtract", "multiply", "divide"]
+        a:
+          type: "number"
+        b:
+          type: "number"
+      required: ["operation", "a", "b"]
+tool_choice:
+  type: "auto"
+expected_tool_calls:
+  - "calculator"
+```
 
 ## Assertion Testing
 
