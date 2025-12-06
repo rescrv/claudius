@@ -1,0 +1,44 @@
+name: "Advanced Tool Calling Test"
+prompt: "Calculate the sum of 15 and 27, and then look up the weather in San Francisco."
+system: "You are a helpful assistant with access to tools. Use the calculator tool for math operations and the weather tool to check the weather. Always use tools when appropriate."
+model: "claude-haiku-4-5"
+max_tokens: 1000
+temperature: 0.0
+tools:
+  - type: "custom"
+    name: "calculator"
+    description: "Performs basic arithmetic operations on two numbers. Use this tool whenever the user asks for mathematical calculations."
+    input_schema:
+      type: "object"
+      properties:
+        operation:
+          type: "string"
+          description: "The operation to perform: add, subtract, multiply, or divide"
+          enum: ["add", "subtract", "multiply", "divide"]
+        a:
+          type: "number"
+          description: "The first operand"
+        b:
+          type: "number"
+          description: "The second operand"
+      required: ["operation", "a", "b"]
+  - type: "custom"
+    name: "get_weather"
+    description: "Retrieves the current weather for a specified location. Use this tool when the user asks about weather conditions."
+    input_schema:
+      type: "object"
+      properties:
+        location:
+          type: "string"
+          description: "The city and optionally state/country to get weather for"
+        units:
+          type: "string"
+          description: "Temperature units: celsius or fahrenheit"
+          enum: ["celsius", "fahrenheit"]
+          default: "fahrenheit"
+      required: ["location"]
+tool_choice:
+  type: "auto"
+expected_tool_calls:
+  - "calculator"
+  - "get_weather"
