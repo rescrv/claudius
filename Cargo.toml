@@ -29,6 +29,8 @@ serde_yaml = "0.9.34"
 arrrg = "0.8.0"
 arrrg_derive = "0.8.0"
 getopts = "0.2.24"
+rustyline = "17.0.2"
+ctrlc = { version = "3.5.1", features = ["termination"] }
 
 [[bin]]
 name = "median-text"
@@ -38,6 +40,11 @@ required-features=["binaries"]
 [[bin]]
 name = "claudius-prompt"
 path = "src/bin/claudius-prompt.rs"
+required-features=["binaries"]
+
+[[bin]]
+name = "claudius-chat"
+path = "src/bin/claudius-chat.rs"
 required-features=["binaries"]
 
 [dev-dependencies]
