@@ -6,6 +6,8 @@
 //! Anthropic's Claude AI models, including support for streaming responses, tool use,
 //! and agent-based interactions.
 
+pub mod chat;
+
 mod agent;
 mod backoff;
 mod client;
