@@ -187,8 +187,16 @@ let model = Model::Custom("custom-model-identifier".to_string());
 ```rust
 // Customize the client
 let client = Anthropic::new(Some("your-api-key".to_string()))?
-    .with_base_url("https://custom-api.example.com/".to_string())
-    .with_timeout(std::time::Duration::from_secs(60));
+    .with_base_url("https://custom-api.example.com".to_string())
+    .with_timeout(std::time::Duration::from_secs(60))?;
+
+// Use with Minimax (international)
+let client = Anthropic::new(Some("your-api-key".to_string()))?
+    .with_base_url("https://api.minimax.io/anthropic".to_string());
+
+// Use with Minimax (China)
+let client = Anthropic::new(Some("your-api-key".to_string()))?
+    .with_base_url("https://api.minimaxi.com/anthropic".to_string());
 
 // Configure request parameters
 let params = MessageCreateParams::new(
@@ -640,6 +648,34 @@ cargo run --example models_example
 
 # Run the retry example
 cargo run --example retry_example
+```
+
+## Breaking Changes
+
+### v0.17.0
+
+**Base URL format change**: The `with_base_url()` method now expects the base URL *without* the `/v1/` suffix. The client automatically appends `/v1/` when constructing endpoint URLs.
+
+Before (v0.16.0 and earlier):
+```rust
+// Old format - required /v1/ suffix
+let client = Anthropic::new(None)?
+    .with_base_url("https://api.anthropic.com/v1/".to_string());
+```
+
+After (v0.17.0+):
+```rust
+// New format - base URL only, /v1/ is added automatically
+let client = Anthropic::new(None)?
+    .with_base_url("https://api.anthropic.com".to_string());
+```
+
+This change enables proper support for third-party API providers like Minimax that use a different base path:
+```rust
+// Now works correctly with Minimax
+let client = Anthropic::new(None)?
+    .with_base_url("https://api.minimax.io/anthropic".to_string());
+// Requests go to: https://api.minimax.io/anthropic/v1/messages
 ```
 
 ## Contributing

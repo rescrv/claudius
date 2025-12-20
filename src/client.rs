@@ -16,7 +16,7 @@ use crate::types::{
     ModelInfo, ModelListParams, ModelListResponse,
 };
 
-const DEFAULT_API_URL: &str = "https://api.anthropic.com/v1/";
+const DEFAULT_API_URL: &str = "https://api.anthropic.com";
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -114,6 +114,26 @@ impl Anthropic {
     /// Set a custom base URL for this client.
     ///
     /// This method allows you to specify a different API endpoint for the client.
+    /// The base URL should be the root URL without the `/v1/` suffix - this will
+    /// be added automatically when constructing request URLs.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use claudius::Anthropic;
+    /// // For Anthropic's API (default)
+    /// let client = Anthropic::new(Some("api-key".to_string()))?
+    ///     .with_base_url("https://api.anthropic.com".to_string());
+    ///
+    /// // For Minimax (international)
+    /// let client = Anthropic::new(Some("api-key".to_string()))?
+    ///     .with_base_url("https://api.minimax.io/anthropic".to_string());
+    ///
+    /// // For Minimax (China)
+    /// let client = Anthropic::new(Some("api-key".to_string()))?
+    ///     .with_base_url("https://api.minimaxi.com/anthropic".to_string());
+    /// # Ok::<(), claudius::Error>(())
+    /// ```
     pub fn with_base_url(mut self, base_url: String) -> Self {
         self.base_url = base_url;
         self
@@ -199,6 +219,23 @@ impl Anthropic {
     /// Get cached headers for performance (no allocation needed).
     fn default_headers(&self) -> HeaderMap {
         (*self.cached_headers).clone()
+    }
+
+    /// Build a full endpoint URL from the base URL and endpoint path.
+    ///
+    /// This method handles trailing slashes gracefully and always inserts `/v1/`
+    /// between the base URL and endpoint path. This allows the base URL to be
+    /// specified without requiring a specific format (with or without trailing slash,
+    /// with or without `/v1/` suffix).
+    ///
+    /// # Examples
+    ///
+    /// - Base: `https://api.anthropic.com`, endpoint: `messages` → `https://api.anthropic.com/v1/messages`
+    /// - Base: `https://api.minimax.io/anthropic`, endpoint: `messages` → `https://api.minimax.io/anthropic/v1/messages`
+    /// - Base: `https://example.com/`, endpoint: `models` → `https://example.com/v1/models`
+    fn build_url(&self, endpoint: &str) -> String {
+        let base = self.base_url.trim_end_matches('/');
+        format!("{}/v1/{}", base, endpoint)
     }
 
     /// Retry wrapper that implements exponential backoff with header-based retry-after
@@ -408,7 +445,7 @@ impl Anthropic {
         params.stream = false;
 
         self.retry_with_backoff(|| async {
-            let url = format!("{}messages", self.base_url);
+            let url = self.build_url("messages");
             self.execute_post_request(&url, &params, None).await
         })
         .await
@@ -429,7 +466,7 @@ impl Anthropic {
 
         let response = self
             .retry_with_backoff(|| async {
-                let url = format!("{}messages", self.base_url);
+                let url = self.build_url("messages");
 
                 let mut headers = self.default_headers();
                 headers.insert(
@@ -470,7 +507,7 @@ impl Anthropic {
         params: MessageCountTokensParams,
     ) -> Result<MessageTokensCount> {
         self.retry_with_backoff(|| async {
-            let url = format!("{}messages/count_tokens", self.base_url);
+            let url = self.build_url("messages/count_tokens");
             self.execute_post_request(&url, &params, None).await
         })
         .await
@@ -482,7 +519,7 @@ impl Anthropic {
     /// pagination and filter results.
     pub async fn list_models(&self, params: Option<ModelListParams>) -> Result<ModelListResponse> {
         self.retry_with_backoff(|| async {
-            let url = format!("{}models", self.base_url);
+            let url = self.build_url("models");
 
             let query_params = params.as_ref().map(|p| {
                 let mut params = Vec::new();
@@ -510,7 +547,7 @@ impl Anthropic {
     /// ID, creation date, display name, and type.
     pub async fn get_model(&self, model_id: &str) -> Result<ModelInfo> {
         self.retry_with_backoff(|| async {
-            let url = format!("{}models/{}", self.base_url, model_id);
+            let url = self.build_url(&format!("models/{}", model_id));
             self.execute_get_request(&url, None).await
         })
         .await
@@ -748,14 +785,69 @@ mod tests {
 
         // Test builder pattern methods
         let configured_client = client
-            .with_base_url("https://custom.api.com/v1/".to_string())
+            .with_base_url("https://custom.api.com".to_string())
             .with_max_retries(5)
             .with_backoff_params(2.0, 1.0);
 
-        assert_eq!(configured_client.base_url, "https://custom.api.com/v1/");
+        assert_eq!(configured_client.base_url, "https://custom.api.com");
         assert_eq!(configured_client.max_retries, 5);
         assert_eq!(configured_client.throughput_ops_sec, 2.0);
         assert_eq!(configured_client.reserve_capacity, 1.0);
+    }
+
+    #[test]
+    fn build_url_default_base() {
+        let client = Anthropic::new(Some("test_key".to_string())).unwrap();
+        // Default base URL: https://api.anthropic.com
+        assert_eq!(
+            client.build_url("messages"),
+            "https://api.anthropic.com/v1/messages"
+        );
+        assert_eq!(
+            client.build_url("messages/count_tokens"),
+            "https://api.anthropic.com/v1/messages/count_tokens"
+        );
+        assert_eq!(
+            client.build_url("models"),
+            "https://api.anthropic.com/v1/models"
+        );
+    }
+
+    #[test]
+    fn build_url_custom_base_without_trailing_slash() {
+        let client = Anthropic::new(Some("test_key".to_string()))
+            .unwrap()
+            .with_base_url("https://api.minimax.io/anthropic".to_string());
+        assert_eq!(
+            client.build_url("messages"),
+            "https://api.minimax.io/anthropic/v1/messages"
+        );
+    }
+
+    #[test]
+    fn build_url_custom_base_with_trailing_slash() {
+        let client = Anthropic::new(Some("test_key".to_string()))
+            .unwrap()
+            .with_base_url("https://api.minimax.io/anthropic/".to_string());
+        assert_eq!(
+            client.build_url("messages"),
+            "https://api.minimax.io/anthropic/v1/messages"
+        );
+    }
+
+    #[test]
+    fn build_url_minimax_china() {
+        let client = Anthropic::new(Some("test_key".to_string()))
+            .unwrap()
+            .with_base_url("https://api.minimaxi.com/anthropic".to_string());
+        assert_eq!(
+            client.build_url("messages"),
+            "https://api.minimaxi.com/anthropic/v1/messages"
+        );
+        assert_eq!(
+            client.build_url(&format!("models/{}", "claude-3-opus")),
+            "https://api.minimaxi.com/anthropic/v1/models/claude-3-opus"
+        );
     }
 
     #[test]
