@@ -160,7 +160,7 @@ impl ChatSession {
         let mut turn_usage: Option<Usage> = None;
 
         {
-            let stream = self.client.stream(params).await?;
+            let stream = self.client.stream(&params).await?;
             pin!(stream);
 
             // Process stream events

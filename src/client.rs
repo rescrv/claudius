@@ -456,13 +456,18 @@ impl Anthropic {
     /// Returns a stream of MessageStreamEvent objects that can be processed incrementally.
     pub async fn stream(
         &self,
-        mut params: MessageCreateParams,
-    ) -> Result<impl Stream<Item = Result<MessageStreamEvent>>> {
+        params: &MessageCreateParams,
+    ) -> Result<impl Stream<Item = Result<MessageStreamEvent>> + use<>> {
         // Validate parameters first
         params.validate()?;
 
         // Ensure stream is enabled
-        params.stream = true;
+        if !params.stream {
+            return Err(Error::validation(
+                "stream must be true for streaming requests",
+                Some("stream".to_string()),
+            ));
+        }
 
         let response = self
             .retry_with_backoff(|| async {

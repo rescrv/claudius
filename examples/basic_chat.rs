@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
         KnownModel::Claude37SonnetLatest,
     );
 
-    let stream = client.stream(params).await?;
+    let stream = client.stream(&params).await?;
 
     // Pin the stream so it can be polled
     pin!(stream);
