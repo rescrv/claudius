@@ -14,7 +14,7 @@ async fn main() -> Result<()> {
     )
     .with_system("You are Claude, an AI assistant made by Anthropic.");
 
-    let stream = client.stream(params).await?;
+    let stream = client.stream(&params).await?;
 
     // Pin the stream so it can be polled
     pin!(stream);

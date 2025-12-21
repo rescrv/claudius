@@ -57,7 +57,7 @@ mod tests {
             Model::Known(KnownModel::Claude35HaikuLatest),
         );
 
-        let stream = client.stream(params).await;
+        let stream = client.stream(&params).await;
         assert!(stream.is_ok(), "Stream request should succeed");
     }
 
@@ -193,7 +193,7 @@ mod tests {
 
         let client = Anthropic::new(None).expect("Failed to create client with env API key");
 
-        let params = MessageCreateParams::new(
+        let params = MessageCreateParams::new_streaming(
             20,
             vec![MessageParam::new_with_string(
                 "Say 'streaming test passed' briefly".to_string(),
@@ -202,7 +202,7 @@ mod tests {
             Model::Known(KnownModel::Claude35HaikuLatest),
         );
 
-        let result = client.stream(params).await;
+        let result = client.stream(&params).await;
         assert!(
             result.is_ok(),
             "Streaming request should succeed with env API key"
