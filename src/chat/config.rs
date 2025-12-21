@@ -62,8 +62,9 @@ pub struct ChatConfig {
     /// Custom stop sequences supplied on every request.
     pub stop_sequences: Vec<String>,
 
-    /// Whether thinking blocks should be rendered.
-    pub show_thinking: bool,
+    /// Extended thinking configuration.
+    /// `None` means thinking is disabled, `Some(budget)` enables with the given token budget.
+    pub thinking_budget: Option<u32>,
 
     /// Optional per-session token budget (input + output).
     pub session_budget_tokens: Option<u64>,
@@ -79,7 +80,7 @@ impl ChatConfig {
     /// - Model: claude-haiku-4-5
     /// - Max tokens: 4096
     /// - Color: enabled
-    /// - Thinking: shown
+    /// - Thinking: disabled
     pub fn new() -> Self {
         Self {
             model: Model::Known(KnownModel::ClaudeHaiku45),
@@ -90,7 +91,7 @@ impl ChatConfig {
             top_p: None,
             top_k: None,
             stop_sequences: Vec::new(),
-            show_thinking: true,
+            thinking_budget: None,
             session_budget_tokens: None,
             transcript_path: None,
         }
@@ -144,9 +145,10 @@ impl ChatConfig {
         self
     }
 
-    /// Sets whether thinking blocks should be shown.
-    pub fn with_show_thinking(mut self, show_thinking: bool) -> Self {
-        self.show_thinking = show_thinking;
+    /// Sets the thinking budget.
+    /// `None` disables thinking, `Some(budget)` enables with the given token budget.
+    pub fn with_thinking_budget(mut self, budget: Option<u32>) -> Self {
+        self.thinking_budget = budget;
         self
     }
 
@@ -201,6 +203,7 @@ mod tests {
         assert!(config.top_p.is_none());
         assert!(config.top_k.is_none());
         assert!(config.stop_sequences.is_empty());
+        assert!(config.thinking_budget.is_none());
         assert!(config.session_budget_tokens.is_none());
         assert!(config.transcript_path.is_none());
     }
@@ -212,7 +215,7 @@ mod tests {
         assert_eq!(config.model, Model::Known(KnownModel::ClaudeHaiku45));
         assert_eq!(config.max_tokens, 4096);
         assert!(config.use_color);
-        assert!(config.show_thinking);
+        assert!(config.thinking_budget.is_none());
     }
 
     #[test]
@@ -241,7 +244,7 @@ mod tests {
             .with_top_p(Some(0.9))
             .with_top_k(Some(64))
             .with_stop_sequences(vec!["END".to_string()])
-            .with_show_thinking(false)
+            .with_thinking_budget(Some(2048))
             .with_session_budget(Some(10_000))
             .with_transcript_path(Some(PathBuf::from("transcript.json")));
 
@@ -253,7 +256,7 @@ mod tests {
         assert_eq!(config.top_p, Some(0.9));
         assert_eq!(config.top_k, Some(64));
         assert_eq!(config.stop_sequences, vec!["END".to_string()]);
-        assert!(!config.show_thinking);
+        assert_eq!(config.thinking_budget, Some(2048));
         assert_eq!(config.session_budget_tokens, Some(10_000));
         assert_eq!(
             config.transcript_path,

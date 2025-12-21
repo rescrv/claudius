@@ -22,7 +22,8 @@ use crate::client::Anthropic;
 use crate::error::Result;
 use crate::types::{
     ContentBlock, ContentBlockDelta, MessageCreateParams, MessageDeltaUsage, MessageParam,
-    MessageParamContent, MessageRole, MessageStreamEvent, Model, ToolResultBlockContent, Usage,
+    MessageParamContent, MessageRole, MessageStreamEvent, Model, ThinkingConfig,
+    ToolResultBlockContent, Usage,
 };
 
 /// A chat session that manages conversation state and API interactions.
@@ -58,8 +59,8 @@ pub struct SessionStats {
     pub top_k: Option<u32>,
     /// The configured stop sequences.
     pub stop_sequences: Vec<String>,
-    /// Whether thinking blocks are displayed.
-    pub show_thinking: bool,
+    /// Extended thinking budget (None = disabled, Some(n) = enabled with n tokens).
+    pub thinking_budget: Option<u32>,
     /// The session token budget limit, if set.
     pub session_budget_tokens: Option<u64>,
     /// Total tokens spent against the budget.
@@ -152,6 +153,9 @@ impl ChatSession {
         if !self.config.stop_sequences.is_empty() {
             params = params.with_stop_sequences(self.config.stop_sequences.clone());
         }
+        if let Some(budget) = self.config.thinking_budget {
+            params = params.with_thinking(ThinkingConfig::enabled(budget));
+        }
 
         let mut accumulated_text = String::new();
         let mut was_interrupted = false;
@@ -213,7 +217,7 @@ impl ChatSession {
                                     }
                                 }
                                 ContentBlockDelta::ThinkingDelta(thinking_delta) => {
-                                    if self.config.show_thinking {
+                                    if self.config.thinking_budget.is_some() {
                                         renderer.print_thinking(&thinking_delta.thinking);
                                     }
                                 }
@@ -339,14 +343,15 @@ impl ChatSession {
         &self.config.stop_sequences
     }
 
-    /// Controls whether thinking blocks are rendered.
-    pub fn set_show_thinking(&mut self, show: bool) {
-        self.config.show_thinking = show;
+    /// Sets the extended thinking budget.
+    /// `None` disables thinking, `Some(budget)` enables with the given token budget.
+    pub fn set_thinking_budget(&mut self, budget: Option<u32>) {
+        self.config.thinking_budget = budget;
     }
 
-    /// Returns whether thinking blocks are rendered.
-    pub fn show_thinking(&self) -> bool {
-        self.config.show_thinking
+    /// Returns the extended thinking budget, if enabled.
+    pub fn thinking_budget(&self) -> Option<u32> {
+        self.config.thinking_budget
     }
 
     /// Sets the session token budget.
@@ -406,7 +411,7 @@ impl ChatSession {
             top_p: self.config.top_p,
             top_k: self.config.top_k,
             stop_sequences: self.config.stop_sequences.clone(),
-            show_thinking: self.config.show_thinking,
+            thinking_budget: self.config.thinking_budget,
             session_budget_tokens: self.config.session_budget_tokens,
             budget_spent_tokens: self.budget_spent_tokens,
             transcript_path: self.config.transcript_path.clone(),

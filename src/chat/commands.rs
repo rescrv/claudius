@@ -49,8 +49,9 @@ pub enum ChatCommand {
     /// List stop sequences.
     ListStopSequences,
 
-    /// Toggle thinking visibility.
-    Thinking(bool),
+    /// Configure extended thinking.
+    /// `None` disables thinking, `Some(budget)` enables with the given token budget.
+    Thinking(Option<u32>),
 
     /// Set a per-session token budget.
     Budget(u64),
@@ -147,10 +148,7 @@ pub fn parse_command(input: &str) -> Option<ChatCommand> {
             None => ChatCommand::Invalid("/top_k requires a value".to_string()),
         },
         "stop" => parse_stop_command(argument),
-        "thinking" => match argument.and_then(parse_on_off) {
-            Some(value) => ChatCommand::Thinking(value),
-            None => ChatCommand::Invalid("/thinking expects 'on' or 'off'".to_string()),
-        },
+        "thinking" => parse_thinking_command(argument),
         "budget" => match argument {
             Some(arg) if arg.eq_ignore_ascii_case("clear") => ChatCommand::ClearBudget,
             Some(arg) => match arg.parse::<u64>() {
@@ -228,11 +226,26 @@ fn parse_f32_in_range(value: &str, min: f32, max: f32) -> Result<f32, String> {
     }
 }
 
-fn parse_on_off(value: &str) -> Option<bool> {
-    match value.to_lowercase().as_str() {
-        "on" | "true" | "yes" => Some(true),
-        "off" | "false" | "no" => Some(false),
-        _ => None,
+/// Default thinking budget when enabled without a specific value.
+const DEFAULT_THINKING_BUDGET: u32 = 1024;
+
+fn parse_thinking_command(argument: Option<&str>) -> ChatCommand {
+    let Some(arg) = argument else {
+        return ChatCommand::Invalid(
+            "/thinking expects 'on', 'off', or a token budget (e.g., 2048)".to_string(),
+        );
+    };
+
+    let lower = arg.to_lowercase();
+    match lower.as_str() {
+        "off" | "false" | "no" => ChatCommand::Thinking(None),
+        "on" | "true" | "yes" => ChatCommand::Thinking(Some(DEFAULT_THINKING_BUDGET)),
+        _ => match arg.parse::<u32>() {
+            Ok(budget) => ChatCommand::Thinking(Some(budget)),
+            Err(_) => ChatCommand::Invalid(
+                "/thinking expects 'on', 'off', or a token budget (e.g., 2048)".to_string(),
+            ),
+        },
     }
 }
 
@@ -249,7 +262,7 @@ pub fn help_text() -> &'static str {
   /stop add <seq>        Add a stop sequence
   /stop clear            Clear all stop sequences
   /stop list             List current stop sequences
-  /thinking on|off       Show or hide thinking blocks
+  /thinking on|off|<n>   Enable/disable extended thinking (or set budget)
   /budget <tokens>       Set total session budget (or 'clear')
   /transcript <file>     Enable auto-saving transcripts (or 'clear')
   /save <file>           Save the current transcript immediately
@@ -343,11 +356,15 @@ mod tests {
     fn parse_thinking_toggle() {
         assert_eq!(
             parse_command("/thinking on"),
-            Some(ChatCommand::Thinking(true))
+            Some(ChatCommand::Thinking(Some(DEFAULT_THINKING_BUDGET)))
         );
         assert_eq!(
             parse_command("/thinking off"),
-            Some(ChatCommand::Thinking(false))
+            Some(ChatCommand::Thinking(None))
+        );
+        assert_eq!(
+            parse_command("/thinking 2048"),
+            Some(ChatCommand::Thinking(Some(2048)))
         );
         assert!(matches!(
             parse_command("/thinking maybe"),

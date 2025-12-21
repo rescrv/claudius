@@ -153,12 +153,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ChatCommand::ListStopSequences => {
                             print_stop_sequences(session.stop_sequences());
                         }
-                        ChatCommand::Thinking(show) => {
-                            session.set_show_thinking(show);
-                            if show {
-                                renderer.print_info("Thinking output enabled.");
-                            } else {
-                                renderer.print_info("Thinking output hidden.");
+                        ChatCommand::Thinking(budget) => {
+                            session.set_thinking_budget(budget);
+                            match budget {
+                                Some(tokens) => {
+                                    renderer.print_info(&format!(
+                                        "Extended thinking enabled with {} token budget.",
+                                        tokens
+                                    ));
+                                }
+                                None => {
+                                    renderer.print_info("Extended thinking disabled.");
+                                }
                             }
                         }
                         ChatCommand::Budget(tokens) => {
@@ -252,11 +258,10 @@ fn print_stats(session: &ChatSession) {
         println!("      System prompt: (none)");
     }
     println!(
-        "      Thinking output: {}",
-        if stats.show_thinking {
-            "shown"
-        } else {
-            "hidden"
+        "      Thinking: {}",
+        match stats.thinking_budget {
+            Some(budget) => format!("enabled ({} tokens)", budget),
+            None => "disabled".to_string(),
         }
     );
     print_stop_sequences(&stats.stop_sequences);
@@ -292,11 +297,10 @@ fn print_config(session: &ChatSession) {
     println!("      Top-p: {}", describe_float(stats.top_p));
     println!("      Top-k: {}", describe_top_k(stats.top_k));
     println!(
-        "      Thinking output: {}",
-        if stats.show_thinking {
-            "shown"
-        } else {
-            "hidden"
+        "      Thinking: {}",
+        match stats.thinking_budget {
+            Some(budget) => format!("enabled ({} tokens)", budget),
+            None => "disabled".to_string(),
         }
     );
     if let Some(prompt) = stats.system_prompt.as_deref() {
