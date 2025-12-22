@@ -22,6 +22,7 @@ pub use agent::{
     ToolResult, ToolSearchFileSystem,
 };
 pub use client::Anthropic;
+pub mod combinators;
 pub use error::{Error, Result};
 pub use json_schema::JsonSchema;
 pub use prompt::{
