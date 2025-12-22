@@ -73,6 +73,12 @@ impl From<String> for MessageParam {
     }
 }
 
+impl From<crate::types::Message> for MessageParam {
+    fn from(message: crate::types::Message) -> Self {
+        Self::new_with_blocks(message.content, MessageRole::Assistant)
+    }
+}
+
 impl<T: AsRef<str>> From<T> for MessageParamContent {
     fn from(content: T) -> Self {
         MessageParamContent::String(content.as_ref().to_string())
@@ -82,7 +88,7 @@ impl<T: AsRef<str>> From<T> for MessageParamContent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ImageBlock, TextBlock};
+    use crate::types::{ImageBlock, KnownModel, Message, Model, TextBlock, Usage};
     use serde_json::{json, to_value};
 
     #[test]
@@ -238,5 +244,28 @@ mod tests {
             _ => panic!("Expected Array variant"),
         }
         assert_eq!(message.role, MessageRole::Assistant);
+    }
+
+    #[test]
+    fn message_param_from_message() {
+        let text_block = TextBlock::new("Hello, I'm Claude.".to_string());
+        let content = vec![ContentBlock::Text(text_block)];
+        let model = Model::Known(KnownModel::Claude37Sonnet20250219);
+        let usage = Usage::new(50, 100);
+
+        let message = Message::new("msg_012345".to_string(), content, model, usage);
+        let param: MessageParam = message.into();
+
+        assert_eq!(param.role, MessageRole::Assistant);
+        match param.content {
+            MessageParamContent::Array(blocks) => {
+                assert_eq!(blocks.len(), 1);
+                match &blocks[0] {
+                    ContentBlock::Text(text) => assert_eq!(text.text, "Hello, I'm Claude."),
+                    _ => panic!("Expected Text variant"),
+                }
+            }
+            _ => panic!("Expected Array variant"),
+        }
     }
 }
