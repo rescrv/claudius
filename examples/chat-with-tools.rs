@@ -21,13 +21,13 @@
 use std::io::Write;
 
 use claudius::{
-    push_or_merge_message, ContentBlock, Error, Message, MessageCreateTemplate, MessageParam,
-    MessageStreamEvent, ToolParam, ToolUseBlock,
+    ContentBlock, Error, Message, MessageCreateTemplate, MessageParam, MessageStreamEvent,
+    ToolParam, ToolUseBlock, push_or_merge_message,
 };
 use futures::stream::StreamExt;
 use serde_json::json;
 
-use claudius::combinators::{client, debug_stream, read_user_input, unfold_with_tools, VecContext};
+use claudius::combinators::{VecContext, client, debug_stream, read_user_input, unfold_with_tools};
 use claudius::{impl_from_vec_context, impl_simple_context};
 
 /// The state maintained across agent turns.

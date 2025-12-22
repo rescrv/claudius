@@ -16,13 +16,13 @@ use std::io::Write;
 use std::pin::Pin;
 
 use claudius::{
-    push_or_merge_message, ContentBlock, DocumentBlock, Error, Message, MessageCreateTemplate,
-    MessageParam, MessageRole, MessageStreamEvent, PlainTextSource,
+    ContentBlock, DocumentBlock, Error, Message, MessageCreateTemplate, MessageParam, MessageRole,
+    MessageStreamEvent, PlainTextSource, push_or_merge_message,
 };
 use futures::stream::{Stream, StreamExt};
 use utf8path::Path;
 
-use claudius::combinators::{client, read_user_input, unfold_until, VecContext};
+use claudius::combinators::{VecContext, client, read_user_input, unfold_until};
 use claudius::{impl_from_vec_context, impl_simple_context};
 
 fn load_document(path: Path) -> Result<DocumentBlock, std::io::Error> {

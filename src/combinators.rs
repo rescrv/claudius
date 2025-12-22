@@ -51,7 +51,7 @@ use crate::{
 /// This function is typically used in an agent loop:
 ///
 /// ```no_run
-/// use agent_inbox_protocol::read_user_input;
+/// use claudius::combinators::read_user_input;
 ///
 /// loop {
 ///     let input = match read_user_input() {
@@ -99,7 +99,8 @@ pub fn read_user_input() -> Option<String> {
 /// Using the macro for simple cases:
 ///
 /// ```
-/// use agent_inbox_protocol::{VecContext, Context, impl_simple_context};
+/// # use claudius::combinators::{VecContext, Context};
+/// # use claudius::impl_simple_context;
 ///
 /// #[derive(Clone)]
 /// struct MyState {
@@ -113,8 +114,8 @@ pub fn read_user_input() -> Option<String> {
 /// Manual implementation for advanced use cases:
 ///
 /// ```
-/// use agent_inbox_protocol::{VecContext, Context};
-/// use crate::{MessageParam, Error};
+/// # use claudius::combinators::{VecContext, Context};
+/// # use claudius::{MessageParam, Error, push_or_merge_message};
 /// use std::convert::Infallible;
 ///
 /// #[derive(Clone)]
@@ -143,7 +144,7 @@ pub fn read_user_input() -> Option<String> {
 ///     }
 ///
 ///     fn push_or_merge_message(&mut self, message: MessageParam) {
-///         crate::push_or_merge_message(&mut self.messages, message);
+///         push_or_merge_message(&mut self.messages, message);
 ///     }
 /// }
 /// ```
@@ -189,7 +190,8 @@ pub trait Context {
 /// # Example
 ///
 /// ```
-/// use agent_inbox_protocol::{VecContext, Context, impl_simple_context};
+/// # use claudius::combinators::{VecContext, Context};
+/// # use claudius::impl_simple_context;
 ///
 /// #[derive(Clone)]
 /// struct ChatState {
@@ -246,8 +248,8 @@ macro_rules! impl_simple_context {
 /// # Example
 ///
 /// ```
-/// use agent_inbox_protocol::{VecContext, impl_from_vec_context};
-/// use crate::MessageParam;
+/// # use claudius::combinators::VecContext;
+/// # use claudius::{impl_from_vec_context, MessageParam};
 ///
 /// #[derive(Clone)]
 /// struct ChatState {
@@ -295,7 +297,7 @@ macro_rules! impl_from_vec_context {
 /// # Example
 ///
 /// ```
-/// use agent_inbox_protocol::tool;
+/// # use claudius::tool;
 ///
 /// let tools = vec![
 ///     tool!("get_weather", "Get the current weather for a location", {
@@ -346,8 +348,8 @@ macro_rules! tool {
 /// Creating a context from scratch:
 ///
 /// ```
-/// use agent_inbox_protocol::VecContext;
-/// use crate::MessageParam;
+/// # use claudius::combinators::VecContext;
+/// # use claudius::MessageParam;
 ///
 /// let messages = vec![
 ///     MessageParam::user("Hello, Claude!"),
@@ -359,7 +361,8 @@ macro_rules! tool {
 /// Using `VecContext` as a baseline for custom state types via [`impl_simple_context!`]:
 ///
 /// ```
-/// use agent_inbox_protocol::{VecContext, Context, impl_simple_context};
+/// # use claudius::combinators::{VecContext, Context};
+/// # use claudius::impl_simple_context;
 ///
 /// #[derive(Clone)]
 /// struct ChatState {
@@ -769,7 +772,7 @@ where
 /// let stream: Pin<Box<dyn futures::Stream<Item = i32> + Send>> =
 ///     Box::pin(futures::stream::iter(vec![1, 2, 3]));
 ///
-/// let inspected = agent_inbox_protocol::passthrough(move |_: &i32| {
+/// let inspected = claudius::combinators::passthrough(move |_: &i32| {
 ///     counter_clone.fetch_add(1, Ordering::SeqCst);
 /// })(stream);
 ///
@@ -847,10 +850,8 @@ where
 /// # Example
 ///
 /// ```no_run
-/// use agent_inbox_protocol::{
-///     debug_stream, client, VecContext, Context, impl_simple_context,
-/// };
-/// use crate::MessageCreateTemplate;
+/// # use claudius::combinators::{debug_stream, client, VecContext, Context};
+/// # use claudius::{impl_simple_context, MessageCreateTemplate};
 ///
 /// #[derive(Clone)]
 /// struct ChatState {
@@ -1002,12 +1003,9 @@ where
 /// # Example
 ///
 /// ```no_run
-/// use agent_inbox_protocol::{
-///     unfold_with_tools, client, read_user_input, VecContext, Context,
-///     impl_simple_context,
-/// };
-/// use crate::{Error, Message, MessageParam, MessageCreateTemplate, push_or_merge_message};
-/// use futures::StreamExt;
+/// # use claudius::combinators::{unfold_with_tools, client, read_user_input, VecContext, Context};
+/// # use claudius::{impl_simple_context, Error, Message, MessageParam, MessageCreateTemplate, push_or_merge_message};
+/// # use futures::StreamExt;
 ///
 /// #[derive(Clone)]
 /// struct ChatState {
@@ -1303,8 +1301,8 @@ enum ToolUnfoldState<C> {
 /// # Example
 ///
 /// ```
-/// use crate::{ContentBlock, KnownModel, Message, Model, ToolUseBlock, Usage};
-/// use agent_inbox_protocol::extract_tool_uses;
+/// # use claudius::{ContentBlock, KnownModel, Message, Model, ToolUseBlock, Usage};
+/// # use claudius::combinators::extract_tool_uses;
 ///
 /// let mut message = Message::new(
 ///     "msg_test".to_string(),
@@ -1345,8 +1343,8 @@ pub fn extract_tool_uses(message: &Message) -> Vec<&ToolUseBlock> {
 /// # Example
 ///
 /// ```
-/// use crate::{KnownModel, Message, Model, StopReason, Usage};
-/// use agent_inbox_protocol::is_tool_use;
+/// # use claudius::{KnownModel, Message, Model, StopReason, Usage};
+/// # use claudius::combinators::is_tool_use;
 ///
 /// let mut message = Message::new(
 ///     "msg_test".to_string(),
@@ -1382,8 +1380,8 @@ pub fn is_tool_use(message: &Message) -> bool {
 /// # Example
 ///
 /// ```
-/// use crate::{ContentBlock, KnownModel, Message, Model, ToolUseBlock, Usage};
-/// use agent_inbox_protocol::tool_results_for_message;
+/// # use claudius::{ContentBlock, KnownModel, Message, Model, ToolUseBlock, Usage};
+/// # use claudius::combinators::tool_results_for_message;
 ///
 /// let mut message = Message::new(
 ///     "msg_test".to_string(),
@@ -1437,8 +1435,8 @@ where
 /// # Example
 ///
 /// ```
-/// use crate::{ContentBlock, KnownModel, Message, Model, ToolUseBlock, Usage};
-/// use agent_inbox_protocol::tool_results_for_message_async;
+/// # use claudius::{ContentBlock, KnownModel, Message, Model, ToolUseBlock, Usage};
+/// # use claudius::combinators::tool_results_for_message_async;
 ///
 /// # tokio_test::block_on(async {
 /// let mut message = Message::new(
@@ -1513,13 +1511,13 @@ where
 /// ```
 /// use std::pin::Pin;
 /// use futures::stream;
-/// use crate::{
-///     ContentBlock, ContentBlockDelta, ContentBlockDeltaEvent, ContentBlockStartEvent,
-///     ContentBlockStopEvent, KnownModel, Message, MessageDelta, MessageDeltaEvent,
-///     MessageDeltaUsage, MessageStartEvent, MessageStopEvent, MessageStreamEvent, Model,
-///     StopReason, TextBlock, TextDelta, Usage,
-/// };
-/// use agent_inbox_protocol::to_message;
+/// # use claudius::{
+/// #     ContentBlock, ContentBlockDelta, ContentBlockDeltaEvent, ContentBlockStartEvent,
+/// #     ContentBlockStopEvent, Error, KnownModel, Message, MessageDelta, MessageDeltaEvent,
+/// #     MessageDeltaUsage, MessageStartEvent, MessageStopEvent, MessageStreamEvent, Model,
+/// #     StopReason, TextBlock, TextDelta, Usage,
+/// # };
+/// # use claudius::combinators::to_message;
 ///
 /// # tokio_test::block_on(async {
 /// let events = vec![
@@ -1540,7 +1538,7 @@ where
 ///     Ok(MessageStreamEvent::MessageStop(MessageStopEvent {})),
 /// ];
 ///
-/// let stream: Pin<Box<dyn futures::Stream<Item = Result<MessageStreamEvent, crate::Error>> + Send>> =
+/// let stream: Pin<Box<dyn futures::Stream<Item = Result<MessageStreamEvent, Error>> + Send>> =
 ///     Box::pin(stream::iter(events));
 ///
 /// let message = to_message()(stream).await.unwrap();
@@ -1759,12 +1757,8 @@ impl ContentBlockBuilder {
                 ContentBlockDelta::CitationsDelta(citations_delta),
             ) => {
                 let citation = match citations_delta.citation {
-                    crate::Citation::CharLocation(loc) => {
-                        crate::TextCitation::CharLocation(loc)
-                    }
-                    crate::Citation::PageLocation(loc) => {
-                        crate::TextCitation::PageLocation(loc)
-                    }
+                    crate::Citation::CharLocation(loc) => crate::TextCitation::CharLocation(loc),
+                    crate::Citation::PageLocation(loc) => crate::TextCitation::PageLocation(loc),
                     crate::Citation::ContentBlockLocation(loc) => {
                         crate::TextCitation::ContentBlockLocation(loc)
                     }

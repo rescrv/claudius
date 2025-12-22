@@ -44,10 +44,9 @@ use serde_json::json;
 use tokio::sync::Mutex;
 
 use claudius::combinators::{
-    AccumulatingStream, VecContext, client, debug_stream,
-    read_user_input, unfold_with_tools_async,
+    AccumulatingStream, VecContext, client, debug_stream, read_user_input, unfold_with_tools_async,
 };
-use claudius::{impl_simple_context, impl_from_vec_context};
+use claudius::{impl_from_vec_context, impl_simple_context};
 
 /// The stateful database maintained by the inner agent.
 #[derive(Clone, Debug, Default)]
