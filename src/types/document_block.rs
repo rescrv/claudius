@@ -26,6 +26,30 @@ pub enum DocumentSource {
     UrlPdf(UrlPdfSource),
 }
 
+impl From<Base64PdfSource> for DocumentSource {
+    fn from(source: Base64PdfSource) -> Self {
+        DocumentSource::Base64Pdf(source)
+    }
+}
+
+impl From<PlainTextSource> for DocumentSource {
+    fn from(source: PlainTextSource) -> Self {
+        DocumentSource::PlainText(source)
+    }
+}
+
+impl From<ContentBlockSourceParam> for DocumentSource {
+    fn from(source: ContentBlockSourceParam) -> Self {
+        DocumentSource::ContentBlock(source)
+    }
+}
+
+impl From<UrlPdfSource> for DocumentSource {
+    fn from(source: UrlPdfSource) -> Self {
+        DocumentSource::UrlPdf(source)
+    }
+}
+
 /// Parameters for a document block.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DocumentBlock {
