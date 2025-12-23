@@ -13,16 +13,15 @@
 //! ```
 
 use std::io::Write;
-use std::pin::Pin;
 
 use claudius::{
-    ContentBlock, DocumentBlock, Error, Message, MessageCreateTemplate, MessageParam, MessageRole,
-    MessageStreamEvent, PlainTextSource, push_or_merge_message,
+    push_or_merge_message, ContentBlock, DocumentBlock, Error, Message, MessageCreateTemplate,
+    MessageParam, MessageRole, MessageStreamEvent, PlainTextSource,
 };
-use futures::stream::{Stream, StreamExt};
+use futures::stream::StreamExt;
 use utf8path::Path;
 
-use claudius::combinators::{VecContext, client, read_user_input, unfold_until};
+use claudius::combinators::{client, read_user_input, unfold_until, VecContext};
 use claudius::{impl_from_vec_context, impl_simple_context};
 
 fn load_document(path: Path) -> Result<DocumentBlock, std::io::Error> {
@@ -106,33 +105,32 @@ async fn main() -> Result<(), Error> {
         should_quit: false,
     };
 
-    type UpdateFn = Box<dyn FnOnce(Message) -> ChatState + Send>;
+    let streamer = client::<VecContext>(None);
+    let update_fn = |mut state: ChatState, msg: Message| async move {
+        push_or_merge_message(&mut state.thread.0, msg.into());
+        state
+    };
     let agent = unfold_until(
         initial_state,
-        move |mut state: ChatState| {
+        move |mut state: ChatState| async move {
+            let user_input = match read_user_input() {
+                Some(input) => input,
+                None => {
+                    state.should_quit = true;
+                    return Ok(state);
+                }
+            };
+            push_or_merge_message(&mut state.thread.0, MessageParam::user(&user_input));
+            Ok(state)
+        },
+        update_fn,
+        {
             let template = template.clone();
-            async move {
-                let user_input = match read_user_input() {
-                    Some(input) => input,
-                    None => {
-                        state.should_quit = true;
-                        // Return an empty stream for the final iteration
-                        let empty: futures::stream::Empty<Result<MessageStreamEvent, Error>> =
-                            futures::stream::empty();
-                        let update_fn: UpdateFn = Box::new(move |_msg: Message| state);
-                        return Ok((Box::pin(empty) as _, update_fn));
-                    }
-                };
-                push_or_merge_message(&mut state.thread.0, MessageParam::user(&user_input));
-                let streamer = client::<VecContext>(None);
-                let stream: Pin<Box<dyn Stream<Item = Result<MessageStreamEvent, Error>> + Send>> =
-                    streamer(template, state.thread.clone()).await?;
-                let update_fn: UpdateFn = Box::new(move |msg: Message| {
-                    let mut state = state;
-                    push_or_merge_message(&mut state.thread.0, msg.into());
-                    state
-                });
-                Ok((stream, update_fn))
+            move |ctx: &ChatState| {
+                let template = template.clone();
+                let ctx = ctx.clone();
+                let streamer = streamer.clone();
+                async move { streamer(template, ctx.thread).await }
             }
         },
         |state| state.should_quit,

@@ -157,7 +157,11 @@ async fn main() -> Result<(), Error> {
         should_quit: false,
     };
 
-    type UpdateFn = Box<dyn FnOnce(Message) -> ChatState + Send>;
+    let streamer = client::<VecContext>(None);
+    let update_fn = |mut state: ChatState, msg: Message| async move {
+        push_or_merge_message(&mut state.thread.0, msg.into());
+        state
+    };
     let agent = unfold_with_tools(
         initial_state,
         // step_fn: called for user turns only - reads input, updates context
@@ -166,27 +170,21 @@ async fn main() -> Result<(), Error> {
                 Some(input) => input,
                 None => {
                     state.should_quit = true;
-                    let state_for_update = state.clone();
-                    let update_fn: UpdateFn = Box::new(move |_msg: Message| state_for_update);
-                    return Ok((state, update_fn));
+                    return Ok(state);
                 }
             };
             push_or_merge_message(&mut state.thread.0, MessageParam::user(&user_input));
-            let state_for_update = state.clone();
-            let update_fn: UpdateFn = Box::new(move |msg: Message| {
-                let mut state = state_for_update;
-                push_or_merge_message(&mut state.thread.0, msg.into());
-                state
-            });
-            Ok((state, update_fn))
+            Ok(state)
         },
+        update_fn,
         // make_stream: creates API call from context (wrapped with debug_stream)
         debug_stream("API Request", {
             let template = template.clone();
             move |ctx: &ChatState| {
                 let template = template.clone();
                 let ctx = ctx.clone();
-                async move { client::<VecContext>(None)(template, ctx.thread).await }
+                let streamer = streamer.clone();
+                async move { streamer(template, ctx.thread).await }
             }
         }),
         execute_tool,
