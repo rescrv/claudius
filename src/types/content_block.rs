@@ -258,9 +258,15 @@ mod tests {
         let content_block = ContentBlock::from(tool_block);
 
         let json = serde_json::to_string(&content_block).unwrap();
-        let expected = r#"{"type":"tool_use","id":"tool_123","input":{"limit":5,"query":"weather in San Francisco"},"name":"search"}"#;
+        let actual: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let expected: serde_json::Value = serde_json::json!({
+            "type": "tool_use",
+            "id": "tool_123",
+            "input": {"limit": 5, "query": "weather in San Francisco"},
+            "name": "search"
+        });
 
-        assert_eq!(json, expected);
+        assert_eq!(actual, expected);
     }
 
     #[test]
