@@ -242,8 +242,7 @@ macro_rules! impl_simple_context {
 ///
 /// This macro generates a `From<VecContext>` implementation that sets the `thread` field
 /// from the input and initializes all other specified fields with the provided default values.
-/// This is essential for use with [`unfold_with_tools`] and [`unfold_with_tools_async`], which
-/// require `C: From<VecContext>` to reconstruct state after tool execution.
+/// This is useful when constructing state from a `VecContext` in examples or tests.
 ///
 /// # Example
 ///
@@ -536,12 +535,13 @@ pub fn filter_map<'a, T, U, P>(
 ) -> impl Fn(Pin<Box<dyn Stream<Item = T>>>) -> Pin<Box<dyn Stream<Item = U> + 'a>> + Clone
 where
     T: 'a,
-    P: Fn(T) -> Option<U> + Clone + Send + 'a,
+    P: Fn(T) -> Option<U> + Send + 'a,
 {
+    let predicate = Arc::new(predicate);
     move |stream| {
-        let predicate = predicate.clone();
+        let predicate = Arc::clone(&predicate);
         Box::pin(stream.filter_map(move |t| {
-            let predicate = predicate.clone();
+            let predicate = Arc::clone(&predicate);
             async move { predicate(t) }
         }))
     }
@@ -555,12 +555,13 @@ pub fn filter_map_async<'a, T, U, P>(
 where
     T: 'a,
     U: 'a,
-    P: Fn(T) -> Pin<Box<dyn Future<Output = Option<U>> + Send + 'a>> + Clone + Send + 'a,
+    P: Fn(T) -> Pin<Box<dyn Future<Output = Option<U>> + Send + 'a>> + Send + 'a,
 {
+    let predicate = Arc::new(predicate);
     move |stream| {
-        let predicate = predicate.clone();
+        let predicate = Arc::clone(&predicate);
         Box::pin(stream.filter_map(move |t| {
-            let predicate = predicate.clone();
+            let predicate = Arc::clone(&predicate);
             predicate(t)
         }))
     }
@@ -577,7 +578,7 @@ pub fn filter<'a, T, P>(
 ) -> impl Fn(Pin<Box<dyn Stream<Item = T>>>) -> Pin<Box<dyn Stream<Item = T> + 'a>> + Clone
 where
     T: 'a,
-    P: for<'b> Fn(&'b T) -> bool + Clone + Send + 'a,
+    P: for<'b> Fn(&'b T) -> bool + Send + 'a,
 {
     filter_map(move |t| if (predicate)(&t) { Some(t) } else { None })
 }
@@ -589,12 +590,13 @@ pub fn filter_async<'a, T, P>(
 ) -> impl Fn(Pin<Box<dyn Stream<Item = T>>>) -> Pin<Box<dyn Stream<Item = T> + 'a>> + Clone
 where
     T: 'a,
-    P: for<'b> Fn(&'b T) -> Pin<Box<dyn Future<Output = bool> + Send + 'b>> + Clone + Send + 'a,
+    P: for<'b> Fn(&'b T) -> Pin<Box<dyn Future<Output = bool> + Send + 'b>> + Send + 'a,
 {
+    let predicate = Arc::new(predicate);
     move |stream| {
-        let predicate = predicate.clone();
+        let predicate = Arc::clone(&predicate);
         Box::pin(stream.filter_map(move |t| {
-            let predicate = predicate.clone();
+            let predicate = Arc::clone(&predicate);
             Box::pin(async move { if predicate(&t).await { Some(t) } else { None } })
         }))
     }
@@ -613,10 +615,11 @@ pub async fn fold<'a, A, T, F>(
 where
     A: Default + Send + 'a,
     T: Send + 'a,
-    F: Fn(A, T) -> A + Clone + Send + 'a,
+    F: Fn(A, T) -> A + Send + 'a,
 {
+    let f = Arc::new(f);
     move |mut stream| {
-        let f = f.clone();
+        let f = Arc::clone(&f);
         Box::pin(async move {
             let mut acc = A::default();
             while let Some(event) = stream.next().await {
@@ -635,10 +638,11 @@ pub async fn fold_async<'a, A, T, F>(
 where
     A: Default + Send + 'a,
     T: Send + 'a,
-    F: Fn(A, T) -> Pin<Box<dyn Future<Output = A> + Send + 'a>> + Clone + Send + 'a,
+    F: Fn(A, T) -> Pin<Box<dyn Future<Output = A> + Send + 'a>> + Send + 'a,
 {
+    let f = Arc::new(f);
     move |mut stream| {
-        let f = f.clone();
+        let f = Arc::clone(&f);
         Box::pin(async move {
             let mut acc = A::default();
             while let Some(event) = stream.next().await {
@@ -654,43 +658,36 @@ where
 /// Creates an unbounded stream of agent turns with deferred state updates.
 ///
 /// This is the outer layer combinator that turns state into an infinite series of turns.
-/// The step function returns a stream and a state-update callback. The callback receives the
-/// accumulated `Message` after the stream is fully consumed, allowing context updates based
-/// on the assistant's response without buffering the entire stream upfront.
+/// The step function mutates context for the next user turn and returns the updated context.
+/// The `update_fn` receives the accumulated `Message` after the stream is fully consumed and
+/// takes ownership of the context, allowing updates without cloning.
+/// The API stream is created by `make_stream` from the current context.
 ///
 /// The returned stream yields `AccumulatingStream`s which pass through all events while
 /// accumulating them into a `Message`. After draining each stream, the message is used
 /// to compute the next state via the callback.
 #[allow(clippy::type_complexity)]
-pub fn unfold<C, F, Fut, U>(
+pub fn unfold<C, F, Fut, U, UFut, S, SFut>(
     initial: C,
     step_fn: F,
+    update_fn: U,
+    make_stream: S,
 ) -> impl Stream<Item = Result<AccumulatingStream, Error>>
 where
     C: Context + Send + 'static,
-    F: Fn(C) -> Fut + Clone + Send + 'static,
-    Fut: Future<
+    F: Fn(C) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<C, Error>> + Send,
+    U: Fn(C, Message) -> UFut + Send + Sync + 'static,
+    UFut: Future<Output = C> + Send + 'static,
+    S: Fn(&C) -> SFut + Send + Sync + 'static,
+    SFut: Future<
             Output = Result<
-                (
-                    Pin<Box<dyn Stream<Item = Result<MessageStreamEvent, Error>> + Send>>,
-                    U,
-                ),
+                Pin<Box<dyn Stream<Item = Result<MessageStreamEvent, Error>> + Send>>,
                 Error,
             >,
         > + Send,
-    U: FnOnce(Message) -> C + Send + 'static,
 {
-    unfold_until(initial, step_fn, |_| false)
-}
-
-/// Internal state for unfold_until: either the initial context or a pending message receiver
-/// plus an update function.
-enum UnfoldState<C> {
-    Initial(C),
-    Pending(
-        tokio::sync::oneshot::Receiver<Message>,
-        Box<dyn FnOnce(Message) -> C + Send>,
-    ),
+    unfold_until(initial, step_fn, update_fn, make_stream, |_| false)
 }
 
 /// Creates a bounded stream of agent turns with deferred state updates.
@@ -698,54 +695,41 @@ enum UnfoldState<C> {
 /// Like `unfold`, but stops when the predicate returns `true` on the state.
 /// Useful for agents that should terminate after a condition is met.
 #[allow(clippy::type_complexity)]
-pub fn unfold_until<C, F, Fut, U, P>(
+pub fn unfold_until<C, F, Fut, U, UFut, S, SFut, P>(
     initial: C,
     step_fn: F,
+    update_fn: U,
+    make_stream: S,
     should_stop: P,
 ) -> impl Stream<Item = Result<AccumulatingStream, Error>>
 where
     C: Context + Send + 'static,
-    F: Fn(C) -> Fut + Clone + Send + 'static,
-    Fut: Future<
+    F: Fn(C) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<C, Error>> + Send,
+    U: Fn(C, Message) -> UFut + Send + Sync + 'static,
+    UFut: Future<Output = C> + Send + 'static,
+    S: Fn(&C) -> SFut + Send + Sync + 'static,
+    SFut: Future<
             Output = Result<
-                (
-                    Pin<Box<dyn Stream<Item = Result<MessageStreamEvent, Error>> + Send>>,
-                    U,
-                ),
+                Pin<Box<dyn Stream<Item = Result<MessageStreamEvent, Error>> + Send>>,
                 Error,
             >,
         > + Send,
-    U: FnOnce(Message) -> C + Send + 'static,
     P: Fn(&C) -> bool + Send + Sync + 'static,
 {
-    let step_fn = Arc::new(step_fn);
-    let should_stop = Arc::new(should_stop);
+    let no_tools = |_tool_use: &ToolUseBlock| {
+        futures::future::ready(Err("tool handling disabled".to_string()))
+    };
 
-    futures::stream::unfold(Some(UnfoldState::Initial(initial)), move |state| {
-        let step_fn = Arc::clone(&step_fn);
-        let should_stop = Arc::clone(&should_stop);
-        async move {
-            let state = state?;
-            let ctx = match state {
-                UnfoldState::Initial(c) => c,
-                UnfoldState::Pending(rx, update_fn) => match rx.await {
-                    Ok(msg) => update_fn(msg),
-                    Err(_) => return None,
-                },
-            };
-            if should_stop(&ctx) {
-                return None;
-            }
-            match step_fn(ctx).await {
-                Ok((stream, update_fn)) => {
-                    let (acc_stream, message_rx) = AccumulatingStream::new(stream);
-                    let next_state = UnfoldState::Pending(message_rx, Box::new(update_fn));
-                    Some((Ok(acc_stream), Some(next_state)))
-                }
-                Err(e) => Some((Err(e), None)),
-            }
-        }
-    })
+    unfold_with_tools_core(
+        initial,
+        step_fn,
+        update_fn,
+        make_stream,
+        no_tools,
+        false,
+        should_stop,
+    )
 }
 
 /////////////////////////////////////////// passthrough ////////////////////////////////////////////
@@ -787,11 +771,12 @@ pub fn passthrough<T, F>(
 ) -> impl Fn(Pin<Box<dyn Stream<Item = T>>>) -> Pin<Box<dyn Stream<Item = T>>> + Clone
 where
     T: Send + 'static,
-    F: Fn(&T) + Clone + Send + Sync + 'static,
+    F: Fn(&T) + Send + Sync + 'static,
 {
+    let inspector = Arc::new(inspector);
     move |stream| {
-        let inspector = inspector.clone();
-        Box::pin(stream.inspect(inspector))
+        let inspector = Arc::clone(&inspector);
+        Box::pin(stream.inspect(move |t| (inspector.as_ref())(t)))
     }
 }
 
@@ -806,15 +791,15 @@ pub fn passthrough_async<T, F>(
 where
     T: Send + 'static,
     F: for<'a> Fn(&'a T) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>
-        + Clone
         + Send
         + Sync
         + 'static,
 {
+    let inspector = Arc::new(inspector);
     move |stream| {
-        let inspector = inspector.clone();
+        let inspector = Arc::clone(&inspector);
         Box::pin(stream.then(move |t| {
-            let inspector = inspector.clone();
+            let inspector = Arc::clone(&inspector);
             async move {
                 inspector(&t).await;
                 t
@@ -860,6 +845,7 @@ where
 /// impl_simple_context!(ChatState, thread);
 ///
 /// let template = MessageCreateTemplate::default();
+/// let streamer = client::<VecContext>(None);
 ///
 /// // Wrap the client call with debug output
 /// let make_stream = debug_stream(
@@ -867,7 +853,8 @@ where
 ///     move |ctx: &ChatState| {
 ///         let template = template.clone();
 ///         let ctx = ctx.clone();
-///         async move { client::<VecContext>(None)(template, ctx.thread).await }
+///         let streamer = streamer.clone();
+///         async move { streamer(template, ctx.thread).await }
 ///     },
 /// );
 /// ```
@@ -892,7 +879,7 @@ pub fn debug_stream<C, S, SFut>(
 + 'static
 where
     C: Context + Clone + Send + 'static,
-    S: Fn(&C) -> SFut + Clone + Send + Sync + 'static,
+    S: Fn(&C) -> SFut + Send + Sync + 'static,
     SFut: Future<
             Output = Result<
                 Pin<Box<dyn Stream<Item = Result<MessageStreamEvent, Error>> + Send>>,
@@ -901,8 +888,9 @@ where
         > + Send
         + 'static,
 {
+    let make_stream = Arc::new(make_stream);
     move |ctx: &C| {
-        let make_stream = make_stream.clone();
+        let make_stream = Arc::clone(&make_stream);
         let ctx = ctx.clone();
         Box::pin(async move {
             let messages = ctx.clone().prepare();
@@ -966,6 +954,159 @@ where
     MessageParam::new_with_blocks(result_blocks, crate::MessageRole::User)
 }
 
+#[allow(clippy::type_complexity)]
+fn unfold_with_tools_core<C, F, Fut, U, UFut, S, SFut, T, TFut, P>(
+    initial: C,
+    step_fn: F,
+    update_fn: U,
+    make_stream: S,
+    tool_handler: T,
+    tools_enabled: bool,
+    should_stop: P,
+) -> impl Stream<Item = Result<AccumulatingStream, Error>>
+where
+    C: Context + Send + 'static,
+    F: Fn(C) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<C, Error>> + Send,
+    U: Fn(C, Message) -> UFut + Send + Sync + 'static,
+    UFut: Future<Output = C> + Send + 'static,
+    S: Fn(&C) -> SFut + Send + Sync + 'static,
+    SFut: Future<
+            Output = Result<
+                Pin<Box<dyn Stream<Item = Result<MessageStreamEvent, Error>> + Send>>,
+                Error,
+            >,
+        > + Send,
+    T: for<'a> Fn(&'a ToolUseBlock) -> TFut + Send + Sync + 'static,
+    TFut: Future<Output = Result<String, String>> + Send,
+    P: Fn(&C) -> bool + Send + Sync + 'static,
+{
+    let step_fn = Arc::new(step_fn);
+    let update_fn = Arc::new(update_fn);
+    let make_stream = Arc::new(make_stream);
+    let tool_handler = Arc::new(tool_handler);
+    let should_stop = Arc::new(should_stop);
+
+    futures::stream::unfold(Some(UnfoldState::Initial(initial)), move |state| {
+        let step_fn = Arc::clone(&step_fn);
+        let update_fn = Arc::clone(&update_fn);
+        let make_stream = Arc::clone(&make_stream);
+        let tool_handler = Arc::clone(&tool_handler);
+        let should_stop = Arc::clone(&should_stop);
+        async move {
+            let state = state?;
+            match state {
+                UnfoldState::Initial(ctx) => {
+                    if should_stop(&ctx) {
+                        return None;
+                    }
+                    let ctx = match step_fn(ctx).await {
+                        Ok(result) => result,
+                        Err(e) => return Some((Err(e), None)),
+                    };
+                    if should_stop(&ctx) {
+                        return None;
+                    }
+                    match make_stream(&ctx).await {
+                        Ok(stream) => {
+                            let (acc_stream, message_rx) = AccumulatingStream::new(stream);
+                            let next_state = UnfoldState::PendingUserTurn(message_rx, ctx);
+                            Some((Ok(acc_stream), Some(next_state)))
+                        }
+                        Err(e) => Some((Err(e), None)),
+                    }
+                }
+                UnfoldState::PendingUserTurn(rx, ctx) => match rx.await {
+                    Ok(msg) => {
+                        let mut ctx = update_fn(ctx, msg.clone()).await;
+
+                        if tools_enabled && is_tool_use(&msg) {
+                            let tool_result_message =
+                                execute_tools_async(&msg, &*tool_handler).await;
+                            ctx.push_or_merge_message(tool_result_message);
+
+                            match make_stream(&ctx).await {
+                                Ok(stream) => {
+                                    let (acc_stream, message_rx) = AccumulatingStream::new(stream);
+                                    let next_state =
+                                        UnfoldState::PendingToolTurn(message_rx, ctx);
+                                    Some((Ok(acc_stream), Some(next_state)))
+                                }
+                                Err(e) => Some((Err(e), None)),
+                            }
+                        } else {
+                            if should_stop(&ctx) {
+                                return None;
+                            }
+                            let ctx = match step_fn(ctx).await {
+                                Ok(result) => result,
+                                Err(e) => return Some((Err(e), None)),
+                            };
+                            if should_stop(&ctx) {
+                                return None;
+                            }
+                            match make_stream(&ctx).await {
+                                Ok(stream) => {
+                                    let (acc_stream, message_rx) =
+                                        AccumulatingStream::new(stream);
+                                    let next_state =
+                                        UnfoldState::PendingUserTurn(message_rx, ctx);
+                                    Some((Ok(acc_stream), Some(next_state)))
+                                }
+                                Err(e) => Some((Err(e), None)),
+                            }
+                        }
+                    }
+                    Err(_) => None,
+                },
+                UnfoldState::PendingToolTurn(rx, mut ctx) => match rx.await {
+                    Ok(msg) => {
+                        ctx.push_or_merge_message(msg.clone().into());
+
+                        if tools_enabled && is_tool_use(&msg) {
+                            let tool_result_message =
+                                execute_tools_async(&msg, &*tool_handler).await;
+                            ctx.push_or_merge_message(tool_result_message);
+
+                            match make_stream(&ctx).await {
+                                Ok(stream) => {
+                                    let (acc_stream, message_rx) = AccumulatingStream::new(stream);
+                                    let next_state =
+                                        UnfoldState::PendingToolTurn(message_rx, ctx);
+                                    Some((Ok(acc_stream), Some(next_state)))
+                                }
+                                Err(e) => Some((Err(e), None)),
+                            }
+                        } else {
+                            if should_stop(&ctx) {
+                                return None;
+                            }
+                            let ctx = match step_fn(ctx).await {
+                                Ok(result) => result,
+                                Err(e) => return Some((Err(e), None)),
+                            };
+                            if should_stop(&ctx) {
+                                return None;
+                            }
+                            match make_stream(&ctx).await {
+                                Ok(stream) => {
+                                    let (acc_stream, message_rx) =
+                                        AccumulatingStream::new(stream);
+                                    let next_state =
+                                        UnfoldState::PendingUserTurn(message_rx, ctx);
+                                    Some((Ok(acc_stream), Some(next_state)))
+                                }
+                                Err(e) => Some((Err(e), None)),
+                            }
+                        }
+                    }
+                    Err(_) => None,
+                },
+            }
+        }
+    })
+}
+
 //////////////////////////////////////// unfold_with_tools //////////////////////////////////////////
 
 /// Creates a stream of agent turns that handles tool use automatically.
@@ -983,8 +1124,10 @@ where
 ///
 /// # Key Functions
 ///
-/// - `step_fn`: Called for user turns only. Reads input, updates context, returns an update
-///   function that will be called with the assistant's response.
+/// - `step_fn`: Called for user turns only. Reads input and mutates context, returning the
+///   updated context.
+/// - `update_fn`: Called after each assistant response, taking ownership of context to apply
+///   updates without cloning.
 /// - `make_stream`: Creates the API stream from context. Called for both user and tool turns.
 /// - `tool_handler`: Executes a single tool synchronously, returning `Ok(result)` or `Err(error)`.
 /// - `should_stop`: Predicate checked before each user turn to terminate the loop.
@@ -992,8 +1135,8 @@ where
 /// # Type Parameters
 ///
 /// - `C`: Context type that holds conversation state. Must implement [`Context`].
-/// - `F`: Step function `Fn(C) -> Future<Output = Result<(C, U), Error>>`
-/// - `U`: Update function `FnOnce(Message) -> C`
+/// - `F`: Step function `Fn(C) -> Future<Output = Result<C, Error>>`
+/// - `U`: Update function `Fn(C, Message) -> Future<Output = C>`
 /// - `S`: Stream factory `Fn(&C) -> Future<Output = Result<Stream, Error>>`
 /// - `T`: Tool handler `Fn(&ToolUseBlock) -> Result<String, String>`
 /// - `P`: Stop predicate `Fn(&C) -> bool`
@@ -1006,6 +1149,7 @@ where
 /// # use claudius::combinators::{unfold_with_tools, client, read_user_input, VecContext, Context};
 /// # use claudius::{impl_simple_context, Error, Message, MessageParam, MessageCreateTemplate, push_or_merge_message};
 /// # use futures::StreamExt;
+/// # use std::future::Future;
 ///
 /// #[derive(Clone)]
 /// struct ChatState {
@@ -1017,6 +1161,7 @@ where
 /// #[tokio::main]
 /// async fn main() -> Result<(), Error> {
 ///     let template = MessageCreateTemplate::default();
+///     let streamer = client::<VecContext>(None);
 ///
 ///     let agent = unfold_with_tools(
 ///         ChatState { thread: VecContext(vec![]), should_quit: false },
@@ -1026,17 +1171,16 @@ where
 ///                 Some(input) => input,
 ///                 None => {
 ///                     state.should_quit = true;
-///                     let s = state.clone();
-///                     return Ok((state, Box::new(|_| s) as Box<dyn FnOnce(Message) -> ChatState + Send>));
+///                     return Ok(state);
 ///                 }
 ///             };
 ///             push_or_merge_message(&mut state.thread.0, MessageParam::user(&user_input));
-///             let state_for_update = state.clone();
-///             Ok((state, Box::new(move |msg: Message| {
-///                 let mut s = state_for_update;
-///                 push_or_merge_message(&mut s.thread.0, msg.into());
-///                 s
-///             }) as Box<dyn FnOnce(Message) -> ChatState + Send>))
+///             Ok(state)
+///         },
+///         // update_fn: update context after each assistant response
+///         |mut state: ChatState, msg: Message| async move {
+///             push_or_merge_message(&mut state.thread.0, msg.into());
+///             state
 ///         },
 ///         // make_stream: creates API call from context
 ///         {
@@ -1044,7 +1188,8 @@ where
 ///             move |ctx: &ChatState| {
 ///                 let template = template.clone();
 ///                 let ctx = ctx.clone();
-///                 async move { client::<VecContext>(None)(template, ctx.thread).await }
+///                 let streamer = streamer.clone();
+///                 async move { streamer(template, ctx.thread).await }
 ///             }
 ///         },
 ///         // tool_handler: execute tools synchronously
@@ -1069,223 +1214,91 @@ where
 /// }
 /// ```
 #[allow(clippy::type_complexity)]
-pub fn unfold_with_tools<C, F, Fut, U, S, SFut, T, P>(
+pub fn unfold_with_tools<C, F, Fut, U, UFut, S, SFut, T, P>(
     initial: C,
     step_fn: F,
+    update_fn: U,
     make_stream: S,
     tool_handler: T,
     should_stop: P,
 ) -> impl Stream<Item = Result<AccumulatingStream, Error>>
 where
-    C: Context + Clone + Send + 'static,
-    F: Fn(C) -> Fut + Clone + Send + 'static,
-    Fut: Future<Output = Result<(C, U), Error>> + Send,
-    U: FnOnce(Message) -> C + Send + 'static,
-    S: Fn(&C) -> SFut + Clone + Send + Sync + 'static,
+    C: Context + Send + 'static,
+    F: Fn(C) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<C, Error>> + Send,
+    U: Fn(C, Message) -> UFut + Send + Sync + 'static,
+    UFut: Future<Output = C> + Send + 'static,
+    S: Fn(&C) -> SFut + Send + Sync + 'static,
     SFut: Future<
             Output = Result<
                 Pin<Box<dyn Stream<Item = Result<MessageStreamEvent, Error>> + Send>>,
                 Error,
             >,
         > + Send,
-    T: Fn(&ToolUseBlock) -> Result<String, String> + Clone + Send + Sync + 'static,
+    T: Fn(&ToolUseBlock) -> Result<String, String> + Send + Sync + 'static,
     P: Fn(&C) -> bool + Send + Sync + 'static,
 {
-    unfold_with_tools_async(
+    let tool_handler = move |tool_use: &ToolUseBlock| {
+        let result = tool_handler(tool_use);
+        async move { result }
+    };
+
+    unfold_with_tools_core(
         initial,
         step_fn,
+        update_fn,
         make_stream,
-        move |tool_use: &ToolUseBlock| {
-            let result = tool_handler(tool_use);
-            async move { result }
-        },
+        tool_handler,
+        true,
         should_stop,
     )
 }
 
 /// Async version of `unfold_with_tools` for async tool handlers.
 #[allow(clippy::type_complexity)]
-pub fn unfold_with_tools_async<C, F, Fut, U, S, SFut, T, TFut, P>(
+pub fn unfold_with_tools_async<C, F, Fut, U, UFut, S, SFut, T, TFut, P>(
     initial: C,
     step_fn: F,
+    update_fn: U,
     make_stream: S,
     tool_handler: T,
     should_stop: P,
 ) -> impl Stream<Item = Result<AccumulatingStream, Error>>
 where
-    C: Context + Clone + Send + 'static,
-    F: Fn(C) -> Fut + Clone + Send + 'static,
-    Fut: Future<Output = Result<(C, U), Error>> + Send,
-    U: FnOnce(Message) -> C + Send + 'static,
-    S: Fn(&C) -> SFut + Clone + Send + Sync + 'static,
+    C: Context + Send + 'static,
+    F: Fn(C) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<C, Error>> + Send,
+    U: Fn(C, Message) -> UFut + Send + Sync + 'static,
+    UFut: Future<Output = C> + Send + 'static,
+    S: Fn(&C) -> SFut + Send + Sync + 'static,
     SFut: Future<
             Output = Result<
                 Pin<Box<dyn Stream<Item = Result<MessageStreamEvent, Error>> + Send>>,
                 Error,
             >,
         > + Send,
-    T: for<'a> Fn(&'a ToolUseBlock) -> TFut + Clone + Send + Sync + 'static,
+    T: for<'a> Fn(&'a ToolUseBlock) -> TFut + Send + Sync + 'static,
     TFut: Future<Output = Result<String, String>> + Send,
     P: Fn(&C) -> bool + Send + Sync + 'static,
 {
-    let step_fn = Arc::new(step_fn);
-    let make_stream = Arc::new(make_stream);
-    let tool_handler = Arc::new(tool_handler);
-    let should_stop = Arc::new(should_stop);
-
-    futures::stream::unfold(Some(ToolUnfoldState::Initial(initial)), move |state| {
-        let step_fn = Arc::clone(&step_fn);
-        let make_stream = Arc::clone(&make_stream);
-        let tool_handler = Arc::clone(&tool_handler);
-        let should_stop = Arc::clone(&should_stop);
-        async move {
-            let state = state?;
-            match state {
-                ToolUnfoldState::Initial(ctx) => {
-                    if should_stop(&ctx) {
-                        return None;
-                    }
-                    // User turn: call step_fn to read input, then make_stream
-                    match step_fn(ctx).await {
-                        Ok((ctx, update_fn)) => {
-                            // Check should_stop after step_fn in case it set a quit flag
-                            if should_stop(&ctx) {
-                                return None;
-                            }
-                            match make_stream(&ctx).await {
-                                Ok(stream) => {
-                                    let (acc_stream, message_rx) = AccumulatingStream::new(stream);
-                                    let next_state = ToolUnfoldState::PendingUserTurn(
-                                        message_rx,
-                                        ctx,
-                                        Box::new(update_fn),
-                                    );
-                                    Some((Ok(acc_stream), Some(next_state)))
-                                }
-                                Err(e) => Some((Err(e), None)),
-                            }
-                        }
-                        Err(e) => Some((Err(e), None)),
-                    }
-                }
-                ToolUnfoldState::PendingUserTurn(rx, _ctx, update_fn) => match rx.await {
-                    Ok(msg) => {
-                        // Update context with assistant message
-                        let mut ctx = update_fn(msg.clone());
-
-                        if is_tool_use(&msg) {
-                            // Tool use: execute tools and make another API call (no step_fn)
-                            let tool_result_message =
-                                execute_tools_async(&msg, &*tool_handler).await;
-                            ctx.push_or_merge_message(tool_result_message);
-
-                            // Tool continuation: just make_stream, no step_fn
-                            match make_stream(&ctx).await {
-                                Ok(stream) => {
-                                    let (acc_stream, message_rx) = AccumulatingStream::new(stream);
-                                    let next_state =
-                                        ToolUnfoldState::PendingToolTurn(message_rx, ctx);
-                                    Some((Ok(acc_stream), Some(next_state)))
-                                }
-                                Err(e) => Some((Err(e), None)),
-                            }
-                        } else {
-                            // No tool use: go back to user turn
-                            if should_stop(&ctx) {
-                                return None;
-                            }
-                            match step_fn(ctx).await {
-                                Ok((ctx, update_fn)) => {
-                                    // Check should_stop after step_fn in case it set a quit flag
-                                    if should_stop(&ctx) {
-                                        return None;
-                                    }
-                                    match make_stream(&ctx).await {
-                                        Ok(stream) => {
-                                            let (acc_stream, message_rx) =
-                                                AccumulatingStream::new(stream);
-                                            let next_state = ToolUnfoldState::PendingUserTurn(
-                                                message_rx,
-                                                ctx,
-                                                Box::new(update_fn),
-                                            );
-                                            Some((Ok(acc_stream), Some(next_state)))
-                                        }
-                                        Err(e) => Some((Err(e), None)),
-                                    }
-                                }
-                                Err(e) => Some((Err(e), None)),
-                            }
-                        }
-                    }
-                    Err(_) => None,
-                },
-                ToolUnfoldState::PendingToolTurn(rx, mut ctx) => match rx.await {
-                    Ok(msg) => {
-                        // Update context with assistant message
-                        ctx.push_or_merge_message(msg.clone().into());
-
-                        if is_tool_use(&msg) {
-                            // More tool use: execute and continue
-                            let tool_result_message =
-                                execute_tools_async(&msg, &*tool_handler).await;
-                            ctx.push_or_merge_message(tool_result_message);
-
-                            match make_stream(&ctx).await {
-                                Ok(stream) => {
-                                    let (acc_stream, message_rx) = AccumulatingStream::new(stream);
-                                    let next_state =
-                                        ToolUnfoldState::PendingToolTurn(message_rx, ctx);
-                                    Some((Ok(acc_stream), Some(next_state)))
-                                }
-                                Err(e) => Some((Err(e), None)),
-                            }
-                        } else {
-                            // Tool turn complete, back to user turn
-                            if should_stop(&ctx) {
-                                return None;
-                            }
-                            match step_fn(ctx).await {
-                                Ok((ctx, update_fn)) => {
-                                    // Check should_stop after step_fn in case it set a quit flag
-                                    if should_stop(&ctx) {
-                                        return None;
-                                    }
-                                    match make_stream(&ctx).await {
-                                        Ok(stream) => {
-                                            let (acc_stream, message_rx) =
-                                                AccumulatingStream::new(stream);
-                                            let next_state = ToolUnfoldState::PendingUserTurn(
-                                                message_rx,
-                                                ctx,
-                                                Box::new(update_fn),
-                                            );
-                                            Some((Ok(acc_stream), Some(next_state)))
-                                        }
-                                        Err(e) => Some((Err(e), None)),
-                                    }
-                                }
-                                Err(e) => Some((Err(e), None)),
-                            }
-                        }
-                    }
-                    Err(_) => None,
-                },
-            }
-        }
-    })
+    unfold_with_tools_core(
+        initial,
+        step_fn,
+        update_fn,
+        make_stream,
+        tool_handler,
+        true,
+        should_stop,
+    )
 }
 
-/// Internal state for unfold_with_tools.
-enum ToolUnfoldState<C> {
+/// Internal state for unfold turns (tool or non-tool).
+#[allow(clippy::type_complexity)]
+enum UnfoldState<C> {
     /// Initial state or ready for a new user turn.
     Initial(C),
     /// Waiting for a user-initiated turn to complete.
-    PendingUserTurn(
-        tokio::sync::oneshot::Receiver<Message>,
-        C,
-        Box<dyn FnOnce(Message) -> C + Send>,
-    ),
+    PendingUserTurn(tokio::sync::oneshot::Receiver<Message>, C),
     /// Waiting for a tool-continuation turn to complete (no update_fn needed, context managed internally).
     PendingToolTurn(tokio::sync::oneshot::Receiver<Message>, C),
 }

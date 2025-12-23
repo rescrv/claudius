@@ -248,30 +248,30 @@ Be concise but helpful."#,
             };
 
             let db_agent = Arc::clone(&db_agent);
-            type UpdateFn = Box<dyn FnOnce(Message) -> DbAgentState + Send>;
+            let update_fn = |mut state: DbAgentState, msg: Message| async move {
+                // Mark done when we get a non-tool-use response
+                if msg.stop_reason != Some(claudius::StopReason::ToolUse) {
+                    state.done = true;
+                }
+                claudius::push_or_merge_message(&mut state.thread.0, msg.into());
+                state
+            };
 
+            let streamer = client::<VecContext>(None);
             unfold_with_tools_async(
                 initial_state,
                 move |state: DbAgentState| async move {
                     // Don't mark done here - let the update_fn check stop_reason
-                    let state_for_update = state.clone();
-                    let update_fn: UpdateFn = Box::new(move |msg: Message| {
-                        let mut state = state_for_update;
-                        // Mark done when we get a non-tool-use response
-                        if msg.stop_reason != Some(claudius::StopReason::ToolUse) {
-                            state.done = true;
-                        }
-                        claudius::push_or_merge_message(&mut state.thread.0, msg.into());
-                        state
-                    });
-                    Ok((state, update_fn))
+                    Ok(state)
                 },
+                update_fn,
                 {
                     let template = template.clone();
                     move |ctx: &DbAgentState| {
                         let template = template.clone();
                         let ctx = ctx.clone();
-                        async move { client::<VecContext>(None)(template, ctx.thread).await }
+                        let streamer = streamer.clone();
+                        async move { streamer(template, ctx.thread).await }
                     }
                 },
                 {
@@ -376,7 +376,6 @@ async fn main() -> Result<(), Error> {
     // Instead of using unfold_with_tools_async directly, we'll manually
     // interleave the streams.
 
-    type UpdateFn = Box<dyn FnOnce(Message) -> ClientState + Send>;
     type InnerStream = Pin<Box<dyn Stream<Item = Result<AccumulatingStream, Error>> + Send>>;
 
     // Channel to send inner agent streams for display
@@ -388,6 +387,11 @@ async fn main() -> Result<(), Error> {
 
     let db_agent_for_handler = Arc::clone(&db_agent);
 
+    let streamer = client::<VecContext>(None);
+    let update_fn = |mut state: ClientState, msg: Message| async move {
+        claudius::push_or_merge_message(&mut state.thread.0, msg.into());
+        state
+    };
     let agent = unfold_with_tools_async(
         initial_state,
         move |mut state: ClientState| async move {
@@ -395,26 +399,20 @@ async fn main() -> Result<(), Error> {
                 Some(input) => input,
                 None => {
                     state.should_quit = true;
-                    let state_for_update = state.clone();
-                    let update_fn: UpdateFn = Box::new(move |_msg: Message| state_for_update);
-                    return Ok((state, update_fn));
+                    return Ok(state);
                 }
             };
             claudius::push_or_merge_message(&mut state.thread.0, MessageParam::user(&user_input));
-            let state_for_update = state.clone();
-            let update_fn: UpdateFn = Box::new(move |msg: Message| {
-                let mut state = state_for_update;
-                claudius::push_or_merge_message(&mut state.thread.0, msg.into());
-                state
-            });
-            Ok((state, update_fn))
+            Ok(state)
         },
+        update_fn,
         debug_stream("API Request", {
             let template = template.clone();
             move |ctx: &ClientState| {
                 let template = template.clone();
                 let ctx = ctx.clone();
-                async move { client::<VecContext>(None)(template, ctx.thread).await }
+                let streamer = streamer.clone();
+                async move { streamer(template, ctx.thread).await }
             }
         }),
         move |tool_use: &ToolUseBlock| {
