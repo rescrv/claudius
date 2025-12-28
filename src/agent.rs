@@ -1,17 +1,337 @@
 use std::any::Any;
+use std::collections::HashSet;
+use std::io::{self, Stdout, Write};
 use std::ops::ControlFlow;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
+use futures::StreamExt;
 use utf8path::Path;
 
 use crate::{
-    Anthropic, ContentBlock, Error, KnownModel, Message, MessageCreateParams, MessageParam,
-    MessageParamContent, MessageRole, Metadata, Model, StopReason, SystemPrompt, ThinkingConfig,
+    push_or_merge_message, AccumulatingStream, Anthropic, ContentBlock, ContentBlockDelta, Error,
+    KnownModel, Message, MessageCreateParams, MessageParam, MessageParamContent, MessageRole,
+    MessageStreamEvent, Metadata, Model, StopReason, SystemPrompt, ThinkingConfig,
     ToolBash20241022, ToolBash20250124, ToolChoice, ToolParam, ToolResultBlock,
     ToolResultBlockContent, ToolTextEditor20250124, ToolTextEditor20250429, ToolTextEditor20250728,
-    ToolUnionParam, ToolUseBlock, WebSearchTool20250305, push_or_merge_message,
+    ToolUnionParam, ToolUseBlock, Usage, WebSearchTool20250305,
 };
+
+///////////////////////////////////////// Agent Streaming /////////////////////////////////////////
+
+/// Context for streaming agent output, including display label and nesting depth.
+#[derive(Debug, Clone)]
+pub struct AgentStreamContext {
+    /// Display label for the agent.
+    pub label: String,
+    /// Nesting depth for sub-agents (0 = root).
+    pub depth: usize,
+}
+
+impl AgentStreamContext {
+    /// Creates a root stream context.
+    pub fn root(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            depth: 0,
+        }
+    }
+
+    /// Creates a child stream context with incremented depth.
+    ///
+    /// Use this when invoking sub-agents or nested tool executions to maintain
+    /// proper indentation hierarchy in the rendered output.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use claudius::AgentStreamContext;
+    ///
+    /// let root = AgentStreamContext::root("MainAgent");
+    /// assert_eq!(root.depth, 0);
+    ///
+    /// let child = root.child("SubAgent");
+    /// assert_eq!(child.depth, 1);
+    /// assert_eq!(child.label, "SubAgent");
+    /// ```
+    pub fn child(&self, label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            depth: self.depth + 1,
+        }
+    }
+}
+
+/// Trait for streaming agent output.
+///
+/// Implementations of this trait receive callbacks during agent execution to render
+/// streaming output.
+pub trait AgentRenderer: Send {
+    /// Called when an agent begins streaming output.
+    fn start_agent(&mut self, context: &AgentStreamContext);
+
+    /// Called when an agent finishes streaming output.
+    fn finish_agent(&mut self, context: &AgentStreamContext, stop_reason: Option<&StopReason>);
+
+    /// Prints a chunk of regular response text.
+    fn print_text(&mut self, context: &AgentStreamContext, text: &str);
+
+    /// Prints a chunk of thinking text.
+    fn print_thinking(&mut self, context: &AgentStreamContext, text: &str);
+
+    /// Prints an error message.
+    fn print_error(&mut self, context: &AgentStreamContext, error: &str);
+
+    /// Called when a tool use block starts.
+    fn start_tool_use(&mut self, context: &AgentStreamContext, name: &str, id: &str);
+
+    /// Prints a chunk of tool input JSON.
+    fn print_tool_input(&mut self, context: &AgentStreamContext, partial_json: &str);
+
+    /// Called when a tool use block is complete.
+    fn finish_tool_use(&mut self, context: &AgentStreamContext);
+
+    /// Called when a tool result block starts.
+    fn start_tool_result(
+        &mut self,
+        context: &AgentStreamContext,
+        tool_use_id: &str,
+        is_error: bool,
+    );
+
+    /// Prints tool result text content.
+    fn print_tool_result_text(&mut self, context: &AgentStreamContext, text: &str);
+
+    /// Called when a tool result block is complete.
+    fn finish_tool_result(&mut self, context: &AgentStreamContext);
+
+    /// Called when a response is complete.
+    fn finish_response(&mut self, context: &AgentStreamContext);
+}
+
+/// ANSI escape code for dim text (used for thinking blocks).
+const ANSI_DIM: &str = "\x1b[2m";
+
+/// ANSI escape code for italic text (used for thinking blocks).
+const ANSI_ITALIC: &str = "\x1b[3m";
+
+/// ANSI escape code to reset all styling.
+const ANSI_RESET: &str = "\x1b[0m";
+
+/// ANSI escape code for cyan text (used for tool names).
+const ANSI_CYAN: &str = "\x1b[36m";
+
+/// ANSI escape code for yellow text (used for tool input).
+const ANSI_YELLOW: &str = "\x1b[33m";
+
+/// ANSI escape code for green text (used for tool result success).
+const ANSI_GREEN: &str = "\x1b[32m";
+
+/// ANSI escape code for red text (used for tool result errors).
+const ANSI_RED: &str = "\x1b[31m";
+
+/// ANSI escape code for magenta text (used for tool result bodies).
+const ANSI_MAGENTA: &str = "\x1b[35m";
+
+/// Plain text renderer for streaming agent output with optional ANSI styling.
+pub struct PlainTextAgentRenderer {
+    stdout: Stdout,
+    use_color: bool,
+    in_thinking: bool,
+    in_tool_result: bool,
+    line_start: bool,
+}
+
+impl PlainTextAgentRenderer {
+    /// Creates a new PlainTextAgentRenderer with ANSI colors enabled.
+    pub fn new() -> Self {
+        Self {
+            stdout: io::stdout(),
+            use_color: true,
+            in_thinking: false,
+            in_tool_result: false,
+            line_start: true,
+        }
+    }
+
+    /// Creates a new PlainTextAgentRenderer with specified color setting.
+    pub fn with_color(use_color: bool) -> Self {
+        Self {
+            stdout: io::stdout(),
+            use_color,
+            in_thinking: false,
+            in_tool_result: false,
+            line_start: true,
+        }
+    }
+
+    /// Flushes stdout to ensure immediate display of streamed content.
+    ///
+    /// Flush errors are silently ignored. This is appropriate because flush failures
+    /// typically indicate a broken pipe (e.g., when output is piped to `head` or a
+    /// process that closes stdin early), and there's no meaningful recovery action.
+    fn flush(&mut self) {
+        let _ = self.stdout.flush();
+    }
+
+    fn reset_thinking(&mut self) {
+        if self.in_thinking {
+            if self.use_color {
+                print!("{ANSI_RESET}");
+            }
+            self.in_thinking = false;
+        }
+    }
+
+    fn reset_tool_result(&mut self) {
+        if self.in_tool_result {
+            if self.use_color {
+                print!("{ANSI_RESET}");
+            }
+            self.in_tool_result = false;
+        }
+    }
+
+    fn reset_styles(&mut self) {
+        self.reset_thinking();
+        self.reset_tool_result();
+    }
+
+    /// Writes text with proper indentation based on context depth.
+    ///
+    /// Each line is prefixed with indentation corresponding to the nesting depth.
+    fn write_with_indent(&mut self, context: &AgentStreamContext, text: &str) {
+        let prefix = "  ".repeat(context.depth);
+        for line in text.split_inclusive('\n') {
+            if self.line_start {
+                print!("{prefix}");
+            }
+            print!("{line}");
+            self.line_start = line.ends_with('\n');
+        }
+        self.flush();
+    }
+}
+
+impl Default for PlainTextAgentRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AgentRenderer for PlainTextAgentRenderer {
+    fn start_agent(&mut self, context: &AgentStreamContext) {
+        self.reset_styles();
+        self.write_with_indent(context, &format!("[agent: {}]\n", context.label));
+    }
+
+    fn finish_agent(&mut self, context: &AgentStreamContext, stop_reason: Option<&StopReason>) {
+        self.reset_styles();
+        if let Some(stop_reason) = stop_reason {
+            self.write_with_indent(
+                context,
+                &format!("[agent: {} done: {stop_reason:?}]\n", context.label),
+            );
+        } else {
+            self.write_with_indent(context, &format!("[agent: {} done]\n", context.label));
+        }
+    }
+
+    fn print_text(&mut self, context: &AgentStreamContext, text: &str) {
+        self.reset_styles();
+        self.write_with_indent(context, text);
+    }
+
+    fn print_thinking(&mut self, context: &AgentStreamContext, text: &str) {
+        if self.use_color {
+            if !self.in_thinking {
+                self.write_with_indent(context, ANSI_DIM);
+                self.write_with_indent(context, ANSI_ITALIC);
+                self.in_thinking = true;
+            }
+            self.write_with_indent(context, text);
+        } else {
+            if !self.in_thinking {
+                self.write_with_indent(context, "[thinking] ");
+                self.in_thinking = true;
+            }
+            self.write_with_indent(context, text);
+        }
+    }
+
+    fn print_error(&mut self, context: &AgentStreamContext, error: &str) {
+        self.reset_styles();
+        self.write_with_indent(context, &format!("\nError: {error}\n"));
+    }
+
+    fn start_tool_use(&mut self, context: &AgentStreamContext, name: &str, id: &str) {
+        self.reset_styles();
+        if self.use_color {
+            self.write_with_indent(
+                context,
+                &format!("\n{ANSI_CYAN}[tool: {name}]{ANSI_RESET} {ANSI_DIM}({id}){ANSI_RESET}\n"),
+            );
+            self.write_with_indent(context, ANSI_YELLOW);
+        } else {
+            self.write_with_indent(context, &format!("\n[tool: {name}] ({id})\n"));
+        }
+    }
+
+    fn print_tool_input(&mut self, context: &AgentStreamContext, partial_json: &str) {
+        self.write_with_indent(context, partial_json);
+    }
+
+    fn finish_tool_use(&mut self, context: &AgentStreamContext) {
+        if self.use_color {
+            self.write_with_indent(context, ANSI_RESET);
+        }
+        self.write_with_indent(context, "\n");
+    }
+
+    fn start_tool_result(
+        &mut self,
+        context: &AgentStreamContext,
+        tool_use_id: &str,
+        is_error: bool,
+    ) {
+        self.reset_styles();
+        self.in_tool_result = true;
+        if self.use_color {
+            let label_color = if is_error { ANSI_RED } else { ANSI_GREEN };
+            let status = if is_error { "error" } else { "ok" };
+            self.write_with_indent(
+                context,
+                &format!(
+                    "\n{label_color}[tool result: {tool_use_id} ({status})]{ANSI_RESET}\n{ANSI_MAGENTA}"
+                ),
+            );
+        } else if is_error {
+            self.write_with_indent(context, &format!("\n[tool result: {tool_use_id} error]\n"));
+        } else {
+            self.write_with_indent(context, &format!("\n[tool result: {tool_use_id}]\n"));
+        }
+    }
+
+    fn print_tool_result_text(&mut self, context: &AgentStreamContext, text: &str) {
+        self.write_with_indent(context, text);
+    }
+
+    fn finish_tool_result(&mut self, context: &AgentStreamContext) {
+        self.reset_tool_result();
+        self.write_with_indent(context, "\n");
+    }
+
+    fn finish_response(&mut self, context: &AgentStreamContext) {
+        self.reset_styles();
+        self.write_with_indent(context, "\n");
+    }
+}
+
+struct StreamingContext<'a> {
+    renderer: &'a mut dyn AgentRenderer,
+    context: &'a AgentStreamContext,
+    show_thinking: bool,
+}
 
 //////////////////////////////////////////// ToolResult ////////////////////////////////////////////
 
@@ -57,7 +377,7 @@ impl IntermediateToolResult for ToolResult {
 /// Separates tool execution into compute and apply phases, allowing for
 /// read-only computation followed by state modification.
 #[async_trait::async_trait]
-pub trait ToolCallback<A>: Send {
+pub trait ToolCallback<A: Agent>: Send + Sync {
     /// Computes the tool result without modifying agent state.
     async fn compute_tool_result(
         &self,
@@ -65,6 +385,21 @@ pub trait ToolCallback<A>: Send {
         agent: &A,
         tool_use: &ToolUseBlock,
     ) -> Box<dyn IntermediateToolResult>;
+
+    /// Computes the tool result with access to a renderer for streaming output.
+    async fn compute_tool_result_streaming(
+        &self,
+        client: &Anthropic,
+        agent: &A,
+        tool_use: &ToolUseBlock,
+        renderer: &mut dyn AgentRenderer,
+        context: &AgentStreamContext,
+    ) -> Box<dyn IntermediateToolResult> {
+        _ = renderer;
+        _ = context;
+        self.compute_tool_result(client, agent, tool_use).await
+    }
+
     /// Applies the computed result, potentially modifying agent state.
     async fn apply_tool_result(
         &self,
@@ -1368,6 +1703,15 @@ pub trait Agent: Send + Sync + Sized {
         1024
     }
 
+    /// Returns a display label for streaming output.
+    fn stream_label(&self) -> String {
+        std::any::type_name::<Self>()
+            .rsplit("::")
+            .next()
+            .unwrap_or("Agent")
+            .to_string()
+    }
+
     /// Returns the model to use for this agent.
     async fn model(&self) -> Model {
         Model::Known(KnownModel::ClaudeSonnet40)
@@ -1467,6 +1811,32 @@ pub trait Agent: Send + Sync + Sized {
         self.take_default_turn(client, messages, budget).await
     }
 
+    /// Takes a conversation turn, streaming output to the renderer.
+    async fn take_turn_streaming(
+        &mut self,
+        client: &Anthropic,
+        messages: &mut Vec<MessageParam>,
+        budget: &Arc<Budget>,
+        renderer: &mut dyn AgentRenderer,
+        context: AgentStreamContext,
+    ) -> Result<StopReason, Error> {
+        self.take_default_turn_streaming(client, messages, budget, renderer, context)
+            .await
+    }
+
+    /// Takes a conversation turn, streaming output with a root context label.
+    async fn take_turn_streaming_root(
+        &mut self,
+        client: &Anthropic,
+        messages: &mut Vec<MessageParam>,
+        budget: &Arc<Budget>,
+        renderer: &mut dyn AgentRenderer,
+    ) -> Result<StopReason, Error> {
+        let context = AgentStreamContext::root(self.stream_label());
+        self.take_turn_streaming(client, messages, budget, renderer, context)
+            .await
+    }
+
     /// Default implementation for taking a conversation turn.
     async fn take_default_turn(
         &mut self,
@@ -1491,6 +1861,40 @@ pub trait Agent: Send + Sync + Sized {
         self.handle_max_tokens().await
     }
 
+    /// Default implementation for taking a conversation turn with streaming output.
+    async fn take_default_turn_streaming(
+        &mut self,
+        client: &Anthropic,
+        messages: &mut Vec<MessageParam>,
+        budget: &Arc<Budget>,
+        renderer: &mut dyn AgentRenderer,
+        context: AgentStreamContext,
+    ) -> Result<StopReason, Error> {
+        renderer.start_agent(&context);
+        let Some(mut tokens_rem) = budget.allocate(self.max_tokens().await) else {
+            renderer.finish_agent(&context, Some(&StopReason::MaxTokens));
+            return self.handle_max_tokens().await;
+        };
+
+        while tokens_rem.remaining_tokens()
+            > self.thinking().await.map(|t| t.num_tokens()).unwrap_or(0)
+        {
+            match self
+                .step_turn_streaming(client, messages, &mut tokens_rem, renderer, &context)
+                .await
+            {
+                ControlFlow::Continue(()) => {}
+                ControlFlow::Break(res) => {
+                    let stop_reason = res.as_ref().ok();
+                    renderer.finish_agent(&context, stop_reason);
+                    return res;
+                }
+            }
+        }
+        renderer.finish_agent(&context, Some(&StopReason::MaxTokens));
+        self.handle_max_tokens().await
+    }
+
     /// Executes a single step in a conversation turn.
     async fn step_turn(
         &mut self,
@@ -1501,6 +1905,19 @@ pub trait Agent: Send + Sync + Sized {
         self.step_default_turn(client, messages, tokens_rem).await
     }
 
+    /// Executes a single step in a conversation turn with streaming output.
+    async fn step_turn_streaming(
+        &mut self,
+        client: &Anthropic,
+        messages: &mut Vec<MessageParam>,
+        tokens_rem: &mut BudgetAllocation,
+        renderer: &mut dyn AgentRenderer,
+        context: &AgentStreamContext,
+    ) -> ControlFlow<Result<StopReason, Error>> {
+        self.step_default_turn_streaming(client, messages, tokens_rem, renderer, context)
+            .await
+    }
+
     /// Default implementation for executing a single step in a conversation turn.
     async fn step_default_turn(
         &mut self,
@@ -1508,67 +1925,25 @@ pub trait Agent: Send + Sync + Sized {
         messages: &mut Vec<MessageParam>,
         tokens_rem: &mut BudgetAllocation,
     ) -> ControlFlow<Result<StopReason, Error>> {
-        loop {
-            let tools = self
-                .tools()
-                .await
-                .into_iter()
-                .map(|tool| tool.to_param())
-                .collect::<Vec<_>>();
-            let req = MessageCreateParams {
-                max_tokens: tokens_rem.remaining_tokens(),
-                model: self.model().await,
-                messages: messages.clone(),
-                metadata: self.metadata().await,
-                stop_sequences: self.stop_sequences().await,
-                system: self.system().await,
-                thinking: self.thinking().await,
-                temperature: self.temperature().await,
-                top_k: self.top_k().await,
-                top_p: self.top_p().await,
-                stream: false,
-                tool_choice: self.tool_choice().await,
-                tools: Some(tools),
-            };
-            if let Err(err) = self.hook_message_create_params(&req).await {
-                return ControlFlow::Break(Err(err));
-            }
-            let resp = match client.send(req).await {
-                Ok(resp) => resp,
-                Err(err) => return ControlFlow::Break(Err(err)),
-            };
-            if let Err(err) = self.hook_message(&resp).await {
-                return ControlFlow::Break(Err(err));
-            }
-            let assistant_message = MessageParam {
-                role: MessageRole::Assistant,
-                content: MessageParamContent::Array(resp.content.clone()),
-            };
-            let _ = tokens_rem.consume_usage(&resp.usage);
-            push_or_merge_message(messages, assistant_message);
-            let tool_results: Vec<ContentBlock> = match resp.stop_reason {
-                None | Some(StopReason::EndTurn) => {
-                    return ControlFlow::Break(self.handle_end_turn().await);
-                }
-                Some(StopReason::MaxTokens) => {
-                    return ControlFlow::Break(self.handle_max_tokens().await);
-                }
-                Some(StopReason::StopSequence) => {
-                    return ControlFlow::Break(self.handle_stop_sequence(resp.stop_sequence).await);
-                }
-                Some(StopReason::Refusal) => {
-                    return ControlFlow::Break(self.handle_refusal(resp).await);
-                }
-                Some(StopReason::PauseTurn) => {
-                    continue;
-                }
-                Some(StopReason::ToolUse) => self.handle_tool_use(client, &resp).await?,
-            };
-            let user_message =
-                MessageParam::new(MessageParamContent::Array(tool_results), MessageRole::User);
-            push_or_merge_message(messages, user_message);
-            return ControlFlow::Continue(());
-        }
+        step_default_turn_impl(self, client, messages, tokens_rem, None).await
+    }
+
+    /// Default implementation for executing a single step with streaming output.
+    async fn step_default_turn_streaming(
+        &mut self,
+        client: &Anthropic,
+        messages: &mut Vec<MessageParam>,
+        tokens_rem: &mut BudgetAllocation,
+        renderer: &mut dyn AgentRenderer,
+        context: &AgentStreamContext,
+    ) -> ControlFlow<Result<StopReason, Error>> {
+        let show_thinking = self.thinking().await.is_some();
+        let streaming = StreamingContext {
+            renderer,
+            context,
+            show_thinking,
+        };
+        step_default_turn_impl(self, client, messages, tokens_rem, Some(streaming)).await
     }
 
     /// Handles tool use requests from the model.
@@ -1580,39 +1955,32 @@ pub trait Agent: Send + Sync + Sized {
         self.handle_default_tool_use(client, resp).await
     }
 
+    /// Handles tool use requests from the model with streaming output.
+    async fn handle_tool_use_streaming(
+        &mut self,
+        client: &Anthropic,
+        resp: &Message,
+        renderer: &mut dyn AgentRenderer,
+        context: &AgentStreamContext,
+    ) -> ControlFlow<Result<StopReason, Error>, Vec<ContentBlock>> {
+        self.handle_default_tool_use_streaming(client, resp, renderer, context)
+            .await
+    }
+
     /// Default implementation for handling tool use requests.
     async fn handle_default_tool_use(
         &mut self,
         client: &Anthropic,
         resp: &Message,
     ) -> ControlFlow<Result<StopReason, Error>, Vec<ContentBlock>> {
-        let mut tools_and_blocks = vec![];
-        for block in resp.content.iter() {
-            if let ContentBlock::ToolUse(tool_use) = block {
-                let Some(tool) = self
-                    .tools()
-                    .await
-                    .iter()
-                    .find(|t| t.name() == tool_use.name)
-                    .cloned()
-                else {
-                    tools_and_blocks.push((
-                        tool_use.clone(),
-                        Arc::new(ToolNotFound(tool_use.name.clone())) as _,
-                    ));
-                    continue;
-                };
-                tools_and_blocks.push((tool_use.clone(), tool));
-            }
-        }
+        let tools_and_blocks = self.collect_tool_uses(resp).await;
         let mut futures = Vec::with_capacity(tools_and_blocks.len());
         for (tool_use, tool) in tools_and_blocks.iter() {
             let callback = tool.callback();
-            futures.push(async {
-                let this = &*self;
-                let tool_use = tool_use.clone();
-                async move { callback.compute_tool_result(client, this, &tool_use).await }.await
-            });
+            let tool_use = tool_use.clone();
+            let this = &*self;
+            futures
+                .push(async move { callback.compute_tool_result(client, this, &tool_use).await });
         }
         let intermediate_tool_results = futures::future::join_all(futures).await;
         let mut tool_results = vec![];
@@ -1624,16 +1992,61 @@ pub trait Agent: Send + Sync + Sized {
                 .apply_tool_result(client, self, &tool_use, result)
                 .await
             {
-                ControlFlow::Continue(result) => match result {
-                    Ok(block) => tool_results.push(block.into()),
-                    Err(block) => {
-                        tool_results.push(block.with_error(true).into());
-                    }
-                },
+                ControlFlow::Continue(result) => {
+                    push_tool_result(&mut tool_results, None, result);
+                }
                 ControlFlow::Break(err) => return ControlFlow::Break(Err(err)),
             }
         }
         ControlFlow::Continue(tool_results)
+    }
+
+    /// Default implementation for handling tool use requests with streaming output.
+    async fn handle_default_tool_use_streaming(
+        &mut self,
+        client: &Anthropic,
+        resp: &Message,
+        renderer: &mut dyn AgentRenderer,
+        context: &AgentStreamContext,
+    ) -> ControlFlow<Result<StopReason, Error>, Vec<ContentBlock>> {
+        let mut tool_results = vec![];
+        let tools_and_blocks = self.collect_tool_uses(resp).await;
+        for (tool_use, tool) in tools_and_blocks.iter() {
+            let tool_context = context.child(format!("tool:{}", tool_use.name));
+            let callback = tool.callback();
+            let this = &*self;
+            let intermediate = callback
+                .compute_tool_result_streaming(client, this, tool_use, renderer, &tool_context)
+                .await;
+            match callback
+                .apply_tool_result(client, self, tool_use, intermediate)
+                .await
+            {
+                ControlFlow::Continue(result) => {
+                    push_tool_result(&mut tool_results, Some((renderer, &tool_context)), result);
+                }
+                ControlFlow::Break(err) => return ControlFlow::Break(Err(err)),
+            }
+        }
+        ControlFlow::Continue(tool_results)
+    }
+
+    /// Collect all ToolUseBlock blocks from the message.
+    async fn collect_tool_uses(&self, resp: &Message) -> Vec<(ToolUseBlock, Arc<dyn Tool<Self>>)> {
+        let tools = self.tools().await;
+        let mut tools_and_blocks = vec![];
+        for block in resp.content.iter() {
+            let ContentBlock::ToolUse(tool_use) = block else {
+                continue;
+            };
+            let tool = tools
+                .iter()
+                .find(|tool| tool.name() == tool_use.name)
+                .cloned()
+                .unwrap_or_else(|| Arc::new(ToolNotFound(tool_use.name.clone())) as _);
+            tools_and_blocks.push((tool_use.clone(), tool));
+        }
+        tools_and_blocks
     }
 
     /// Creates a message request with the agent's configuration.
@@ -1641,6 +2054,7 @@ pub trait Agent: Send + Sync + Sized {
         &self,
         max_tokens: u32,
         messages: Vec<MessageParam>,
+        stream: bool,
     ) -> MessageCreateParams {
         let tools = self
             .tools()
@@ -1648,6 +2062,7 @@ pub trait Agent: Send + Sync + Sized {
             .iter()
             .map(|tool| tool.to_param())
             .collect::<Vec<_>>();
+        let tools = if tools.is_empty() { None } else { Some(tools) };
         MessageCreateParams {
             max_tokens,
             model: self.model().await,
@@ -1659,9 +2074,9 @@ pub trait Agent: Send + Sync + Sized {
             temperature: self.temperature().await,
             top_k: self.top_k().await,
             top_p: self.top_p().await,
-            stream: false,
+            stream,
             tool_choice: self.tool_choice().await,
-            tools: Some(tools),
+            tools,
         }
     }
 
@@ -2210,6 +2625,272 @@ fn sanitize_path(base: Path, path: &str) -> Result<Path<'static>, std::io::Error
     }
 }
 
+//////////////////////////////////////// Streaming Helpers /////////////////////////////////////////
+
+/// Renders a complete tool result block to the renderer.
+///
+/// Emits the full lifecycle: start_tool_result -> print content -> finish_tool_result.
+fn render_tool_result_block(
+    renderer: &mut dyn AgentRenderer,
+    context: &AgentStreamContext,
+    block: &ToolResultBlock,
+) {
+    renderer.start_tool_result(context, &block.tool_use_id, block.is_error.unwrap_or(false));
+    if let Some(content) = &block.content {
+        render_tool_result_content(renderer, context, content);
+    }
+    renderer.finish_tool_result(context);
+}
+
+/// Renders tool result content (string or array of content items).
+///
+/// For arrays, inserts newlines between items and renders images as "[image]" placeholder.
+fn render_tool_result_content(
+    renderer: &mut dyn AgentRenderer,
+    context: &AgentStreamContext,
+    content: &ToolResultBlockContent,
+) {
+    match content {
+        ToolResultBlockContent::String(text) => renderer.print_tool_result_text(context, text),
+        ToolResultBlockContent::Array(items) => {
+            for (idx, item) in items.iter().enumerate() {
+                if idx > 0 {
+                    renderer.print_tool_result_text(context, "\n");
+                }
+                match item {
+                    crate::types::Content::Text(text) => {
+                        renderer.print_tool_result_text(context, &text.text);
+                    }
+                    crate::types::Content::Image(_) => {
+                        renderer.print_tool_result_text(context, "[image]");
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn push_tool_result(
+    tool_results: &mut Vec<ContentBlock>,
+    renderer: Option<(&mut dyn AgentRenderer, &AgentStreamContext)>,
+    result: Result<ToolResultBlock, ToolResultBlock>,
+) {
+    match result {
+        Ok(block) => {
+            if let Some((renderer, context)) = renderer {
+                render_tool_result_block(renderer, context, &block);
+            }
+            tool_results.push(block.into());
+        }
+        Err(block) => {
+            if let Some((renderer, context)) = renderer {
+                render_tool_result_block(renderer, context, &block);
+            }
+            tool_results.push(block.with_error(true).into());
+        }
+    }
+}
+
+async fn step_default_turn_impl<A: Agent>(
+    agent: &mut A,
+    client: &Anthropic,
+    messages: &mut Vec<MessageParam>,
+    tokens_rem: &mut BudgetAllocation<'_>,
+    mut streaming: Option<StreamingContext<'_>>,
+) -> ControlFlow<Result<StopReason, Error>> {
+    let stream = streaming.is_some();
+    loop {
+        let req = agent
+            .create_request(tokens_rem.remaining_tokens(), messages.clone(), stream)
+            .await;
+        if let Err(err) = agent.hook_message_create_params(&req).await {
+            return ControlFlow::Break(Err(err));
+        }
+
+        let resp = if let Some(streaming) = streaming.as_mut() {
+            match stream_message_with_renderer(
+                client,
+                req,
+                streaming.renderer,
+                streaming.context,
+                streaming.show_thinking,
+            )
+            .await
+            {
+                Ok(resp) => resp,
+                Err(err) => return ControlFlow::Break(Err(err)),
+            }
+        } else {
+            match client.send(req).await {
+                Ok(resp) => resp,
+                Err(err) => return ControlFlow::Break(Err(err)),
+            }
+        };
+
+        if let Err(err) = agent.hook_message(&resp).await {
+            return ControlFlow::Break(Err(err));
+        }
+
+        let assistant_message = MessageParam {
+            role: MessageRole::Assistant,
+            content: MessageParamContent::Array(resp.content.clone()),
+        };
+        let _ = tokens_rem.consume_usage(&resp.usage);
+        push_or_merge_message(messages, assistant_message);
+
+        let tool_results = match resp.stop_reason {
+            None | Some(StopReason::EndTurn) => {
+                return ControlFlow::Break(agent.handle_end_turn().await);
+            }
+            Some(StopReason::MaxTokens) => {
+                return ControlFlow::Break(agent.handle_max_tokens().await);
+            }
+            Some(StopReason::StopSequence) => {
+                return ControlFlow::Break(agent.handle_stop_sequence(resp.stop_sequence).await);
+            }
+            Some(StopReason::Refusal) => {
+                return ControlFlow::Break(agent.handle_refusal(resp).await);
+            }
+            Some(StopReason::PauseTurn) => {
+                continue;
+            }
+            Some(StopReason::ToolUse) => {
+                if let Some(streaming) = streaming.as_mut() {
+                    match agent
+                        .handle_tool_use_streaming(
+                            client,
+                            &resp,
+                            streaming.renderer,
+                            streaming.context,
+                        )
+                        .await
+                    {
+                        ControlFlow::Continue(results) => results,
+                        ControlFlow::Break(err) => return ControlFlow::Break(err),
+                    }
+                } else {
+                    match agent.handle_tool_use(client, &resp).await {
+                        ControlFlow::Continue(results) => results,
+                        ControlFlow::Break(err) => return ControlFlow::Break(err),
+                    }
+                }
+            }
+        };
+
+        let user_message =
+            MessageParam::new(MessageParamContent::Array(tool_results), MessageRole::User);
+        push_or_merge_message(messages, user_message);
+        return ControlFlow::Continue(());
+    }
+}
+
+async fn stream_message_with_renderer(
+    client: &Anthropic,
+    req: MessageCreateParams,
+    renderer: &mut dyn AgentRenderer,
+    context: &AgentStreamContext,
+    show_thinking: bool,
+) -> Result<Message, Error> {
+    let stream = client.stream(&req).await?;
+    let fallback_message = Message::new(
+        "streamed".to_string(),
+        Vec::new(),
+        req.model.clone(),
+        Usage::new(0, 0),
+    );
+    let (mut acc_stream, rx) = AccumulatingStream::new_with_message(stream, fallback_message);
+    let mut active_tool_uses = HashSet::new();
+    let mut active_tool_results = HashSet::new();
+
+    while let Some(event) = acc_stream.next().await {
+        match event {
+            Ok(event) => match &event {
+                MessageStreamEvent::Ping => {}
+                MessageStreamEvent::MessageStart(_) => {}
+                MessageStreamEvent::MessageDelta(_) => {}
+                MessageStreamEvent::ContentBlockStart(start_event) => {
+                    match &start_event.content_block {
+                        ContentBlock::ToolUse(tool_use) => {
+                            active_tool_uses.insert(start_event.index);
+                            renderer.start_tool_use(context, &tool_use.name, &tool_use.id);
+                        }
+                        ContentBlock::ToolResult(tool_result) => {
+                            active_tool_results.insert(start_event.index);
+                            renderer.start_tool_result(
+                                context,
+                                &tool_result.tool_use_id,
+                                tool_result.is_error.unwrap_or(false),
+                            );
+                            if let Some(content) = &tool_result.content {
+                                render_tool_result_content(renderer, context, content);
+                            }
+                        }
+                        ContentBlock::Text(text_block) => {
+                            if !text_block.text.is_empty() {
+                                renderer.print_text(context, &text_block.text);
+                            }
+                        }
+                        ContentBlock::Thinking(thinking_block) => {
+                            if show_thinking && !thinking_block.thinking.is_empty() {
+                                renderer.print_thinking(context, &thinking_block.thinking);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                MessageStreamEvent::ContentBlockDelta(delta_event) => match &delta_event.delta {
+                    ContentBlockDelta::InputJsonDelta(json_delta) => {
+                        if active_tool_uses.contains(&delta_event.index) {
+                            renderer.print_tool_input(context, &json_delta.partial_json);
+                        }
+                    }
+                    ContentBlockDelta::TextDelta(text_delta) => {
+                        if active_tool_results.contains(&delta_event.index) {
+                            renderer.print_tool_result_text(context, &text_delta.text);
+                        } else {
+                            renderer.print_text(context, &text_delta.text);
+                        }
+                    }
+                    ContentBlockDelta::ThinkingDelta(thinking_delta) => {
+                        if show_thinking {
+                            renderer.print_thinking(context, &thinking_delta.thinking);
+                        }
+                    }
+                    ContentBlockDelta::SignatureDelta(_) => {}
+                    ContentBlockDelta::CitationsDelta(_) => {}
+                },
+                MessageStreamEvent::ContentBlockStop(stop_event) => {
+                    if active_tool_uses.remove(&stop_event.index) {
+                        renderer.finish_tool_use(context);
+                    }
+                    if active_tool_results.remove(&stop_event.index) {
+                        renderer.finish_tool_result(context);
+                    }
+                }
+                MessageStreamEvent::MessageStop(_) => {}
+            },
+            Err(err) => {
+                renderer.print_error(context, &err.to_string());
+                return Err(err);
+            }
+        }
+    }
+
+    renderer.finish_response(context);
+    match rx.await {
+        Ok(Ok(resp)) => Ok(resp),
+        Ok(Err(err)) => {
+            renderer.print_error(context, &err.to_string());
+            Err(err)
+        }
+        Err(_) => {
+            let err = Error::streaming("failed to receive accumulated streaming message", None);
+            renderer.print_error(context, &err.to_string());
+            Err(err)
+        }
+    }
+}
+
 /////////////////////////////////////////////// tests //////////////////////////////////////////////
 
 #[cfg(test)]
@@ -2443,16 +3124,12 @@ mod tests {
         assert_eq!(result, Err("initial mount point must be /".to_string()));
 
         // After mounting /, other paths can be mounted
-        assert!(
-            hierarchy
-                .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"))
-                .is_ok()
-        );
-        assert!(
-            hierarchy
-                .mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"))
-                .is_ok()
-        );
+        assert!(hierarchy
+            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"))
+            .is_ok());
+        assert!(hierarchy
+            .mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"))
+            .is_ok());
     }
 
     #[test]
@@ -2478,16 +3155,12 @@ mod tests {
         let mut hierarchy = MountHierarchy { mounts: vec![] };
 
         // Mount / and /home
-        assert!(
-            hierarchy
-                .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"))
-                .is_ok()
-        );
-        assert!(
-            hierarchy
-                .mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"))
-                .is_ok()
-        );
+        assert!(hierarchy
+            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"))
+            .is_ok());
+        assert!(hierarchy
+            .mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"))
+            .is_ok());
 
         // Cannot mount / again since it would mask /home
         let result = hierarchy.mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"));
@@ -2503,18 +3176,14 @@ mod tests {
         let mut hierarchy = MountHierarchy { mounts: vec![] };
 
         // Mount /
-        assert!(
-            hierarchy
-                .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp1"))
-                .is_ok()
-        );
+        assert!(hierarchy
+            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp1"))
+            .is_ok());
 
         // Can mount / again (overlays previous mount)
-        assert!(
-            hierarchy
-                .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp2"))
-                .is_ok()
-        );
+        assert!(hierarchy
+            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp2"))
+            .is_ok());
 
         assert_eq!(hierarchy.mounts.len(), 2);
     }
@@ -2524,29 +3193,23 @@ mod tests {
         let mut hierarchy = MountHierarchy { mounts: vec![] };
 
         // Mount different paths
-        assert!(
-            hierarchy
-                .mount("/".into(), Permissions::ReadWrite, Path::from("/root"))
-                .is_ok()
-        );
-        assert!(
-            hierarchy
-                .mount(
-                    "/home".into(),
-                    Permissions::ReadWrite,
-                    Path::from("/home_fs")
-                )
-                .is_ok()
-        );
-        assert!(
-            hierarchy
-                .mount(
-                    "/home/user".into(),
-                    Permissions::ReadWrite,
-                    Path::from("/user_fs")
-                )
-                .is_ok()
-        );
+        assert!(hierarchy
+            .mount("/".into(), Permissions::ReadWrite, Path::from("/root"))
+            .is_ok());
+        assert!(hierarchy
+            .mount(
+                "/home".into(),
+                Permissions::ReadWrite,
+                Path::from("/home_fs")
+            )
+            .is_ok());
+        assert!(hierarchy
+            .mount(
+                "/home/user".into(),
+                Permissions::ReadWrite,
+                Path::from("/user_fs")
+            )
+            .is_ok());
 
         // Check that fs_for_path returns the most specific mount
         let fs = hierarchy.fs_for_path("/file.txt").unwrap().0;
@@ -2956,39 +3619,29 @@ mod tests {
         let mut hierarchy = MountHierarchy { mounts: vec![] };
 
         // Mount various paths
-        assert!(
-            hierarchy
-                .mount("/".into(), Permissions::ReadWrite, Path::from("/root"))
-                .is_ok()
-        );
-        assert!(
-            hierarchy
-                .mount("/home".into(), Permissions::ReadWrite, Path::from("/home"))
-                .is_ok()
-        );
-        assert!(
-            hierarchy
-                .mount(
-                    "/home/user".into(),
-                    Permissions::ReadWrite,
-                    Path::from("/user")
-                )
-                .is_ok()
-        );
-        assert!(
-            hierarchy
-                .mount("/var".into(), Permissions::ReadWrite, Path::from("/var"))
-                .is_ok()
-        );
-        assert!(
-            hierarchy
-                .mount(
-                    "/var/log".into(),
-                    Permissions::ReadWrite,
-                    Path::from("/log")
-                )
-                .is_ok()
-        );
+        assert!(hierarchy
+            .mount("/".into(), Permissions::ReadWrite, Path::from("/root"))
+            .is_ok());
+        assert!(hierarchy
+            .mount("/home".into(), Permissions::ReadWrite, Path::from("/home"))
+            .is_ok());
+        assert!(hierarchy
+            .mount(
+                "/home/user".into(),
+                Permissions::ReadWrite,
+                Path::from("/user")
+            )
+            .is_ok());
+        assert!(hierarchy
+            .mount("/var".into(), Permissions::ReadWrite, Path::from("/var"))
+            .is_ok());
+        assert!(hierarchy
+            .mount(
+                "/var/log".into(),
+                Permissions::ReadWrite,
+                Path::from("/log")
+            )
+            .is_ok());
 
         // Cannot mount path that would mask existing deeper paths
         let result = hierarchy.mount(
@@ -3008,20 +3661,16 @@ mod tests {
         assert!(result.unwrap_err().contains("/var/log masks"));
 
         // Can mount paths that don't conflict
-        assert!(
-            hierarchy
-                .mount("/usr".into(), Permissions::ReadWrite, Path::from("/usr"))
-                .is_ok()
-        );
-        assert!(
-            hierarchy
-                .mount(
-                    "/home/other".into(),
-                    Permissions::ReadWrite,
-                    Path::from("/other")
-                )
-                .is_ok()
-        );
+        assert!(hierarchy
+            .mount("/usr".into(), Permissions::ReadWrite, Path::from("/usr"))
+            .is_ok());
+        assert!(hierarchy
+            .mount(
+                "/home/other".into(),
+                Permissions::ReadWrite,
+                Path::from("/other")
+            )
+            .is_ok());
     }
 
     // Permission tests
@@ -3065,20 +3714,18 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(
-            err.to_string()
-                .contains("str_replace not allowed with ReadOnly permissions")
-        );
+        assert!(err
+            .to_string()
+            .contains("str_replace not allowed with ReadOnly permissions"));
 
         // insert should fail
         let result = hierarchy.insert("/file.txt", 1, "new line").await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(
-            err.to_string()
-                .contains("insert not allowed with ReadOnly permissions")
-        );
+        assert!(err
+            .to_string()
+            .contains("insert not allowed with ReadOnly permissions"));
     }
 
     #[tokio::test]
@@ -3121,20 +3768,18 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(
-            err.to_string()
-                .contains("search not allowed with WriteOnly permissions")
-        );
+        assert!(err
+            .to_string()
+            .contains("search not allowed with WriteOnly permissions"));
 
         // view should fail
         let result = hierarchy.view("/file.txt", None).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(
-            err.to_string()
-                .contains("view not allowed with WriteOnly permissions")
-        );
+        assert!(err
+            .to_string()
+            .contains("view not allowed with WriteOnly permissions"));
     }
 
     #[tokio::test]
