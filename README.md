@@ -654,6 +654,8 @@ cargo run --example retry_example
 
 ### v0.17.0
 
+**TextEditor::insert off-by-one corrected**:  The text editor tool's `insert` command now uses 1-based line numbers. `insert_line = 0` or values greater than the line count + 1 now return an error. To append, use `line_count + 1`.
+
 **Base URL format change**: The `with_base_url()` method now expects the base URL *without* the `/v1/` suffix. The client automatically appends `/v1/` when constructing endpoint URLs.
 
 Before (v0.16.0 and earlier):
