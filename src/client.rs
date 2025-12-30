@@ -5,11 +5,15 @@ use serde::Deserialize;
 use std::env;
 use std::fs;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
 use crate::backoff::ExponentialBackoff;
 use crate::error::{Error, Result};
+use crate::observability::{
+    CLIENT_REQUEST_DURATION, CLIENT_REQUEST_ERRORS, CLIENT_REQUEST_RETRIES, CLIENT_REQUESTS,
+    CLIENT_RETRY_BACKOFF,
+};
 use crate::sse::process_sse;
 use crate::types::{
     Message, MessageCountTokensParams, MessageCreateParams, MessageStreamEvent, MessageTokensCount,
@@ -284,6 +288,8 @@ impl Anthropic {
                         None => exp_backoff_duration,
                     };
 
+                    CLIENT_REQUEST_RETRIES.click();
+                    CLIENT_RETRY_BACKOFF.add(sleep_duration.as_secs_f64());
                     sleep(sleep_duration).await;
                     last_error = Some(error);
                 }
@@ -438,17 +444,31 @@ impl Anthropic {
 
     /// Send a message to the API and get a non-streaming response.
     pub async fn send(&self, mut params: MessageCreateParams) -> Result<Message> {
+        let start = Instant::now();
+        CLIENT_REQUESTS.click();
+
         // Validate parameters first
-        params.validate()?;
+        if let Err(err) = params.validate() {
+            CLIENT_REQUEST_ERRORS.click();
+            CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+            return Err(err);
+        }
 
         // Ensure stream is disabled
         params.stream = false;
 
-        self.retry_with_backoff(|| async {
-            let url = self.build_url("messages");
-            self.execute_post_request(&url, &params, None).await
-        })
-        .await
+        let result = self
+            .retry_with_backoff(|| async {
+                let url = self.build_url("messages");
+                self.execute_post_request(&url, &params, None).await
+            })
+            .await;
+
+        CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+        if result.is_err() {
+            CLIENT_REQUEST_ERRORS.click();
+        }
+        result
     }
 
     /// Send a message to the API and get a streaming response.
@@ -458,15 +478,25 @@ impl Anthropic {
         &self,
         params: &MessageCreateParams,
     ) -> Result<impl Stream<Item = Result<MessageStreamEvent>> + use<>> {
+        let start = Instant::now();
+        CLIENT_REQUESTS.click();
+
         // Validate parameters first
-        params.validate()?;
+        if let Err(err) = params.validate() {
+            CLIENT_REQUEST_ERRORS.click();
+            CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+            return Err(err);
+        }
 
         // Ensure stream is enabled
         if !params.stream {
-            return Err(Error::validation(
+            let err = Error::validation(
                 "stream must be true for streaming requests",
                 Some("stream".to_string()),
-            ));
+            );
+            CLIENT_REQUEST_ERRORS.click();
+            CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+            return Err(err);
         }
 
         let response = self
@@ -494,7 +524,16 @@ impl Anthropic {
 
                 Ok(response)
             })
-            .await?;
+            .await;
+
+        CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+        let response = match response {
+            Ok(response) => response,
+            Err(err) => {
+                CLIENT_REQUEST_ERRORS.click();
+                return Err(err);
+            }
+        };
 
         // Get the byte stream from the response
         let stream = response.bytes_stream();
@@ -511,11 +550,20 @@ impl Anthropic {
         &self,
         params: MessageCountTokensParams,
     ) -> Result<MessageTokensCount> {
-        self.retry_with_backoff(|| async {
-            let url = self.build_url("messages/count_tokens");
-            self.execute_post_request(&url, &params, None).await
-        })
-        .await
+        let start = Instant::now();
+        CLIENT_REQUESTS.click();
+        let result = self
+            .retry_with_backoff(|| async {
+                let url = self.build_url("messages/count_tokens");
+                self.execute_post_request(&url, &params, None).await
+            })
+            .await;
+
+        CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+        if result.is_err() {
+            CLIENT_REQUEST_ERRORS.click();
+        }
+        result
     }
 
     /// List available models from the API.
@@ -523,27 +571,36 @@ impl Anthropic {
     /// Returns a paginated list of all available models. Use the parameters to control
     /// pagination and filter results.
     pub async fn list_models(&self, params: Option<ModelListParams>) -> Result<ModelListResponse> {
-        self.retry_with_backoff(|| async {
-            let url = self.build_url("models");
+        let start = Instant::now();
+        CLIENT_REQUESTS.click();
+        let result = self
+            .retry_with_backoff(|| async {
+                let url = self.build_url("models");
 
-            let query_params = params.as_ref().map(|p| {
-                let mut params = Vec::new();
-                if let Some(ref after_id) = p.after_id {
-                    params.push(("after_id".to_string(), after_id.clone()));
-                }
-                if let Some(ref before_id) = p.before_id {
-                    params.push(("before_id".to_string(), before_id.clone()));
-                }
-                if let Some(limit) = p.limit {
-                    params.push(("limit".to_string(), limit.to_string()));
-                }
-                params
-            });
+                let query_params = params.as_ref().map(|p| {
+                    let mut params = Vec::new();
+                    if let Some(ref after_id) = p.after_id {
+                        params.push(("after_id".to_string(), after_id.clone()));
+                    }
+                    if let Some(ref before_id) = p.before_id {
+                        params.push(("before_id".to_string(), before_id.clone()));
+                    }
+                    if let Some(limit) = p.limit {
+                        params.push(("limit".to_string(), limit.to_string()));
+                    }
+                    params
+                });
 
-            self.execute_get_request(&url, query_params.as_deref())
-                .await
-        })
-        .await
+                self.execute_get_request(&url, query_params.as_deref())
+                    .await
+            })
+            .await;
+
+        CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+        if result.is_err() {
+            CLIENT_REQUEST_ERRORS.click();
+        }
+        result
     }
 
     /// Retrieve information about a specific model.
@@ -551,11 +608,20 @@ impl Anthropic {
     /// Returns detailed information about the specified model, including its
     /// ID, creation date, display name, and type.
     pub async fn get_model(&self, model_id: &str) -> Result<ModelInfo> {
-        self.retry_with_backoff(|| async {
-            let url = self.build_url(&format!("models/{}", model_id));
-            self.execute_get_request(&url, None).await
-        })
-        .await
+        let start = Instant::now();
+        CLIENT_REQUESTS.click();
+        let result = self
+            .retry_with_backoff(|| async {
+                let url = self.build_url(&format!("models/{}", model_id));
+                self.execute_get_request(&url, None).await
+            })
+            .await;
+
+        CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+        if result.is_err() {
+            CLIENT_REQUEST_ERRORS.click();
+        }
+        result
     }
 }
 

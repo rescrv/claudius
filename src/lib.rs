@@ -8,28 +8,32 @@
 
 pub mod chat;
 
-mod agent;
 mod accumulating_stream;
+mod agent;
 mod backoff;
 mod client;
 mod error;
 mod json_schema;
+mod observability;
 mod prompt;
+mod render;
 mod sse;
 mod types;
 
-pub use agent::{
-    Agent, AgentRenderer, AgentStreamContext, Budget, FileSystem, IntermediateToolResult, Mount,
-    MountHierarchy, PlainTextAgentRenderer, Tool, ToolCallback, ToolResult, ToolSearchFileSystem,
-};
 pub use accumulating_stream::AccumulatingStream;
+pub use agent::{
+    Agent, Budget, FileSystem, IntermediateToolResult, Mount, MountHierarchy, Tool, ToolCallback,
+    ToolResult, ToolSearchFileSystem, TurnOutcome, TurnStep,
+};
 pub use client::Anthropic;
 pub use error::{Error, Result};
 pub use json_schema::JsonSchema;
+pub use observability::register_biometrics;
 pub use prompt::{
     PromptTestConfig, PromptTestResult, assert_contains, assert_max_length, assert_min_length,
     assert_not_contains, assert_test_passed, test_prompt,
 };
+pub use render::{AgentStreamContext, PlainTextRenderer, Renderer, StreamContext};
 pub use types::*;
 
 /// Pushes a message to the messages vector, or merges it with the last message if they have the same role.

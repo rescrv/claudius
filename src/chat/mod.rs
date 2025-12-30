@@ -14,15 +14,13 @@
 //!
 //! - [`config`]: CLI argument parsing and configuration
 //! - [`session`]: Core chat session management and API interaction
-//! - [`render`]: Output rendering with ANSI styling support
 //! - [`commands`]: Slash command parsing and handling
 
 mod commands;
 mod config;
-mod render;
 mod session;
 
+pub use crate::render::{PlainTextRenderer, Renderer, StreamContext};
 pub use commands::{ChatCommand, help_text, parse_command};
 pub use config::{ChatArgs, ChatConfig};
-pub use render::{PlainTextRenderer, Renderer};
-pub use session::{ChatSession, SessionStats};
+pub use session::{ChatAgent, ChatSession, ConfigAgent, SessionStats};

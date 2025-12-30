@@ -37,8 +37,9 @@ use arrrg::CommandLine;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
+use claudius::Renderer;
 use claudius::chat::{
-    ChatArgs, ChatCommand, ChatConfig, ChatSession, PlainTextRenderer, Renderer, help_text,
+    ChatAgent, ChatArgs, ChatCommand, ChatConfig, ChatSession, PlainTextRenderer, help_text,
     parse_command,
 };
 use claudius::{Anthropic, Model};
@@ -52,11 +53,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = Anthropic::new(None)?;
     let mut session = ChatSession::new(client, config);
-    let mut renderer = PlainTextRenderer::with_color(use_color);
     let mut rl = DefaultEditor::new()?;
 
     // Flag for interrupt handling during streaming
     let interrupted = Arc::new(AtomicBool::new(false));
+    let mut renderer = PlainTextRenderer::with_color_and_interrupt(use_color, interrupted.clone());
+    let context = ();
 
     // Set up Ctrl+C handler
     let interrupted_clone = interrupted.clone();
@@ -91,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         ChatCommand::Clear => {
                             session.clear();
-                            renderer.print_info("Conversation cleared.");
+                            renderer.print_info(&context, "Conversation cleared.");
                         }
                         ChatCommand::Help => {
                             for line in help_text().lines() {
@@ -103,52 +105,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .parse()
                                 .unwrap_or_else(|_| Model::Custom(model_name.clone()));
                             session.set_model(model);
-                            renderer.print_info(&format!("Model changed to: {}", model_name));
+                            renderer
+                                .print_info(&context, &format!("Model changed to: {}", model_name));
                         }
                         ChatCommand::System(prompt) => {
                             session.set_system_prompt(prompt.clone());
                             match prompt {
-                                Some(p) => {
-                                    renderer.print_info(&format!("System prompt set to: {}", p))
-                                }
-                                None => renderer.print_info("System prompt cleared."),
+                                Some(p) => renderer
+                                    .print_info(&context, &format!("System prompt set to: {}", p)),
+                                None => renderer.print_info(&context, "System prompt cleared."),
                             }
                         }
                         ChatCommand::MaxTokens(value) => {
                             session.set_max_tokens(value);
-                            renderer.print_info(&format!("max_tokens set to {value}"));
+                            renderer.print_info(&context, &format!("max_tokens set to {value}"));
                         }
                         ChatCommand::Temperature(value) => {
                             session.set_temperature(Some(value));
-                            renderer.print_info(&format!("temperature set to {:.2}", value));
+                            renderer
+                                .print_info(&context, &format!("temperature set to {:.2}", value));
                         }
                         ChatCommand::ClearTemperature => {
                             session.set_temperature(None);
-                            renderer.print_info("temperature reset to model default");
+                            renderer.print_info(&context, "temperature reset to model default");
                         }
                         ChatCommand::TopP(value) => {
                             session.set_top_p(Some(value));
-                            renderer.print_info(&format!("top_p set to {:.2}", value));
+                            renderer.print_info(&context, &format!("top_p set to {:.2}", value));
                         }
                         ChatCommand::ClearTopP => {
                             session.set_top_p(None);
-                            renderer.print_info("top_p reset to model default");
+                            renderer.print_info(&context, "top_p reset to model default");
                         }
                         ChatCommand::TopK(value) => {
                             session.set_top_k(Some(value));
-                            renderer.print_info(&format!("top_k set to {value}"));
+                            renderer.print_info(&context, &format!("top_k set to {value}"));
                         }
                         ChatCommand::ClearTopK => {
                             session.set_top_k(None);
-                            renderer.print_info("top_k reset to model default");
+                            renderer.print_info(&context, "top_k reset to model default");
                         }
                         ChatCommand::AddStopSequence(sequence) => {
                             session.add_stop_sequence(sequence.clone());
-                            renderer.print_info(&format!("Added stop sequence: {sequence}"));
+                            renderer
+                                .print_info(&context, &format!("Added stop sequence: {sequence}"));
                         }
                         ChatCommand::ClearStopSequences => {
                             session.clear_stop_sequences();
-                            renderer.print_info("Stop sequences cleared.");
+                            renderer.print_info(&context, "Stop sequences cleared.");
                         }
                         ChatCommand::ListStopSequences => {
                             print_stop_sequences(session.stop_sequences());
@@ -157,48 +161,61 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             session.set_thinking_budget(budget);
                             match budget {
                                 Some(tokens) => {
-                                    renderer.print_info(&format!(
-                                        "Extended thinking enabled with {} token budget.",
-                                        tokens
-                                    ));
+                                    renderer.print_info(
+                                        &context,
+                                        &format!(
+                                            "Extended thinking enabled with {} token budget.",
+                                            tokens
+                                        ),
+                                    );
                                 }
                                 None => {
-                                    renderer.print_info("Extended thinking disabled.");
+                                    renderer.print_info(&context, "Extended thinking disabled.");
                                 }
                             }
                         }
                         ChatCommand::Budget(tokens) => {
                             session.set_session_budget(Some(tokens));
-                            renderer.print_info(&format!("Session budget set to {tokens} tokens."));
+                            renderer.print_info(
+                                &context,
+                                &format!("Session budget set to {tokens} tokens."),
+                            );
                         }
                         ChatCommand::ClearBudget => {
                             session.set_session_budget(None);
-                            renderer.print_info("Session budget cleared.");
+                            renderer.print_info(&context, "Session budget cleared.");
                         }
                         ChatCommand::TranscriptPath(path) => {
                             session.set_transcript_path(Some(PathBuf::from(&path)));
-                            renderer.print_info(&format!("Transcript auto-save set to {}", path));
+                            renderer.print_info(
+                                &context,
+                                &format!("Transcript auto-save set to {}", path),
+                            );
                         }
                         ChatCommand::ClearTranscriptPath => {
                             session.set_transcript_path(None);
-                            renderer.print_info("Transcript auto-save disabled.");
+                            renderer.print_info(&context, "Transcript auto-save disabled.");
                         }
                         ChatCommand::SaveTranscript(path) => {
                             match session.save_transcript_to(&path) {
-                                Ok(_) => {
-                                    renderer.print_info(&format!("Transcript saved to {}", path))
-                                }
-                                Err(err) => renderer
-                                    .print_error(&format!("Failed to save transcript: {}", err)),
+                                Ok(_) => renderer
+                                    .print_info(&context, &format!("Transcript saved to {}", path)),
+                                Err(err) => renderer.print_error(
+                                    &context,
+                                    &format!("Failed to save transcript: {}", err),
+                                ),
                             }
                         }
                         ChatCommand::LoadTranscript(path) => {
                             match session.load_transcript_from(&path) {
-                                Ok(_) => {
-                                    renderer.print_info(&format!("Transcript loaded from {}", path))
-                                }
-                                Err(err) => renderer
-                                    .print_error(&format!("Failed to load transcript: {}", err)),
+                                Ok(_) => renderer.print_info(
+                                    &context,
+                                    &format!("Transcript loaded from {}", path),
+                                ),
+                                Err(err) => renderer.print_error(
+                                    &context,
+                                    &format!("Failed to load transcript: {}", err),
+                                ),
                             }
                         }
                         ChatCommand::Stats => {
@@ -208,7 +225,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             print_config(&session);
                         }
                         ChatCommand::Invalid(message) => {
-                            renderer.print_error(&message);
+                            renderer.print_error(&context, &message);
                         }
                     }
                     continue;
@@ -216,11 +233,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Regular message - send to API
                 println!("Claude:");
-                if let Err(e) = session
-                    .send_streaming(line, &mut renderer, interrupted.clone())
-                    .await
-                {
-                    renderer.print_error(&e.to_string());
+                if let Err(e) = session.send_streaming(line, &mut renderer).await {
+                    renderer.print_error(&context, &e.to_string());
                 }
             }
             Err(ReadlineError::Interrupted) => {
@@ -234,7 +248,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
             Err(err) => {
-                renderer.print_error(&format!("Input error: {}", err));
+                renderer.print_error(&context, &format!("Input error: {}", err));
                 break;
             }
         }
@@ -243,7 +257,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn print_stats(session: &ChatSession) {
+fn print_stats<A: ChatAgent>(session: &ChatSession<A>) {
     let stats = session.stats();
     println!("    Session Statistics:");
     println!("      Model: {}", stats.model);
@@ -288,7 +302,7 @@ fn print_stats(session: &ChatSession) {
     }
 }
 
-fn print_config(session: &ChatSession) {
+fn print_config<A: ChatAgent>(session: &ChatSession<A>) {
     let stats = session.stats();
     println!("    Current Configuration:");
     println!("      Model: {}", stats.model);

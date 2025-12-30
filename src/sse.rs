@@ -7,6 +7,9 @@ use bytes::Bytes;
 use futures::stream::{self, Stream, StreamExt};
 use std::time::{Duration, Instant};
 
+use crate::observability::{
+    STREAM_BYTES, STREAM_DURATION, STREAM_ERRORS, STREAM_EVENTS, STREAM_TTFB,
+};
 use crate::{
     ContentBlockDeltaEvent, ContentBlockStartEvent, ContentBlockStopEvent, Error,
     MessageDeltaEvent, MessageStartEvent, MessageStopEvent, MessageStreamEvent, Result,
@@ -26,6 +29,8 @@ struct SseState {
     buffer: String,
     last_activity: Instant,
     total_bytes_processed: usize,
+    start: Instant,
+    first_byte: Option<Instant>,
 }
 
 /// Process a stream of bytes into a stream of server-sent events with production hardening.
@@ -55,6 +60,8 @@ where
         buffer: String::new(),
         last_activity: Instant::now(),
         total_bytes_processed: 0,
+        start: Instant::now(),
+        first_byte: None,
     };
 
     stream::unfold((stream, state), move |(mut stream, mut state)| async move {
@@ -74,12 +81,17 @@ where
             match extract_event(&state.buffer) {
                 Ok(Some((event, remaining))) => {
                     state.buffer = remaining;
+                    match &event {
+                        Ok(_) => STREAM_EVENTS.click(),
+                        Err(_) => STREAM_ERRORS.click(),
+                    }
                     return Some((event, (stream, state)));
                 }
                 Ok(None) => {
                     // No complete event yet, continue reading
                 }
                 Err(e) => {
+                    STREAM_ERRORS.click();
                     return Some((Err(e), (stream, state)));
                 }
             }
@@ -100,6 +112,12 @@ where
                 Some(Ok(bytes)) => {
                     state.last_activity = Instant::now();
                     state.total_bytes_processed += bytes.len();
+                    STREAM_BYTES.count(bytes.len() as u64);
+                    if state.first_byte.is_none() {
+                        let now = Instant::now();
+                        state.first_byte = Some(now);
+                        STREAM_TTFB.add(now.duration_since(state.start).as_secs_f64());
+                    }
 
                     match String::from_utf8(bytes.to_vec()) {
                         Ok(text) => {
@@ -127,6 +145,7 @@ where
                     }
                 }
                 Some(Err(e)) => {
+                    STREAM_ERRORS.click();
                     return Some((Err(e), (stream, state)));
                 }
                 None => {
@@ -134,8 +153,13 @@ where
                     if !state.buffer.is_empty()
                         && let Ok(Some((event, _))) = extract_event(&state.buffer)
                     {
+                        match &event {
+                            Ok(_) => STREAM_EVENTS.click(),
+                            Err(_) => STREAM_ERRORS.click(),
+                        }
                         return Some((event, (stream, state)));
                     }
+                    STREAM_DURATION.add(state.start.elapsed().as_secs_f64());
                     return None;
                 }
             }

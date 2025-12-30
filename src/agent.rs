@@ -1,334 +1,29 @@
 use std::any::Any;
 use std::collections::HashSet;
-use std::io::{self, Stdout, Write};
 use std::ops::ControlFlow;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use futures::StreamExt;
 use utf8path::Path;
 
+use crate::observability::{
+    AGENT_TOOL_CALLS, AGENT_TOOL_DURATION, AGENT_TOOL_ERRORS, AGENT_TURN_DURATION,
+    AGENT_TURN_REQUESTS,
+};
 use crate::{
-    push_or_merge_message, AccumulatingStream, Anthropic, ContentBlock, ContentBlockDelta, Error,
-    KnownModel, Message, MessageCreateParams, MessageParam, MessageParamContent, MessageRole,
-    MessageStreamEvent, Metadata, Model, StopReason, SystemPrompt, ThinkingConfig,
-    ToolBash20241022, ToolBash20250124, ToolChoice, ToolParam, ToolResultBlock,
-    ToolResultBlockContent, ToolTextEditor20250124, ToolTextEditor20250429, ToolTextEditor20250728,
-    ToolUnionParam, ToolUseBlock, Usage, WebSearchTool20250305,
+    AccumulatingStream, AgentStreamContext, Anthropic, CacheControlEphemeral, ContentBlock,
+    ContentBlockDelta, Error, KnownModel, Message, MessageCreateParams, MessageParam,
+    MessageParamContent, MessageRole, MessageStreamEvent, Metadata, Model, Renderer, StopReason,
+    StreamContext, SystemPrompt, ThinkingConfig, ToolBash20241022, ToolBash20250124, ToolChoice,
+    ToolParam, ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124,
+    ToolTextEditor20250429, ToolTextEditor20250728, ToolUnionParam, ToolUseBlock, Usage,
+    WebSearchTool20250305, push_or_merge_message,
 };
 
-///////////////////////////////////////// Agent Streaming /////////////////////////////////////////
-
-/// Context for streaming agent output, including display label and nesting depth.
-#[derive(Debug, Clone)]
-pub struct AgentStreamContext {
-    /// Display label for the agent.
-    pub label: String,
-    /// Nesting depth for sub-agents (0 = root).
-    pub depth: usize,
-}
-
-impl AgentStreamContext {
-    /// Creates a root stream context.
-    pub fn root(label: impl Into<String>) -> Self {
-        Self {
-            label: label.into(),
-            depth: 0,
-        }
-    }
-
-    /// Creates a child stream context with incremented depth.
-    ///
-    /// Use this when invoking sub-agents or nested tool executions to maintain
-    /// proper indentation hierarchy in the rendered output.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use claudius::AgentStreamContext;
-    ///
-    /// let root = AgentStreamContext::root("MainAgent");
-    /// assert_eq!(root.depth, 0);
-    ///
-    /// let child = root.child("SubAgent");
-    /// assert_eq!(child.depth, 1);
-    /// assert_eq!(child.label, "SubAgent");
-    /// ```
-    pub fn child(&self, label: impl Into<String>) -> Self {
-        Self {
-            label: label.into(),
-            depth: self.depth + 1,
-        }
-    }
-}
-
-/// Trait for streaming agent output.
-///
-/// Implementations of this trait receive callbacks during agent execution to render
-/// streaming output.
-pub trait AgentRenderer: Send {
-    /// Called when an agent begins streaming output.
-    fn start_agent(&mut self, context: &AgentStreamContext);
-
-    /// Called when an agent finishes streaming output.
-    fn finish_agent(&mut self, context: &AgentStreamContext, stop_reason: Option<&StopReason>);
-
-    /// Prints a chunk of regular response text.
-    fn print_text(&mut self, context: &AgentStreamContext, text: &str);
-
-    /// Prints a chunk of thinking text.
-    fn print_thinking(&mut self, context: &AgentStreamContext, text: &str);
-
-    /// Prints an error message.
-    fn print_error(&mut self, context: &AgentStreamContext, error: &str);
-
-    /// Called when a tool use block starts.
-    fn start_tool_use(&mut self, context: &AgentStreamContext, name: &str, id: &str);
-
-    /// Prints a chunk of tool input JSON.
-    fn print_tool_input(&mut self, context: &AgentStreamContext, partial_json: &str);
-
-    /// Called when a tool use block is complete.
-    fn finish_tool_use(&mut self, context: &AgentStreamContext);
-
-    /// Called when a tool result block starts.
-    fn start_tool_result(
-        &mut self,
-        context: &AgentStreamContext,
-        tool_use_id: &str,
-        is_error: bool,
-    );
-
-    /// Prints tool result text content.
-    fn print_tool_result_text(&mut self, context: &AgentStreamContext, text: &str);
-
-    /// Called when a tool result block is complete.
-    fn finish_tool_result(&mut self, context: &AgentStreamContext);
-
-    /// Called when a response is complete.
-    fn finish_response(&mut self, context: &AgentStreamContext);
-}
-
-/// ANSI escape code for dim text (used for thinking blocks).
-const ANSI_DIM: &str = "\x1b[2m";
-
-/// ANSI escape code for italic text (used for thinking blocks).
-const ANSI_ITALIC: &str = "\x1b[3m";
-
-/// ANSI escape code to reset all styling.
-const ANSI_RESET: &str = "\x1b[0m";
-
-/// ANSI escape code for cyan text (used for tool names).
-const ANSI_CYAN: &str = "\x1b[36m";
-
-/// ANSI escape code for yellow text (used for tool input).
-const ANSI_YELLOW: &str = "\x1b[33m";
-
-/// ANSI escape code for green text (used for tool result success).
-const ANSI_GREEN: &str = "\x1b[32m";
-
-/// ANSI escape code for red text (used for tool result errors).
-const ANSI_RED: &str = "\x1b[31m";
-
-/// ANSI escape code for magenta text (used for tool result bodies).
-const ANSI_MAGENTA: &str = "\x1b[35m";
-
-/// Plain text renderer for streaming agent output with optional ANSI styling.
-pub struct PlainTextAgentRenderer {
-    stdout: Stdout,
-    use_color: bool,
-    in_thinking: bool,
-    in_tool_result: bool,
-    line_start: bool,
-}
-
-impl PlainTextAgentRenderer {
-    /// Creates a new PlainTextAgentRenderer with ANSI colors enabled.
-    pub fn new() -> Self {
-        Self {
-            stdout: io::stdout(),
-            use_color: true,
-            in_thinking: false,
-            in_tool_result: false,
-            line_start: true,
-        }
-    }
-
-    /// Creates a new PlainTextAgentRenderer with specified color setting.
-    pub fn with_color(use_color: bool) -> Self {
-        Self {
-            stdout: io::stdout(),
-            use_color,
-            in_thinking: false,
-            in_tool_result: false,
-            line_start: true,
-        }
-    }
-
-    /// Flushes stdout to ensure immediate display of streamed content.
-    ///
-    /// Flush errors are silently ignored. This is appropriate because flush failures
-    /// typically indicate a broken pipe (e.g., when output is piped to `head` or a
-    /// process that closes stdin early), and there's no meaningful recovery action.
-    fn flush(&mut self) {
-        let _ = self.stdout.flush();
-    }
-
-    fn reset_thinking(&mut self) {
-        if self.in_thinking {
-            if self.use_color {
-                print!("{ANSI_RESET}");
-            }
-            self.in_thinking = false;
-        }
-    }
-
-    fn reset_tool_result(&mut self) {
-        if self.in_tool_result {
-            if self.use_color {
-                print!("{ANSI_RESET}");
-            }
-            self.in_tool_result = false;
-        }
-    }
-
-    fn reset_styles(&mut self) {
-        self.reset_thinking();
-        self.reset_tool_result();
-    }
-
-    /// Writes text with proper indentation based on context depth.
-    ///
-    /// Each line is prefixed with indentation corresponding to the nesting depth.
-    fn write_with_indent(&mut self, context: &AgentStreamContext, text: &str) {
-        let prefix = "  ".repeat(context.depth);
-        for line in text.split_inclusive('\n') {
-            if self.line_start {
-                print!("{prefix}");
-            }
-            print!("{line}");
-            self.line_start = line.ends_with('\n');
-        }
-        self.flush();
-    }
-}
-
-impl Default for PlainTextAgentRenderer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl AgentRenderer for PlainTextAgentRenderer {
-    fn start_agent(&mut self, context: &AgentStreamContext) {
-        self.reset_styles();
-        self.write_with_indent(context, &format!("[agent: {}]\n", context.label));
-    }
-
-    fn finish_agent(&mut self, context: &AgentStreamContext, stop_reason: Option<&StopReason>) {
-        self.reset_styles();
-        if let Some(stop_reason) = stop_reason {
-            self.write_with_indent(
-                context,
-                &format!("[agent: {} done: {stop_reason:?}]\n", context.label),
-            );
-        } else {
-            self.write_with_indent(context, &format!("[agent: {} done]\n", context.label));
-        }
-    }
-
-    fn print_text(&mut self, context: &AgentStreamContext, text: &str) {
-        self.reset_styles();
-        self.write_with_indent(context, text);
-    }
-
-    fn print_thinking(&mut self, context: &AgentStreamContext, text: &str) {
-        if self.use_color {
-            if !self.in_thinking {
-                self.write_with_indent(context, ANSI_DIM);
-                self.write_with_indent(context, ANSI_ITALIC);
-                self.in_thinking = true;
-            }
-            self.write_with_indent(context, text);
-        } else {
-            if !self.in_thinking {
-                self.write_with_indent(context, "[thinking] ");
-                self.in_thinking = true;
-            }
-            self.write_with_indent(context, text);
-        }
-    }
-
-    fn print_error(&mut self, context: &AgentStreamContext, error: &str) {
-        self.reset_styles();
-        self.write_with_indent(context, &format!("\nError: {error}\n"));
-    }
-
-    fn start_tool_use(&mut self, context: &AgentStreamContext, name: &str, id: &str) {
-        self.reset_styles();
-        if self.use_color {
-            self.write_with_indent(
-                context,
-                &format!("\n{ANSI_CYAN}[tool: {name}]{ANSI_RESET} {ANSI_DIM}({id}){ANSI_RESET}\n"),
-            );
-            self.write_with_indent(context, ANSI_YELLOW);
-        } else {
-            self.write_with_indent(context, &format!("\n[tool: {name}] ({id})\n"));
-        }
-    }
-
-    fn print_tool_input(&mut self, context: &AgentStreamContext, partial_json: &str) {
-        self.write_with_indent(context, partial_json);
-    }
-
-    fn finish_tool_use(&mut self, context: &AgentStreamContext) {
-        if self.use_color {
-            self.write_with_indent(context, ANSI_RESET);
-        }
-        self.write_with_indent(context, "\n");
-    }
-
-    fn start_tool_result(
-        &mut self,
-        context: &AgentStreamContext,
-        tool_use_id: &str,
-        is_error: bool,
-    ) {
-        self.reset_styles();
-        self.in_tool_result = true;
-        if self.use_color {
-            let label_color = if is_error { ANSI_RED } else { ANSI_GREEN };
-            let status = if is_error { "error" } else { "ok" };
-            self.write_with_indent(
-                context,
-                &format!(
-                    "\n{label_color}[tool result: {tool_use_id} ({status})]{ANSI_RESET}\n{ANSI_MAGENTA}"
-                ),
-            );
-        } else if is_error {
-            self.write_with_indent(context, &format!("\n[tool result: {tool_use_id} error]\n"));
-        } else {
-            self.write_with_indent(context, &format!("\n[tool result: {tool_use_id}]\n"));
-        }
-    }
-
-    fn print_tool_result_text(&mut self, context: &AgentStreamContext, text: &str) {
-        self.write_with_indent(context, text);
-    }
-
-    fn finish_tool_result(&mut self, context: &AgentStreamContext) {
-        self.reset_tool_result();
-        self.write_with_indent(context, "\n");
-    }
-
-    fn finish_response(&mut self, context: &AgentStreamContext) {
-        self.reset_styles();
-        self.write_with_indent(context, "\n");
-    }
-}
-
 struct StreamingContext<'a> {
-    renderer: &'a mut dyn AgentRenderer,
+    renderer: &'a mut dyn Renderer,
     context: &'a AgentStreamContext,
     show_thinking: bool,
 }
@@ -392,7 +87,7 @@ pub trait ToolCallback<A: Agent>: Send + Sync {
         client: &Anthropic,
         agent: &A,
         tool_use: &ToolUseBlock,
-        renderer: &mut dyn AgentRenderer,
+        renderer: &mut dyn Renderer,
         context: &AgentStreamContext,
     ) -> Box<dyn IntermediateToolResult> {
         _ = renderer;
@@ -1692,6 +1387,26 @@ pub trait FileSystem: Send + Sync {
 
 /////////////////////////////////////////////// Agent //////////////////////////////////////////////
 
+/// Aggregated results from an agent turn.
+#[derive(Debug, Clone)]
+pub struct TurnOutcome {
+    /// The reason the turn finished.
+    pub stop_reason: StopReason,
+    /// Usage accumulated across all requests in the turn.
+    pub usage: Usage,
+    /// Number of API requests made in the turn.
+    pub request_count: u64,
+}
+
+/// Usage and request counts accumulated for a single step in a turn.
+#[derive(Debug, Clone)]
+pub struct TurnStep {
+    /// Usage accumulated for the step.
+    pub usage: Usage,
+    /// Number of API requests made in the step.
+    pub request_count: u64,
+}
+
 /// Trait for implementing agents that interact with the Anthropic API.
 ///
 /// Agents encapsulate conversation logic, tool use, and configuration for
@@ -1807,7 +1522,7 @@ pub trait Agent: Send + Sync + Sized {
         client: &Anthropic,
         messages: &mut Vec<MessageParam>,
         budget: &Arc<Budget>,
-    ) -> Result<StopReason, Error> {
+    ) -> Result<TurnOutcome, Error> {
         self.take_default_turn(client, messages, budget).await
     }
 
@@ -1817,9 +1532,9 @@ pub trait Agent: Send + Sync + Sized {
         client: &Anthropic,
         messages: &mut Vec<MessageParam>,
         budget: &Arc<Budget>,
-        renderer: &mut dyn AgentRenderer,
+        renderer: &mut dyn Renderer,
         context: AgentStreamContext,
-    ) -> Result<StopReason, Error> {
+    ) -> Result<TurnOutcome, Error> {
         self.take_default_turn_streaming(client, messages, budget, renderer, context)
             .await
     }
@@ -1830,8 +1545,8 @@ pub trait Agent: Send + Sync + Sized {
         client: &Anthropic,
         messages: &mut Vec<MessageParam>,
         budget: &Arc<Budget>,
-        renderer: &mut dyn AgentRenderer,
-    ) -> Result<StopReason, Error> {
+        renderer: &mut dyn Renderer,
+    ) -> Result<TurnOutcome, Error> {
         let context = AgentStreamContext::root(self.stream_label());
         self.take_turn_streaming(client, messages, budget, renderer, context)
             .await
@@ -1843,22 +1558,45 @@ pub trait Agent: Send + Sync + Sized {
         client: &Anthropic,
         messages: &mut Vec<MessageParam>,
         budget: &Arc<Budget>,
-    ) -> Result<StopReason, Error> {
+    ) -> Result<TurnOutcome, Error> {
+        let turn_start = Instant::now();
         let Some(mut tokens_rem) = budget.allocate(self.max_tokens().await) else {
-            return self.handle_max_tokens().await;
+            AGENT_TURN_DURATION.add(turn_start.elapsed().as_secs_f64());
+            let stop_reason = self.handle_max_tokens().await?;
+            return Ok(TurnOutcome {
+                stop_reason,
+                usage: Usage::new(0, 0),
+                request_count: 0,
+            });
         };
+
+        let mut usage_total = Usage::new(0, 0);
+        let mut request_count: u64 = 0;
 
         while tokens_rem.remaining_tokens()
             > self.thinking().await.map(|t| t.num_tokens()).unwrap_or(0)
         {
             match self.step_turn(client, messages, &mut tokens_rem).await {
-                ControlFlow::Continue(()) => {}
+                ControlFlow::Continue(step) => {
+                    usage_total = usage_total + step.usage;
+                    request_count = request_count.saturating_add(step.request_count);
+                }
                 ControlFlow::Break(res) => {
-                    return res;
+                    AGENT_TURN_DURATION.add(turn_start.elapsed().as_secs_f64());
+                    let mut outcome = res?;
+                    outcome.usage = outcome.usage + usage_total;
+                    outcome.request_count = outcome.request_count.saturating_add(request_count);
+                    return Ok(outcome);
                 }
             }
         }
-        self.handle_max_tokens().await
+        AGENT_TURN_DURATION.add(turn_start.elapsed().as_secs_f64());
+        let stop_reason = self.handle_max_tokens().await?;
+        Ok(TurnOutcome {
+            stop_reason,
+            usage: usage_total,
+            request_count,
+        })
     }
 
     /// Default implementation for taking a conversation turn with streaming output.
@@ -1867,14 +1605,24 @@ pub trait Agent: Send + Sync + Sized {
         client: &Anthropic,
         messages: &mut Vec<MessageParam>,
         budget: &Arc<Budget>,
-        renderer: &mut dyn AgentRenderer,
+        renderer: &mut dyn Renderer,
         context: AgentStreamContext,
-    ) -> Result<StopReason, Error> {
+    ) -> Result<TurnOutcome, Error> {
+        let turn_start = Instant::now();
         renderer.start_agent(&context);
         let Some(mut tokens_rem) = budget.allocate(self.max_tokens().await) else {
-            renderer.finish_agent(&context, Some(&StopReason::MaxTokens));
-            return self.handle_max_tokens().await;
+            AGENT_TURN_DURATION.add(turn_start.elapsed().as_secs_f64());
+            let stop_reason = self.handle_max_tokens().await?;
+            renderer.finish_agent(&context, Some(&stop_reason));
+            return Ok(TurnOutcome {
+                stop_reason,
+                usage: Usage::new(0, 0),
+                request_count: 0,
+            });
         };
+
+        let mut usage_total = Usage::new(0, 0);
+        let mut request_count: u64 = 0;
 
         while tokens_rem.remaining_tokens()
             > self.thinking().await.map(|t| t.num_tokens()).unwrap_or(0)
@@ -1883,16 +1631,34 @@ pub trait Agent: Send + Sync + Sized {
                 .step_turn_streaming(client, messages, &mut tokens_rem, renderer, &context)
                 .await
             {
-                ControlFlow::Continue(()) => {}
-                ControlFlow::Break(res) => {
-                    let stop_reason = res.as_ref().ok();
-                    renderer.finish_agent(&context, stop_reason);
-                    return res;
+                ControlFlow::Continue(step) => {
+                    usage_total = usage_total + step.usage;
+                    request_count = request_count.saturating_add(step.request_count);
                 }
+                ControlFlow::Break(res) => match res {
+                    Ok(mut outcome) => {
+                        outcome.usage = outcome.usage + usage_total;
+                        outcome.request_count = outcome.request_count.saturating_add(request_count);
+                        renderer.finish_agent(&context, Some(&outcome.stop_reason));
+                        AGENT_TURN_DURATION.add(turn_start.elapsed().as_secs_f64());
+                        return Ok(outcome);
+                    }
+                    Err(err) => {
+                        renderer.finish_agent(&context, None);
+                        AGENT_TURN_DURATION.add(turn_start.elapsed().as_secs_f64());
+                        return Err(err);
+                    }
+                },
             }
         }
-        renderer.finish_agent(&context, Some(&StopReason::MaxTokens));
-        self.handle_max_tokens().await
+        AGENT_TURN_DURATION.add(turn_start.elapsed().as_secs_f64());
+        let stop_reason = self.handle_max_tokens().await?;
+        renderer.finish_agent(&context, Some(&stop_reason));
+        Ok(TurnOutcome {
+            stop_reason,
+            usage: usage_total,
+            request_count,
+        })
     }
 
     /// Executes a single step in a conversation turn.
@@ -1901,7 +1667,7 @@ pub trait Agent: Send + Sync + Sized {
         client: &Anthropic,
         messages: &mut Vec<MessageParam>,
         tokens_rem: &mut BudgetAllocation,
-    ) -> ControlFlow<Result<StopReason, Error>> {
+    ) -> ControlFlow<Result<TurnOutcome, Error>, TurnStep> {
         self.step_default_turn(client, messages, tokens_rem).await
     }
 
@@ -1911,9 +1677,9 @@ pub trait Agent: Send + Sync + Sized {
         client: &Anthropic,
         messages: &mut Vec<MessageParam>,
         tokens_rem: &mut BudgetAllocation,
-        renderer: &mut dyn AgentRenderer,
+        renderer: &mut dyn Renderer,
         context: &AgentStreamContext,
-    ) -> ControlFlow<Result<StopReason, Error>> {
+    ) -> ControlFlow<Result<TurnOutcome, Error>, TurnStep> {
         self.step_default_turn_streaming(client, messages, tokens_rem, renderer, context)
             .await
     }
@@ -1924,7 +1690,7 @@ pub trait Agent: Send + Sync + Sized {
         client: &Anthropic,
         messages: &mut Vec<MessageParam>,
         tokens_rem: &mut BudgetAllocation,
-    ) -> ControlFlow<Result<StopReason, Error>> {
+    ) -> ControlFlow<Result<TurnOutcome, Error>, TurnStep> {
         step_default_turn_impl(self, client, messages, tokens_rem, None).await
     }
 
@@ -1934,9 +1700,9 @@ pub trait Agent: Send + Sync + Sized {
         client: &Anthropic,
         messages: &mut Vec<MessageParam>,
         tokens_rem: &mut BudgetAllocation,
-        renderer: &mut dyn AgentRenderer,
+        renderer: &mut dyn Renderer,
         context: &AgentStreamContext,
-    ) -> ControlFlow<Result<StopReason, Error>> {
+    ) -> ControlFlow<Result<TurnOutcome, Error>, TurnStep> {
         let show_thinking = self.thinking().await.is_some();
         let streaming = StreamingContext {
             renderer,
@@ -1960,7 +1726,7 @@ pub trait Agent: Send + Sync + Sized {
         &mut self,
         client: &Anthropic,
         resp: &Message,
-        renderer: &mut dyn AgentRenderer,
+        renderer: &mut dyn Renderer,
         context: &AgentStreamContext,
     ) -> ControlFlow<Result<StopReason, Error>, Vec<ContentBlock>> {
         self.handle_default_tool_use_streaming(client, resp, renderer, context)
@@ -1976,11 +1742,15 @@ pub trait Agent: Send + Sync + Sized {
         let tools_and_blocks = self.collect_tool_uses(resp).await;
         let mut futures = Vec::with_capacity(tools_and_blocks.len());
         for (tool_use, tool) in tools_and_blocks.iter() {
+            AGENT_TOOL_CALLS.click();
             let callback = tool.callback();
             let tool_use = tool_use.clone();
             let this = &*self;
-            futures
-                .push(async move { callback.compute_tool_result(client, this, &tool_use).await });
+            futures.push(async move {
+                let start = Instant::now();
+                let intermediate = callback.compute_tool_result(client, this, &tool_use).await;
+                (intermediate, start.elapsed())
+            });
         }
         let intermediate_tool_results = futures::future::join_all(futures).await;
         let mut tool_results = vec![];
@@ -1988,14 +1758,26 @@ pub trait Agent: Send + Sync + Sized {
             std::iter::zip(tools_and_blocks, intermediate_tool_results)
         {
             let callback = tool.callback();
+            let (intermediate, compute_duration) = result;
+            let apply_start = Instant::now();
             match callback
-                .apply_tool_result(client, self, &tool_use, result)
+                .apply_tool_result(client, self, &tool_use, intermediate)
                 .await
             {
                 ControlFlow::Continue(result) => {
+                    AGENT_TOOL_DURATION
+                        .add((compute_duration + apply_start.elapsed()).as_secs_f64());
+                    if result.is_err() {
+                        AGENT_TOOL_ERRORS.click();
+                    }
                     push_tool_result(&mut tool_results, None, result);
                 }
-                ControlFlow::Break(err) => return ControlFlow::Break(Err(err)),
+                ControlFlow::Break(err) => {
+                    AGENT_TOOL_DURATION
+                        .add((compute_duration + apply_start.elapsed()).as_secs_f64());
+                    AGENT_TOOL_ERRORS.click();
+                    return ControlFlow::Break(Err(err));
+                }
             }
         }
         ControlFlow::Continue(tool_results)
@@ -2006,15 +1788,17 @@ pub trait Agent: Send + Sync + Sized {
         &mut self,
         client: &Anthropic,
         resp: &Message,
-        renderer: &mut dyn AgentRenderer,
+        renderer: &mut dyn Renderer,
         context: &AgentStreamContext,
     ) -> ControlFlow<Result<StopReason, Error>, Vec<ContentBlock>> {
         let mut tool_results = vec![];
         let tools_and_blocks = self.collect_tool_uses(resp).await;
         for (tool_use, tool) in tools_and_blocks.iter() {
+            AGENT_TOOL_CALLS.click();
             let tool_context = context.child(format!("tool:{}", tool_use.name));
             let callback = tool.callback();
             let this = &*self;
+            let start = Instant::now();
             let intermediate = callback
                 .compute_tool_result_streaming(client, this, tool_use, renderer, &tool_context)
                 .await;
@@ -2023,9 +1807,17 @@ pub trait Agent: Send + Sync + Sized {
                 .await
             {
                 ControlFlow::Continue(result) => {
+                    AGENT_TOOL_DURATION.add(start.elapsed().as_secs_f64());
+                    if result.is_err() {
+                        AGENT_TOOL_ERRORS.click();
+                    }
                     push_tool_result(&mut tool_results, Some((renderer, &tool_context)), result);
                 }
-                ControlFlow::Break(err) => return ControlFlow::Break(Err(err)),
+                ControlFlow::Break(err) => {
+                    AGENT_TOOL_DURATION.add(start.elapsed().as_secs_f64());
+                    AGENT_TOOL_ERRORS.click();
+                    return ControlFlow::Break(Err(err));
+                }
             }
         }
         ControlFlow::Continue(tool_results)
@@ -2391,6 +2183,7 @@ impl FileSystem for Path<'_> {
     async fn create(&self, path: &str, file_text: &str) -> Result<String, std::io::Error> {
         let path = sanitize_path(self.clone(), path)?;
         if !path.exists() {
+            std::fs::create_dir_all(path.dirname())?;
             std::fs::write(&path, file_text)?;
             Ok("success".to_string())
         } else {
@@ -2631,8 +2424,8 @@ fn sanitize_path(base: Path, path: &str) -> Result<Path<'static>, std::io::Error
 ///
 /// Emits the full lifecycle: start_tool_result -> print content -> finish_tool_result.
 fn render_tool_result_block(
-    renderer: &mut dyn AgentRenderer,
-    context: &AgentStreamContext,
+    renderer: &mut dyn Renderer,
+    context: &dyn StreamContext,
     block: &ToolResultBlock,
 ) {
     renderer.start_tool_result(context, &block.tool_use_id, block.is_error.unwrap_or(false));
@@ -2646,8 +2439,8 @@ fn render_tool_result_block(
 ///
 /// For arrays, inserts newlines between items and renders images as "[image]" placeholder.
 fn render_tool_result_content(
-    renderer: &mut dyn AgentRenderer,
-    context: &AgentStreamContext,
+    renderer: &mut dyn Renderer,
+    context: &dyn StreamContext,
     content: &ToolResultBlockContent,
 ) {
     match content {
@@ -2672,21 +2465,61 @@ fn render_tool_result_content(
 
 fn push_tool_result(
     tool_results: &mut Vec<ContentBlock>,
-    renderer: Option<(&mut dyn AgentRenderer, &AgentStreamContext)>,
+    renderer: Option<(&mut dyn Renderer, &dyn StreamContext)>,
     result: Result<ToolResultBlock, ToolResultBlock>,
 ) {
     match result {
         Ok(block) => {
+            let mut block = block;
+            if block.cache_control.is_none() {
+                block.cache_control = Some(CacheControlEphemeral::new());
+            }
             if let Some((renderer, context)) = renderer {
                 render_tool_result_block(renderer, context, &block);
             }
             tool_results.push(block.into());
         }
         Err(block) => {
+            let mut block = block;
+            if block.cache_control.is_none() {
+                block.cache_control = Some(CacheControlEphemeral::new());
+            }
             if let Some((renderer, context)) = renderer {
                 render_tool_result_block(renderer, context, &block);
             }
             tool_results.push(block.with_error(true).into());
+        }
+    }
+    prune_tool_result_cache_controls(tool_results, 4);
+}
+
+fn prune_tool_result_cache_controls(tool_results: &mut [ContentBlock], keep_latest: usize) {
+    if keep_latest == 0 {
+        for block in tool_results.iter_mut() {
+            if let ContentBlock::ToolResult(tool_result) = block {
+                tool_result.cache_control = None;
+            }
+        }
+        return;
+    }
+
+    let mut cached_indices = Vec::new();
+    for (idx, block) in tool_results.iter().enumerate() {
+        if let ContentBlock::ToolResult(tool_result) = block
+            && tool_result.cache_control.is_some()
+        {
+            cached_indices.push(idx);
+        }
+    }
+
+    if cached_indices.len() <= keep_latest {
+        return;
+    }
+
+    let drop_count = cached_indices.len() - keep_latest;
+    for idx in cached_indices.into_iter().take(drop_count) {
+        if let ContentBlock::ToolResult(tool_result) = &mut tool_results[idx] {
+            tool_result.cache_control = None;
         }
     }
 }
@@ -2697,8 +2530,10 @@ async fn step_default_turn_impl<A: Agent>(
     messages: &mut Vec<MessageParam>,
     tokens_rem: &mut BudgetAllocation<'_>,
     mut streaming: Option<StreamingContext<'_>>,
-) -> ControlFlow<Result<StopReason, Error>> {
+) -> ControlFlow<Result<TurnOutcome, Error>, TurnStep> {
     let stream = streaming.is_some();
+    let mut usage_total = Usage::new(0, 0);
+    let mut request_count: u64 = 0;
     loop {
         let req = agent
             .create_request(tokens_rem.remaining_tokens(), messages.clone(), stream)
@@ -2707,6 +2542,7 @@ async fn step_default_turn_impl<A: Agent>(
             return ControlFlow::Break(Err(err));
         }
 
+        AGENT_TURN_REQUESTS.click();
         let resp = if let Some(streaming) = streaming.as_mut() {
             match stream_message_with_renderer(
                 client,
@@ -2736,20 +2572,54 @@ async fn step_default_turn_impl<A: Agent>(
             content: MessageParamContent::Array(resp.content.clone()),
         };
         let _ = tokens_rem.consume_usage(&resp.usage);
+        usage_total = usage_total + resp.usage;
+        request_count = request_count.saturating_add(1);
         push_or_merge_message(messages, assistant_message);
 
         let tool_results = match resp.stop_reason {
             None | Some(StopReason::EndTurn) => {
-                return ControlFlow::Break(agent.handle_end_turn().await);
+                let stop_reason = match agent.handle_end_turn().await {
+                    Ok(stop_reason) => stop_reason,
+                    Err(err) => return ControlFlow::Break(Err(err)),
+                };
+                return ControlFlow::Break(Ok(TurnOutcome {
+                    stop_reason,
+                    usage: usage_total,
+                    request_count,
+                }));
             }
             Some(StopReason::MaxTokens) => {
-                return ControlFlow::Break(agent.handle_max_tokens().await);
+                let stop_reason = match agent.handle_max_tokens().await {
+                    Ok(stop_reason) => stop_reason,
+                    Err(err) => return ControlFlow::Break(Err(err)),
+                };
+                return ControlFlow::Break(Ok(TurnOutcome {
+                    stop_reason,
+                    usage: usage_total,
+                    request_count,
+                }));
             }
             Some(StopReason::StopSequence) => {
-                return ControlFlow::Break(agent.handle_stop_sequence(resp.stop_sequence).await);
+                let stop_reason = match agent.handle_stop_sequence(resp.stop_sequence).await {
+                    Ok(stop_reason) => stop_reason,
+                    Err(err) => return ControlFlow::Break(Err(err)),
+                };
+                return ControlFlow::Break(Ok(TurnOutcome {
+                    stop_reason,
+                    usage: usage_total,
+                    request_count,
+                }));
             }
             Some(StopReason::Refusal) => {
-                return ControlFlow::Break(agent.handle_refusal(resp).await);
+                let stop_reason = match agent.handle_refusal(resp).await {
+                    Ok(stop_reason) => stop_reason,
+                    Err(err) => return ControlFlow::Break(Err(err)),
+                };
+                return ControlFlow::Break(Ok(TurnOutcome {
+                    stop_reason,
+                    usage: usage_total,
+                    request_count,
+                }));
             }
             Some(StopReason::PauseTurn) => {
                 continue;
@@ -2766,12 +2636,26 @@ async fn step_default_turn_impl<A: Agent>(
                         .await
                     {
                         ControlFlow::Continue(results) => results,
-                        ControlFlow::Break(err) => return ControlFlow::Break(err),
+                        ControlFlow::Break(err) => {
+                            let outcome = err.map(|stop_reason| TurnOutcome {
+                                stop_reason,
+                                usage: usage_total,
+                                request_count,
+                            });
+                            return ControlFlow::Break(outcome);
+                        }
                     }
                 } else {
                     match agent.handle_tool_use(client, &resp).await {
                         ControlFlow::Continue(results) => results,
-                        ControlFlow::Break(err) => return ControlFlow::Break(err),
+                        ControlFlow::Break(err) => {
+                            let outcome = err.map(|stop_reason| TurnOutcome {
+                                stop_reason,
+                                usage: usage_total,
+                                request_count,
+                            });
+                            return ControlFlow::Break(outcome);
+                        }
                     }
                 }
             }
@@ -2780,15 +2664,18 @@ async fn step_default_turn_impl<A: Agent>(
         let user_message =
             MessageParam::new(MessageParamContent::Array(tool_results), MessageRole::User);
         push_or_merge_message(messages, user_message);
-        return ControlFlow::Continue(());
+        return ControlFlow::Continue(TurnStep {
+            usage: usage_total,
+            request_count,
+        });
     }
 }
 
 async fn stream_message_with_renderer(
     client: &Anthropic,
     req: MessageCreateParams,
-    renderer: &mut dyn AgentRenderer,
-    context: &AgentStreamContext,
+    renderer: &mut dyn Renderer,
+    context: &dyn StreamContext,
     show_thinking: bool,
 ) -> Result<Message, Error> {
     let stream = client.stream(&req).await?;
@@ -2803,6 +2690,14 @@ async fn stream_message_with_renderer(
     let mut active_tool_results = HashSet::new();
 
     while let Some(event) = acc_stream.next().await {
+        if renderer.should_interrupt() {
+            renderer.print_interrupted(context);
+            let mut partial = acc_stream.finalize_partial()?;
+            if partial.stop_reason.is_none() {
+                partial.stop_reason = Some(StopReason::EndTurn);
+            }
+            return Ok(partial);
+        }
         match event {
             Ok(event) => match &event {
                 MessageStreamEvent::Ping => {}
@@ -3124,12 +3019,16 @@ mod tests {
         assert_eq!(result, Err("initial mount point must be /".to_string()));
 
         // After mounting /, other paths can be mounted
-        assert!(hierarchy
-            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"))
-            .is_ok());
-        assert!(hierarchy
-            .mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"))
-            .is_ok());
+        assert!(
+            hierarchy
+                .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"))
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"))
+                .is_ok()
+        );
     }
 
     #[test]
@@ -3155,12 +3054,16 @@ mod tests {
         let mut hierarchy = MountHierarchy { mounts: vec![] };
 
         // Mount / and /home
-        assert!(hierarchy
-            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"))
-            .is_ok());
-        assert!(hierarchy
-            .mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"))
-            .is_ok());
+        assert!(
+            hierarchy
+                .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"))
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount("/home".into(), Permissions::ReadWrite, Path::from("/tmp"))
+                .is_ok()
+        );
 
         // Cannot mount / again since it would mask /home
         let result = hierarchy.mount("/".into(), Permissions::ReadWrite, Path::from("/tmp"));
@@ -3176,14 +3079,18 @@ mod tests {
         let mut hierarchy = MountHierarchy { mounts: vec![] };
 
         // Mount /
-        assert!(hierarchy
-            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp1"))
-            .is_ok());
+        assert!(
+            hierarchy
+                .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp1"))
+                .is_ok()
+        );
 
         // Can mount / again (overlays previous mount)
-        assert!(hierarchy
-            .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp2"))
-            .is_ok());
+        assert!(
+            hierarchy
+                .mount("/".into(), Permissions::ReadWrite, Path::from("/tmp2"))
+                .is_ok()
+        );
 
         assert_eq!(hierarchy.mounts.len(), 2);
     }
@@ -3193,23 +3100,29 @@ mod tests {
         let mut hierarchy = MountHierarchy { mounts: vec![] };
 
         // Mount different paths
-        assert!(hierarchy
-            .mount("/".into(), Permissions::ReadWrite, Path::from("/root"))
-            .is_ok());
-        assert!(hierarchy
-            .mount(
-                "/home".into(),
-                Permissions::ReadWrite,
-                Path::from("/home_fs")
-            )
-            .is_ok());
-        assert!(hierarchy
-            .mount(
-                "/home/user".into(),
-                Permissions::ReadWrite,
-                Path::from("/user_fs")
-            )
-            .is_ok());
+        assert!(
+            hierarchy
+                .mount("/".into(), Permissions::ReadWrite, Path::from("/root"))
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount(
+                    "/home".into(),
+                    Permissions::ReadWrite,
+                    Path::from("/home_fs")
+                )
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount(
+                    "/home/user".into(),
+                    Permissions::ReadWrite,
+                    Path::from("/user_fs")
+                )
+                .is_ok()
+        );
 
         // Check that fs_for_path returns the most specific mount
         let fs = hierarchy.fs_for_path("/file.txt").unwrap().0;
@@ -3619,29 +3532,39 @@ mod tests {
         let mut hierarchy = MountHierarchy { mounts: vec![] };
 
         // Mount various paths
-        assert!(hierarchy
-            .mount("/".into(), Permissions::ReadWrite, Path::from("/root"))
-            .is_ok());
-        assert!(hierarchy
-            .mount("/home".into(), Permissions::ReadWrite, Path::from("/home"))
-            .is_ok());
-        assert!(hierarchy
-            .mount(
-                "/home/user".into(),
-                Permissions::ReadWrite,
-                Path::from("/user")
-            )
-            .is_ok());
-        assert!(hierarchy
-            .mount("/var".into(), Permissions::ReadWrite, Path::from("/var"))
-            .is_ok());
-        assert!(hierarchy
-            .mount(
-                "/var/log".into(),
-                Permissions::ReadWrite,
-                Path::from("/log")
-            )
-            .is_ok());
+        assert!(
+            hierarchy
+                .mount("/".into(), Permissions::ReadWrite, Path::from("/root"))
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount("/home".into(), Permissions::ReadWrite, Path::from("/home"))
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount(
+                    "/home/user".into(),
+                    Permissions::ReadWrite,
+                    Path::from("/user")
+                )
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount("/var".into(), Permissions::ReadWrite, Path::from("/var"))
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount(
+                    "/var/log".into(),
+                    Permissions::ReadWrite,
+                    Path::from("/log")
+                )
+                .is_ok()
+        );
 
         // Cannot mount path that would mask existing deeper paths
         let result = hierarchy.mount(
@@ -3661,16 +3584,20 @@ mod tests {
         assert!(result.unwrap_err().contains("/var/log masks"));
 
         // Can mount paths that don't conflict
-        assert!(hierarchy
-            .mount("/usr".into(), Permissions::ReadWrite, Path::from("/usr"))
-            .is_ok());
-        assert!(hierarchy
-            .mount(
-                "/home/other".into(),
-                Permissions::ReadWrite,
-                Path::from("/other")
-            )
-            .is_ok());
+        assert!(
+            hierarchy
+                .mount("/usr".into(), Permissions::ReadWrite, Path::from("/usr"))
+                .is_ok()
+        );
+        assert!(
+            hierarchy
+                .mount(
+                    "/home/other".into(),
+                    Permissions::ReadWrite,
+                    Path::from("/other")
+                )
+                .is_ok()
+        );
     }
 
     // Permission tests
@@ -3714,18 +3641,20 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(err
-            .to_string()
-            .contains("str_replace not allowed with ReadOnly permissions"));
+        assert!(
+            err.to_string()
+                .contains("str_replace not allowed with ReadOnly permissions")
+        );
 
         // insert should fail
         let result = hierarchy.insert("/file.txt", 1, "new line").await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(err
-            .to_string()
-            .contains("insert not allowed with ReadOnly permissions"));
+        assert!(
+            err.to_string()
+                .contains("insert not allowed with ReadOnly permissions")
+        );
     }
 
     #[tokio::test]
@@ -3768,18 +3697,20 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(err
-            .to_string()
-            .contains("search not allowed with WriteOnly permissions"));
+        assert!(
+            err.to_string()
+                .contains("search not allowed with WriteOnly permissions")
+        );
 
         // view should fail
         let result = hierarchy.view("/file.txt", None).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(err
-            .to_string()
-            .contains("view not allowed with WriteOnly permissions"));
+        assert!(
+            err.to_string()
+                .contains("view not allowed with WriteOnly permissions")
+        );
     }
 
     #[tokio::test]
