@@ -238,6 +238,9 @@ impl PlainTextRenderer {
             if self.use_color {
                 print!("{ANSI_RESET}");
             }
+            // Add newline separator when transitioning from thinking to other content.
+            println!();
+            self.line_start = true;
             self.in_thinking = false;
         }
     }
