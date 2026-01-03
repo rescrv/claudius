@@ -71,6 +71,10 @@ pub struct ChatConfig {
 
     /// Path to persist transcripts automatically after each assistant turn.
     pub transcript_path: Option<PathBuf>,
+
+    /// Whether to enable prompt caching for the system prompt.
+    /// When enabled, the system prompt will include cache_control markers.
+    pub caching_enabled: bool,
 }
 
 impl ChatConfig {
@@ -81,6 +85,7 @@ impl ChatConfig {
     /// - Max tokens: 4096
     /// - Color: enabled
     /// - Thinking: disabled
+    /// - Caching: enabled
     pub fn new() -> Self {
         Self {
             model: Model::Known(KnownModel::ClaudeHaiku45),
@@ -94,6 +99,7 @@ impl ChatConfig {
             thinking_budget: None,
             session_budget_tokens: None,
             transcript_path: None,
+            caching_enabled: true,
         }
     }
 
@@ -163,6 +169,12 @@ impl ChatConfig {
         self.transcript_path = path;
         self
     }
+
+    /// Sets whether prompt caching is enabled.
+    pub fn with_caching(mut self, enabled: bool) -> Self {
+        self.caching_enabled = enabled;
+        self
+    }
 }
 
 impl Default for ChatConfig {
@@ -206,6 +218,7 @@ mod tests {
         assert!(config.thinking_budget.is_none());
         assert!(config.session_budget_tokens.is_none());
         assert!(config.transcript_path.is_none());
+        assert!(config.caching_enabled);
     }
 
     #[test]
@@ -246,7 +259,8 @@ mod tests {
             .with_stop_sequences(vec!["END".to_string()])
             .with_thinking_budget(Some(2048))
             .with_session_budget(Some(10_000))
-            .with_transcript_path(Some(PathBuf::from("transcript.json")));
+            .with_transcript_path(Some(PathBuf::from("transcript.json")))
+            .with_caching(false);
 
         assert_eq!(config.model, Model::Known(KnownModel::ClaudeSonnet40));
         assert_eq!(config.system_prompt, Some("Test prompt".to_string()));
@@ -262,5 +276,6 @@ mod tests {
             config.transcript_path,
             Some(PathBuf::from("transcript.json"))
         );
+        assert!(!config.caching_enabled);
     }
 }

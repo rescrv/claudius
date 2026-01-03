@@ -59,6 +59,9 @@ pub enum ChatCommand {
     /// Clear the token budget.
     ClearBudget,
 
+    /// Enable or disable prompt caching.
+    Caching(bool),
+
     /// Set the auto-save transcript path.
     TranscriptPath(String),
 
@@ -159,6 +162,7 @@ pub fn parse_command(input: &str) -> Option<ChatCommand> {
             },
             None => ChatCommand::Invalid("/budget requires a value".to_string()),
         },
+        "cache" => parse_cache_command(argument),
         "transcript" => match argument {
             Some(arg) if arg.eq_ignore_ascii_case("clear") => ChatCommand::ClearTranscriptPath,
             Some(arg) => ChatCommand::TranscriptPath(arg.to_string()),
@@ -249,6 +253,19 @@ fn parse_thinking_command(argument: Option<&str>) -> ChatCommand {
     }
 }
 
+fn parse_cache_command(argument: Option<&str>) -> ChatCommand {
+    let Some(arg) = argument else {
+        return ChatCommand::Invalid("/cache expects 'on' or 'off'".to_string());
+    };
+
+    let lower = arg.to_lowercase();
+    match lower.as_str() {
+        "on" | "true" | "yes" | "enable" | "enabled" => ChatCommand::Caching(true),
+        "off" | "false" | "no" | "disable" | "disabled" => ChatCommand::Caching(false),
+        _ => ChatCommand::Invalid("/cache expects 'on' or 'off'".to_string()),
+    }
+}
+
 /// Returns help text describing available commands.
 pub fn help_text() -> &'static str {
     r#"Available commands:
@@ -263,6 +280,7 @@ pub fn help_text() -> &'static str {
   /stop clear            Clear all stop sequences
   /stop list             List current stop sequences
   /thinking on|off|<n>   Enable/disable extended thinking (or set budget)
+  /cache on|off          Enable/disable prompt caching
   /budget <tokens>       Set total session budget (or 'clear')
   /transcript <file>     Enable auto-saving transcripts (or 'clear')
   /save <file>           Save the current transcript immediately
@@ -408,6 +426,31 @@ mod tests {
     fn parse_stats_and_config() {
         assert_eq!(parse_command("/stats"), Some(ChatCommand::Stats));
         assert_eq!(parse_command("/config"), Some(ChatCommand::ShowConfig));
+    }
+
+    #[test]
+    fn parse_cache() {
+        assert_eq!(parse_command("/cache on"), Some(ChatCommand::Caching(true)));
+        assert_eq!(
+            parse_command("/cache off"),
+            Some(ChatCommand::Caching(false))
+        );
+        assert_eq!(
+            parse_command("/cache enable"),
+            Some(ChatCommand::Caching(true))
+        );
+        assert_eq!(
+            parse_command("/cache disable"),
+            Some(ChatCommand::Caching(false))
+        );
+        assert!(matches!(
+            parse_command("/cache"),
+            Some(ChatCommand::Invalid(msg)) if msg.contains("expects")
+        ));
+        assert!(matches!(
+            parse_command("/cache maybe"),
+            Some(ChatCommand::Invalid(msg)) if msg.contains("expects")
+        ));
     }
 
     #[test]
