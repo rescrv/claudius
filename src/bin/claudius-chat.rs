@@ -185,6 +185,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             session.set_session_budget(None);
                             renderer.print_info(&context, "Session budget cleared.");
                         }
+                        ChatCommand::Caching(enabled) => {
+                            session.set_caching(enabled);
+                            if enabled {
+                                renderer.print_info(&context, "Prompt caching enabled.");
+                            } else {
+                                renderer.print_info(&context, "Prompt caching disabled.");
+                            }
+                        }
                         ChatCommand::TranscriptPath(path) => {
                             session.set_transcript_path(Some(PathBuf::from(&path)));
                             renderer.print_info(
@@ -283,6 +291,12 @@ fn print_stats<A: ChatAgent>(session: &ChatSession<A>) {
         "      Total tokens: {} in / {} out ({} requests)",
         stats.total_input_tokens, stats.total_output_tokens, stats.total_requests
     );
+    if stats.total_cache_creation_tokens > 0 || stats.total_cache_read_tokens > 0 {
+        println!(
+            "      Cache tokens: {} created / {} read",
+            stats.total_cache_creation_tokens, stats.total_cache_read_tokens
+        );
+    }
     if let Some(input) = stats.last_turn_input_tokens {
         let output = stats.last_turn_output_tokens.unwrap_or(0);
         println!("      Last turn tokens: {input} in / {output} out");
@@ -315,6 +329,14 @@ fn print_config<A: ChatAgent>(session: &ChatSession<A>) {
         match stats.thinking_budget {
             Some(budget) => format!("enabled ({} tokens)", budget),
             None => "disabled".to_string(),
+        }
+    );
+    println!(
+        "      Caching: {}",
+        if stats.caching_enabled {
+            "enabled"
+        } else {
+            "disabled"
         }
     );
     if let Some(prompt) = stats.system_prompt.as_deref() {

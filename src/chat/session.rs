@@ -14,8 +14,14 @@ use serde_json::{from_reader, to_writer_pretty};
 use crate::Error;
 use crate::chat::config::ChatConfig;
 use crate::error::Result;
-use crate::types::{MessageParam, MessageParamContent, MessageRole, Model, Usage};
+use crate::types::{
+    CacheControlEphemeral, ContentBlock, MessageParam, MessageParamContent, MessageRole, Model,
+    TextBlock, Usage,
+};
 use crate::{Agent, Anthropic, Budget, Renderer, SystemPrompt, ThinkingConfig, TurnOutcome};
+
+/// Maximum number of cache control breakpoints allowed by the API.
+const MAX_CACHE_BREAKPOINTS: usize = 4;
 
 /// Agent behavior expected by the chat session.
 pub trait ChatAgent: Agent {
@@ -57,7 +63,16 @@ impl Agent for ConfigAgent {
     }
 
     async fn system(&self) -> Option<SystemPrompt> {
-        self.config.system_prompt.clone().map(SystemPrompt::from)
+        let prompt = self.config.system_prompt.as_ref()?;
+
+        if self.config.caching_enabled {
+            // Return system prompt as blocks with cache_control marker
+            let block =
+                TextBlock::new(prompt.clone()).with_cache_control(CacheControlEphemeral::new());
+            Some(SystemPrompt::from_blocks(vec![block]))
+        } else {
+            Some(SystemPrompt::from(prompt.clone()))
+        }
     }
 
     async fn temperature(&self) -> Option<f32> {
@@ -139,6 +154,12 @@ pub struct SessionStats {
     pub last_turn_input_tokens: Option<u64>,
     /// Output tokens for the last turn, if available.
     pub last_turn_output_tokens: Option<u64>,
+    /// Whether prompt caching is enabled.
+    pub caching_enabled: bool,
+    /// Total cache creation tokens across all requests.
+    pub total_cache_creation_tokens: u64,
+    /// Total cache read tokens across all requests.
+    pub total_cache_read_tokens: u64,
 }
 
 impl ChatSession<ConfigAgent> {
@@ -210,6 +231,11 @@ impl<A: ChatAgent> ChatSession<A> {
             role: MessageRole::User,
             content: MessageParamContent::String(user_input.to_string()),
         });
+
+        // Apply cache_control markers to recent user messages if caching is enabled
+        if self.agent.config().caching_enabled {
+            apply_cache_control_to_messages(&mut self.messages);
+        }
 
         let outcome = self
             .agent
@@ -319,6 +345,16 @@ impl<A: ChatAgent> ChatSession<A> {
         self.agent.config().thinking_budget
     }
 
+    /// Sets whether prompt caching is enabled.
+    pub fn set_caching(&mut self, enabled: bool) {
+        self.agent.config_mut().caching_enabled = enabled;
+    }
+
+    /// Returns whether prompt caching is enabled.
+    pub fn caching_enabled(&self) -> bool {
+        self.agent.config().caching_enabled
+    }
+
     /// Sets the session token budget.
     pub fn set_session_budget(&mut self, budget: Option<u64>) {
         self.agent.config_mut().session_budget_tokens = budget;
@@ -390,6 +426,17 @@ impl<A: ChatAgent> ChatSession<A> {
             last_turn_output_tokens: self
                 .last_turn_usage
                 .map(|usage| tokens_to_u64(usage.output_tokens)),
+            caching_enabled: config.caching_enabled,
+            total_cache_creation_tokens: self
+                .usage_totals
+                .cache_creation_input_tokens
+                .map(|t| t.max(0) as u64)
+                .unwrap_or(0),
+            total_cache_read_tokens: self
+                .usage_totals
+                .cache_read_input_tokens
+                .map(|t| t.max(0) as u64)
+                .unwrap_or(0),
         }
     }
 
@@ -446,6 +493,67 @@ fn cap_max_tokens_for_budget(
         ));
     }
     Ok(Some(std::cmp::min(max_tokens as u64, remaining) as u32))
+}
+
+/// Applies cache_control markers to the last content block of up to N user messages.
+///
+/// The system prompt uses one cache breakpoint, so we apply markers to the last
+/// (MAX_CACHE_BREAKPOINTS - 1) user messages.
+fn apply_cache_control_to_messages(messages: &mut [MessageParam]) {
+    // Find indices of user messages (in reverse order)
+    let user_indices: Vec<usize> = messages
+        .iter()
+        .enumerate()
+        .filter(|(_, msg)| msg.role == MessageRole::User)
+        .map(|(idx, _)| idx)
+        .rev()
+        .take(MAX_CACHE_BREAKPOINTS - 1) // Reserve one breakpoint for system prompt
+        .collect();
+
+    for idx in user_indices {
+        apply_cache_control_to_message(&mut messages[idx]);
+    }
+}
+
+/// Applies cache_control to the last content block of a single message.
+fn apply_cache_control_to_message(message: &mut MessageParam) {
+    match &mut message.content {
+        MessageParamContent::String(text) => {
+            // Convert string to a single text block with cache_control
+            let block = ContentBlock::Text(
+                TextBlock::new(text.clone()).with_cache_control(CacheControlEphemeral::new()),
+            );
+            message.content = MessageParamContent::Array(vec![block]);
+        }
+        MessageParamContent::Array(blocks) => {
+            // Find the last cacheable block and add cache_control
+            if let Some(last_block) = blocks.last_mut() {
+                set_cache_control_on_block(last_block);
+            }
+        }
+    }
+}
+
+/// Sets cache_control on a content block if it supports caching.
+fn set_cache_control_on_block(block: &mut ContentBlock) {
+    match block {
+        ContentBlock::Text(text_block) => {
+            text_block.cache_control = Some(CacheControlEphemeral::new());
+        }
+        ContentBlock::ToolResult(tool_result) => {
+            tool_result.cache_control = Some(CacheControlEphemeral::new());
+        }
+        ContentBlock::ToolUse(tool_use) => {
+            tool_use.cache_control = Some(CacheControlEphemeral::new());
+        }
+        // Other block types don't support cache_control in user messages
+        ContentBlock::Image(_)
+        | ContentBlock::Document(_)
+        | ContentBlock::ServerToolUse(_)
+        | ContentBlock::WebSearchToolResult(_)
+        | ContentBlock::Thinking(_)
+        | ContentBlock::RedactedThinking(_) => {}
+    }
 }
 
 #[cfg(test)]
@@ -527,5 +635,160 @@ mod tests {
     fn cap_max_tokens_exhausted_errors() {
         let err = cap_max_tokens_for_budget(Some(100), 100, 50).unwrap_err();
         assert!(err.to_string().contains("session budget exhausted"));
+    }
+
+    #[test]
+    fn apply_cache_control_to_string_content() {
+        let mut message = MessageParam {
+            role: MessageRole::User,
+            content: MessageParamContent::String("hello".to_string()),
+        };
+
+        apply_cache_control_to_message(&mut message);
+
+        // Should have converted to array with cache_control
+        match &message.content {
+            MessageParamContent::Array(blocks) => {
+                assert_eq!(blocks.len(), 1);
+                if let ContentBlock::Text(text_block) = &blocks[0] {
+                    assert_eq!(text_block.text, "hello");
+                    assert!(text_block.cache_control.is_some());
+                } else {
+                    panic!("Expected Text block");
+                }
+            }
+            _ => panic!("Expected Array content"),
+        }
+    }
+
+    #[test]
+    fn apply_cache_control_to_array_content() {
+        let mut message = MessageParam {
+            role: MessageRole::User,
+            content: MessageParamContent::Array(vec![
+                ContentBlock::Text(TextBlock::new("first")),
+                ContentBlock::Text(TextBlock::new("second")),
+            ]),
+        };
+
+        apply_cache_control_to_message(&mut message);
+
+        // Should have cache_control only on the last block
+        match &message.content {
+            MessageParamContent::Array(blocks) => {
+                assert_eq!(blocks.len(), 2);
+                if let ContentBlock::Text(first) = &blocks[0] {
+                    assert!(first.cache_control.is_none());
+                }
+                if let ContentBlock::Text(second) = &blocks[1] {
+                    assert!(second.cache_control.is_some());
+                }
+            }
+            _ => panic!("Expected Array content"),
+        }
+    }
+
+    #[test]
+    fn apply_cache_control_to_messages_selects_user_messages() {
+        let mut messages = vec![
+            MessageParam {
+                role: MessageRole::User,
+                content: MessageParamContent::String("user1".to_string()),
+            },
+            MessageParam {
+                role: MessageRole::Assistant,
+                content: MessageParamContent::String("assistant1".to_string()),
+            },
+            MessageParam {
+                role: MessageRole::User,
+                content: MessageParamContent::String("user2".to_string()),
+            },
+            MessageParam {
+                role: MessageRole::Assistant,
+                content: MessageParamContent::String("assistant2".to_string()),
+            },
+            MessageParam {
+                role: MessageRole::User,
+                content: MessageParamContent::String("user3".to_string()),
+            },
+        ];
+
+        apply_cache_control_to_messages(&mut messages);
+
+        // Should apply cache_control to last 3 user messages (MAX_CACHE_BREAKPOINTS - 1)
+        // User messages are at indices 0, 2, 4
+        for (idx, msg) in messages.iter().enumerate() {
+            let has_cache = match &msg.content {
+                MessageParamContent::Array(blocks) => blocks.last().is_some_and(|b| {
+                    if let ContentBlock::Text(t) = b {
+                        t.cache_control.is_some()
+                    } else {
+                        false
+                    }
+                }),
+                MessageParamContent::String(_) => false,
+            };
+
+            let is_user = msg.role == MessageRole::User;
+            // All user messages should have cache_control (we have 3 users, limit is 3)
+            if is_user {
+                assert!(
+                    has_cache,
+                    "User message at index {idx} should have cache_control"
+                );
+            } else {
+                // Assistant messages should not be modified
+                assert!(
+                    !has_cache,
+                    "Assistant message at index {idx} should not have cache_control"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn apply_cache_control_respects_max_breakpoints() {
+        // Create 5 user messages - only last 3 should get cache_control
+        let mut messages: Vec<MessageParam> = (0..5)
+            .map(|i| MessageParam {
+                role: MessageRole::User,
+                content: MessageParamContent::String(format!("user{i}")),
+            })
+            .collect();
+
+        apply_cache_control_to_messages(&mut messages);
+
+        let cached_count = messages
+            .iter()
+            .filter(|msg| {
+                matches!(
+                    &msg.content,
+                    MessageParamContent::Array(blocks)
+                    if blocks.last().is_some_and(|b| {
+                        matches!(b, ContentBlock::Text(t) if t.cache_control.is_some())
+                    })
+                )
+            })
+            .count();
+
+        // MAX_CACHE_BREAKPOINTS - 1 = 3
+        assert_eq!(cached_count, 3);
+
+        // Verify it's the LAST 3 messages that got cache_control
+        for (idx, msg) in messages.iter().enumerate() {
+            let has_cache = matches!(
+                &msg.content,
+                MessageParamContent::Array(blocks)
+                if blocks.last().is_some_and(|b| {
+                    matches!(b, ContentBlock::Text(t) if t.cache_control.is_some())
+                })
+            );
+
+            if idx < 2 {
+                assert!(!has_cache, "Message {idx} should NOT have cache_control");
+            } else {
+                assert!(has_cache, "Message {idx} should have cache_control");
+            }
+        }
     }
 }
