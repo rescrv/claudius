@@ -498,8 +498,14 @@ fn cap_max_tokens_for_budget(
 /// Applies cache_control markers to the last content block of up to N user messages.
 ///
 /// The system prompt uses one cache breakpoint, so we apply markers to the last
-/// (MAX_CACHE_BREAKPOINTS - 1) user messages.
+/// (MAX_CACHE_BREAKPOINTS - 1) user messages. This function first clears any existing
+/// cache_control markers to avoid exceeding the API limit of 4 breakpoints.
 fn apply_cache_control_to_messages(messages: &mut [MessageParam]) {
+    // First, clear all existing cache_control markers from all messages
+    for msg in messages.iter_mut() {
+        clear_cache_control_from_message(msg);
+    }
+
     // Find indices of user messages (in reverse order)
     let user_indices: Vec<usize> = messages
         .iter()
@@ -512,6 +518,44 @@ fn apply_cache_control_to_messages(messages: &mut [MessageParam]) {
 
     for idx in user_indices {
         apply_cache_control_to_message(&mut messages[idx]);
+    }
+}
+
+/// Clears cache_control from all content blocks in a message.
+fn clear_cache_control_from_message(message: &mut MessageParam) {
+    if let MessageParamContent::Array(blocks) = &mut message.content {
+        for block in blocks.iter_mut() {
+            clear_cache_control_on_block(block);
+        }
+    }
+}
+
+/// Clears cache_control on a content block.
+fn clear_cache_control_on_block(block: &mut ContentBlock) {
+    match block {
+        ContentBlock::Text(text_block) => {
+            text_block.cache_control = None;
+        }
+        ContentBlock::ToolResult(tool_result) => {
+            tool_result.cache_control = None;
+        }
+        ContentBlock::ToolUse(tool_use) => {
+            tool_use.cache_control = None;
+        }
+        ContentBlock::Image(image_block) => {
+            image_block.cache_control = None;
+        }
+        ContentBlock::Document(document_block) => {
+            document_block.cache_control = None;
+        }
+        ContentBlock::ServerToolUse(server_tool_use) => {
+            server_tool_use.cache_control = None;
+        }
+        ContentBlock::WebSearchToolResult(web_search_result) => {
+            web_search_result.cache_control = None;
+        }
+        // Thinking blocks don't support cache_control
+        ContentBlock::Thinking(_) | ContentBlock::RedactedThinking(_) => {}
     }
 }
 
@@ -786,6 +830,71 @@ mod tests {
 
             if idx < 2 {
                 assert!(!has_cache, "Message {idx} should NOT have cache_control");
+            } else {
+                assert!(has_cache, "Message {idx} should have cache_control");
+            }
+        }
+    }
+
+    #[test]
+    fn apply_cache_control_clears_old_markers() {
+        // Simulate a conversation that grows over multiple turns.
+        // Initially we have 3 user messages with cache_control set on all of them.
+        let mut messages: Vec<MessageParam> = (0..3)
+            .map(|i| MessageParam {
+                role: MessageRole::User,
+                content: MessageParamContent::Array(vec![ContentBlock::Text(
+                    TextBlock::new(format!("user{i}"))
+                        .with_cache_control(CacheControlEphemeral::new()),
+                )]),
+            })
+            .collect();
+
+        // Add 2 more user messages (simulating additional turns)
+        for i in 3..5 {
+            messages.push(MessageParam {
+                role: MessageRole::User,
+                content: MessageParamContent::String(format!("user{i}")),
+            });
+        }
+
+        // At this point, messages 0, 1, 2 have cache_control from before.
+        // After apply_cache_control_to_messages, only the last 3 (2, 3, 4) should have it.
+        apply_cache_control_to_messages(&mut messages);
+
+        let cached_count = messages
+            .iter()
+            .filter(|msg| {
+                matches!(
+                    &msg.content,
+                    MessageParamContent::Array(blocks)
+                    if blocks.last().is_some_and(|b| {
+                        matches!(b, ContentBlock::Text(t) if t.cache_control.is_some())
+                    })
+                )
+            })
+            .count();
+
+        // Only 3 messages should have cache_control (MAX_CACHE_BREAKPOINTS - 1)
+        // DEBUG: Print cached count
+        println!("cached_count: {cached_count}");
+        assert_eq!(cached_count, 3, "Only 3 messages should have cache_control");
+
+        // Verify the FIRST 2 messages no longer have cache_control (they were cleared)
+        for (idx, msg) in messages.iter().enumerate() {
+            let has_cache = matches!(
+                &msg.content,
+                MessageParamContent::Array(blocks)
+                if blocks.last().is_some_and(|b| {
+                    matches!(b, ContentBlock::Text(t) if t.cache_control.is_some())
+                })
+            );
+
+            if idx < 2 {
+                assert!(
+                    !has_cache,
+                    "Message {idx} should have cache_control CLEARED"
+                );
             } else {
                 assert!(has_cache, "Message {idx} should have cache_control");
             }

@@ -331,3 +331,94 @@ impl ContentBlockBuilder {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        ContentBlockStartEvent, KnownModel, MessageDelta, MessageDeltaEvent, MessageDeltaUsage,
+        MessageStartEvent, Model, TextDelta, Usage,
+    };
+    use futures::stream;
+
+    /// Verifies that cache tokens from message_start are preserved through streaming.
+    #[tokio::test]
+    async fn cache_tokens_from_message_start_preserved() {
+        // Build a message_start event with cache tokens in the usage
+        let usage_with_cache = Usage::new(100, 0)
+            .with_cache_creation_input_tokens(50)
+            .with_cache_read_input_tokens(25);
+
+        let start_message = Message::new(
+            "msg_test".to_string(),
+            Vec::new(),
+            Model::Known(KnownModel::Claude37SonnetLatest),
+            usage_with_cache,
+        );
+        let start_event = MessageStreamEvent::MessageStart(MessageStartEvent::new(start_message));
+
+        // Build content_block_start for text
+        let text_block = ContentBlock::Text(TextBlock::new(String::new()));
+        let content_start =
+            MessageStreamEvent::ContentBlockStart(ContentBlockStartEvent::new(text_block, 0));
+
+        // Build content_block_delta with text
+        let text_delta = TextDelta::new("Hello".to_string());
+        let content_delta = MessageStreamEvent::ContentBlockDelta(
+            crate::ContentBlockDeltaEvent::new(ContentBlockDelta::TextDelta(text_delta), 0),
+        );
+
+        // Build message_delta with final output tokens (no cache tokens - they were in start)
+        let delta_usage = MessageDeltaUsage::new(10);
+        let message_delta = MessageDelta::new().with_stop_reason(StopReason::EndTurn);
+        let delta_event =
+            MessageStreamEvent::MessageDelta(MessageDeltaEvent::new(message_delta, delta_usage));
+
+        // Create the stream
+        let events = vec![
+            Ok(start_event),
+            Ok(content_start),
+            Ok(content_delta),
+            Ok(delta_event),
+        ];
+        let event_stream = stream::iter(events);
+
+        let (mut acc_stream, rx) = AccumulatingStream::new(event_stream);
+
+        // Drain the stream
+        use futures::StreamExt;
+        while acc_stream.next().await.is_some() {}
+
+        // Get the accumulated message
+        let message = rx
+            .await
+            .expect("channel closed")
+            .expect("accumulation failed");
+
+        // Verify cache tokens were preserved from message_start
+        // DEBUG: Print what we got
+        println!(
+            "cache_creation_input_tokens: {:?}",
+            message.usage.cache_creation_input_tokens
+        );
+        println!(
+            "cache_read_input_tokens: {:?}",
+            message.usage.cache_read_input_tokens
+        );
+
+        assert_eq!(
+            message.usage.cache_creation_input_tokens,
+            Some(50),
+            "cache_creation_input_tokens should be preserved from message_start"
+        );
+        assert_eq!(
+            message.usage.cache_read_input_tokens,
+            Some(25),
+            "cache_read_input_tokens should be preserved from message_start"
+        );
+        assert_eq!(
+            message.usage.output_tokens, 10,
+            "output_tokens should be from message_delta"
+        );
+    }
+}

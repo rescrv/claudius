@@ -291,7 +291,7 @@ fn print_stats<A: ChatAgent>(session: &ChatSession<A>) {
         "      Total tokens: {} in / {} out ({} requests)",
         stats.total_input_tokens, stats.total_output_tokens, stats.total_requests
     );
-    if stats.total_cache_creation_tokens > 0 || stats.total_cache_read_tokens > 0 {
+    if stats.caching_enabled {
         println!(
             "      Cache tokens: {} created / {} read",
             stats.total_cache_creation_tokens, stats.total_cache_read_tokens
