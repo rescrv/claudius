@@ -1740,25 +1740,15 @@ pub trait Agent: Send + Sync + Sized {
         resp: &Message,
     ) -> ControlFlow<Result<StopReason, Error>, Vec<ContentBlock>> {
         let tools_and_blocks = self.collect_tool_uses(resp).await;
-        let mut futures = Vec::with_capacity(tools_and_blocks.len());
+        let mut tool_results = vec![];
         for (tool_use, tool) in tools_and_blocks.iter() {
             AGENT_TOOL_CALLS.click();
             let callback = tool.callback();
             let tool_use = tool_use.clone();
             let this = &*self;
-            futures.push(async move {
-                let start = Instant::now();
-                let intermediate = callback.compute_tool_result(client, this, &tool_use).await;
-                (intermediate, start.elapsed())
-            });
-        }
-        let intermediate_tool_results = futures::future::join_all(futures).await;
-        let mut tool_results = vec![];
-        for ((tool_use, tool), result) in
-            std::iter::zip(tools_and_blocks, intermediate_tool_results)
-        {
-            let callback = tool.callback();
-            let (intermediate, compute_duration) = result;
+            let compute_start = Instant::now();
+            let intermediate = callback.compute_tool_result(client, this, &tool_use).await;
+            let compute_duration = compute_start.elapsed();
             let apply_start = Instant::now();
             match callback
                 .apply_tool_result(client, self, &tool_use, intermediate)
@@ -2578,8 +2568,14 @@ async fn step_default_turn_impl<A: Agent>(
             role: MessageRole::Assistant,
             content: MessageParamContent::Array(resp.content.clone()),
         };
-        let _ = tokens_rem.consume_usage(&resp.usage);
         usage_total = usage_total + resp.usage;
+        if !tokens_rem.consume_usage(&resp.usage) {
+            return ControlFlow::Break(Ok(TurnOutcome {
+                stop_reason: StopReason::MaxTokens,
+                usage: usage_total,
+                request_count,
+            }));
+        }
         request_count = request_count.saturating_add(1);
         push_or_merge_message(messages, assistant_message);
 
@@ -2808,7 +2804,11 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        dir.push(format!("claudius_test_{prefix}_{}_{}", std::process::id(), nanos));
+        dir.push(format!(
+            "claudius_test_{prefix}_{}_{}",
+            std::process::id(),
+            nanos
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
