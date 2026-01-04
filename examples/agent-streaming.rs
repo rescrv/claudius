@@ -4,7 +4,7 @@ use utf8path::Path;
 
 use claudius::{
     Agent, Anthropic, Budget, FileSystem, MessageParam, MessageParamContent, MessageRole,
-    PlainTextAgentRenderer,
+    PlainTextRenderer,
 };
 
 struct MyAgent {
@@ -33,11 +33,11 @@ async fn main() {
         ),
     }];
 
-    let mut renderer = PlainTextAgentRenderer::new();
-    let stop = agent
+    let mut renderer = PlainTextRenderer::new();
+    let outcome = agent
         .take_turn_streaming_root(&client, &mut messages, &budget, &mut renderer)
         .await
         .unwrap();
 
-    println!("\nStop reason: {stop:?}");
+    println!("\nStop reason: {:?}", outcome.stop_reason);
 }

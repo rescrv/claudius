@@ -31,6 +31,7 @@ arrrg_derive = "0.8.0"
 getopts = "0.2.24"
 rustyline = "17.0.2"
 ctrlc = { version = "3.5.1", features = ["termination"] }
+biometrics = "0.12.0"
 
 [[bin]]
 name = "median-text"

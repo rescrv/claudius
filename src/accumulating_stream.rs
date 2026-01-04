@@ -7,7 +7,8 @@ use serde_json::Value;
 
 use crate::{
     CacheControlEphemeral, Citation, ContentBlock, ContentBlockDelta, Error, Message,
-    MessageStreamEvent, ServerToolUseBlock, TextBlock, TextCitation, ThinkingBlock, ToolUseBlock,
+    MessageStreamEvent, ServerToolUseBlock, StopReason, TextBlock, TextCitation, ThinkingBlock,
+    ToolUseBlock,
 };
 
 /// A stream wrapper that accumulates `MessageStreamEvent`s into a complete `Message`.
@@ -27,12 +28,7 @@ impl AccumulatingStream {
     ///
     /// Returns the stream and a receiver that will contain the accumulated `Message` once the
     /// stream is fully drained.
-    pub fn new<S>(
-        stream: S,
-    ) -> (
-        Self,
-        tokio::sync::oneshot::Receiver<Result<Message, Error>>,
-    )
+    pub fn new<S>(stream: S) -> (Self, tokio::sync::oneshot::Receiver<Result<Message, Error>>)
     where
         S: Stream<Item = Result<MessageStreamEvent, Error>> + Send + 'static,
     {
@@ -43,10 +39,7 @@ impl AccumulatingStream {
     pub fn new_with_message<S>(
         stream: S,
         message: impl Into<Option<Message>>,
-    ) -> (
-        Self,
-        tokio::sync::oneshot::Receiver<Result<Message, Error>>,
-    )
+    ) -> (Self, tokio::sync::oneshot::Receiver<Result<Message, Error>>)
     where
         S: Stream<Item = Result<MessageStreamEvent, Error>> + Send + 'static,
     {
@@ -109,17 +102,24 @@ impl AccumulatingStream {
     }
 
     fn finalize(&mut self) -> Result<Message, Error> {
-        let mut msg = self.message.take().ok_or_else(|| {
-            Error::streaming("stream ended without a message start event", None)
-        })?;
+        let mut msg = self
+            .message
+            .take()
+            .ok_or_else(|| Error::streaming("stream ended without a message start event", None))?;
         let mut blocks = Vec::new();
         for builder in std::mem::take(&mut self.content_blocks) {
-            if let Some(block) = builder.build()? {
+            if let Some(block) = builder.build(msg.stop_reason)? {
                 blocks.push(block);
             }
         }
         msg.content = blocks;
         Ok(msg)
+    }
+
+    /// Finalizes the currently accumulated message without draining the stream.
+    pub fn finalize_partial(&mut self) -> Result<Message, Error> {
+        self.message_tx.take();
+        self.finalize()
     }
 }
 
@@ -168,7 +168,10 @@ enum ContentBlockBuilder {
         input: Value,
         cache_control: Option<CacheControlEphemeral>,
     },
-    Thinking { thinking: String, signature: String },
+    Thinking {
+        thinking: String,
+        signature: String,
+    },
     Complete(ContentBlock),
 }
 
@@ -248,7 +251,7 @@ impl ContentBlockBuilder {
         }
     }
 
-    fn build(self) -> Result<Option<ContentBlock>, Error> {
+    fn build(self, stop_reason: Option<StopReason>) -> Result<Option<ContentBlock>, Error> {
         match self {
             ContentBlockBuilder::Empty => Ok(None),
             ContentBlockBuilder::Text {
@@ -269,17 +272,35 @@ impl ContentBlockBuilder {
                 cache_control,
             } => {
                 let input = if saw_delta {
-                    serde_json::from_str::<Value>(&input_json).map_err(|err| {
-                        Error::serialization("failed to parse tool input JSON", Some(Box::new(err)))
-                    })?
+                    match serde_json::from_str::<Value>(&input_json) {
+                        Ok(value) => value,
+                        Err(err) => {
+                            if stop_reason == Some(StopReason::MaxTokens) {
+                                return Ok(None);
+                            }
+                            return Err(Error::serialization(
+                                "failed to parse tool input JSON",
+                                Some(Box::new(err)),
+                            ));
+                        }
+                    }
                 } else if let Some(input) = input_value {
                     input
                 } else if input_json.is_empty() {
                     Value::Null
                 } else {
-                    serde_json::from_str::<Value>(&input_json).map_err(|err| {
-                        Error::serialization("failed to parse tool input JSON", Some(Box::new(err)))
-                    })?
+                    match serde_json::from_str::<Value>(&input_json) {
+                        Ok(value) => value,
+                        Err(err) => {
+                            if stop_reason == Some(StopReason::MaxTokens) {
+                                return Ok(None);
+                            }
+                            return Err(Error::serialization(
+                                "failed to parse tool input JSON",
+                                Some(Box::new(err)),
+                            ));
+                        }
+                    }
                 };
                 Ok(Some(ContentBlock::ToolUse(ToolUseBlock {
                     id,

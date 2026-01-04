@@ -33,13 +33,11 @@ async fn main() {
         ),
     }];
 
-    println!(
-        "{:#?}",
-        agent
-            .take_turn(&client, &mut messages, &budget)
-            .await
-            .unwrap()
-    );
+    let outcome = agent
+        .take_turn(&client, &mut messages, &budget)
+        .await
+        .unwrap();
+    println!("{outcome:#?}");
 
     // Show the message history after the conversation
     println!("\nMessage history:");

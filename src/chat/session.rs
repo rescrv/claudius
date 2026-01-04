@@ -3,41 +3,103 @@
 //! This module provides the `ChatSession` struct which manages conversation
 //! state and handles streaming API interactions.
 
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
-use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, to_writer_pretty};
-use tokio::pin;
 
 use crate::Error;
 use crate::chat::config::ChatConfig;
-use crate::chat::render::Renderer;
-use crate::client::Anthropic;
 use crate::error::Result;
-use crate::types::{
-    ContentBlock, ContentBlockDelta, MessageCreateParams, MessageDeltaUsage, MessageParam,
-    MessageParamContent, MessageRole, MessageStreamEvent, Model, ThinkingConfig,
-    ToolResultBlockContent, Usage,
-};
+use crate::types::{MessageParam, MessageParamContent, MessageRole, Model, Usage};
+use crate::{Agent, Anthropic, Budget, Renderer, SystemPrompt, ThinkingConfig, TurnOutcome};
+
+/// Agent behavior expected by the chat session.
+pub trait ChatAgent: Agent {
+    /// Returns the active chat configuration.
+    fn config(&self) -> &ChatConfig;
+
+    /// Returns the active chat configuration for mutation.
+    fn config_mut(&mut self) -> &mut ChatConfig;
+}
+
+/// Default chat agent that sources behavior from `ChatConfig`.
+pub struct ConfigAgent {
+    config: ChatConfig,
+}
+
+impl ConfigAgent {
+    /// Creates a new chat agent from a configuration.
+    pub fn new(config: ChatConfig) -> Self {
+        Self { config }
+    }
+}
+
+#[async_trait::async_trait]
+impl Agent for ConfigAgent {
+    async fn max_tokens(&self) -> u32 {
+        self.config.max_tokens
+    }
+
+    async fn model(&self) -> Model {
+        self.config.model.clone()
+    }
+
+    async fn stop_sequences(&self) -> Option<Vec<String>> {
+        if self.config.stop_sequences.is_empty() {
+            None
+        } else {
+            Some(self.config.stop_sequences.clone())
+        }
+    }
+
+    async fn system(&self) -> Option<SystemPrompt> {
+        self.config.system_prompt.clone().map(SystemPrompt::from)
+    }
+
+    async fn temperature(&self) -> Option<f32> {
+        self.config.temperature
+    }
+
+    async fn thinking(&self) -> Option<ThinkingConfig> {
+        self.config.thinking_budget.map(ThinkingConfig::enabled)
+    }
+
+    async fn top_k(&self) -> Option<u32> {
+        self.config.top_k
+    }
+
+    async fn top_p(&self) -> Option<f32> {
+        self.config.top_p
+    }
+}
+
+impl ChatAgent for ConfigAgent {
+    fn config(&self) -> &ChatConfig {
+        &self.config
+    }
+
+    fn config_mut(&mut self) -> &mut ChatConfig {
+        &mut self.config
+    }
+}
 
 /// A chat session that manages conversation state and API interactions.
 ///
 /// The session maintains message history and handles streaming responses
 /// from the Anthropic API.
-pub struct ChatSession {
+pub struct ChatSession<A: ChatAgent> {
     client: Anthropic,
+    agent: A,
     messages: Vec<MessageParam>,
-    config: ChatConfig,
     usage_totals: Usage,
     last_turn_usage: Option<Usage>,
     request_count: u64,
     budget_spent_tokens: u64,
+    budget: Arc<Budget>,
 }
 
 /// Aggregated stats for a chat session.
@@ -79,17 +141,26 @@ pub struct SessionStats {
     pub last_turn_output_tokens: Option<u64>,
 }
 
-impl ChatSession {
+impl ChatSession<ConfigAgent> {
     /// Creates a new chat session with the given client and configuration.
     pub fn new(client: Anthropic, config: ChatConfig) -> Self {
+        Self::with_agent(client, ConfigAgent::new(config))
+    }
+}
+
+impl<A: ChatAgent> ChatSession<A> {
+    /// Creates a new chat session with a custom agent.
+    pub fn with_agent(client: Anthropic, agent: A) -> Self {
+        let budget = Arc::new(Budget::new_flat_rate(u64::MAX, 1));
         Self {
             client,
+            agent,
             messages: Vec::new(),
-            config,
             usage_totals: Usage::new(0, 0),
             last_turn_usage: None,
             request_count: 0,
             budget_spent_tokens: 0,
+            budget,
         }
     }
 
@@ -101,8 +172,6 @@ impl ChatSession {
     /// 3. Renders response chunks as they arrive
     /// 4. Adds the complete assistant response to history
     ///
-    /// The `interrupted` flag can be set to `true` to cancel the stream.
-    ///
     /// # Errors
     ///
     /// Returns an error if the API request fails.
@@ -110,12 +179,14 @@ impl ChatSession {
         &mut self,
         user_input: &str,
         renderer: &mut dyn Renderer,
-        interrupted: Arc<AtomicBool>,
     ) -> Result<()> {
-        if let Some(limit) = self.config.session_budget_tokens
+        let context = ();
+        let session_budget_tokens = self.agent.config().session_budget_tokens;
+        if let Some(limit) = session_budget_tokens
             && self.budget_spent_tokens >= limit
         {
             renderer.print_error(
+                &context,
                 "Session budget exhausted. Use /budget to increase or clear the limit.",
             );
             return Err(Error::bad_request(
@@ -124,151 +195,30 @@ impl ChatSession {
             ));
         }
 
+        let previous_len = self.messages.len();
+
         // Add user message to history
         self.messages.push(MessageParam {
             role: MessageRole::User,
             content: MessageParamContent::String(user_input.to_string()),
         });
 
-        // Build request parameters
-        let mut params = MessageCreateParams::new(
-            self.config.max_tokens,
-            self.messages.clone(),
-            self.config.model.clone(),
-        )
-        .with_stream(true);
+        let outcome = self
+            .agent
+            .take_turn_streaming_root(&self.client, &mut self.messages, &self.budget, renderer)
+            .await;
 
-        if let Some(ref system) = self.config.system_prompt {
-            params = params.with_system_string(system.clone());
-        }
-        if let Some(temp) = self.config.temperature {
-            params = params.with_temperature(temp)?;
-        }
-        if let Some(top_p) = self.config.top_p {
-            params = params.with_top_p(top_p)?;
-        }
-        if let Some(top_k) = self.config.top_k {
-            params = params.with_top_k(top_k);
-        }
-        if !self.config.stop_sequences.is_empty() {
-            params = params.with_stop_sequences(self.config.stop_sequences.clone());
-        }
-        if let Some(budget) = self.config.thinking_budget {
-            params = params.with_thinking(ThinkingConfig::enabled(budget));
-        }
-
-        let mut accumulated_text = String::new();
-        let mut was_interrupted = false;
-        let mut active_tool_uses: HashSet<usize> = HashSet::new();
-        let mut active_tool_results: HashSet<usize> = HashSet::new();
-        let mut turn_usage: Option<Usage> = None;
-
-        {
-            let stream = self.client.stream(&params).await?;
-            pin!(stream);
-
-            // Process stream events
-            while let Some(event) = stream.next().await {
-                // Check for interrupt
-                if interrupted.load(Ordering::Relaxed) {
-                    was_interrupted = true;
-                    renderer.print_interrupted();
-                    break;
-                }
-
-                match event {
-                    Ok(event) => match &event {
-                        MessageStreamEvent::Ping | MessageStreamEvent::MessageStart(_) => {}
-                        MessageStreamEvent::MessageDelta(delta_event) => {
-                            turn_usage = Some(usage_from_delta(&delta_event.usage));
-                        }
-                        MessageStreamEvent::ContentBlockStart(start_event) => {
-                            match &start_event.content_block {
-                                ContentBlock::ToolUse(tool_use) => {
-                                    active_tool_uses.insert(start_event.index);
-                                    renderer.start_tool_use(&tool_use.name, &tool_use.id);
-                                }
-                                ContentBlock::ToolResult(tool_result) => {
-                                    active_tool_results.insert(start_event.index);
-                                    renderer.start_tool_result(
-                                        &tool_result.tool_use_id,
-                                        tool_result.is_error.unwrap_or(false),
-                                    );
-                                    if let Some(content) = &tool_result.content {
-                                        render_tool_result_content(renderer, content);
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                        MessageStreamEvent::ContentBlockDelta(delta_event) => {
-                            match &delta_event.delta {
-                                ContentBlockDelta::InputJsonDelta(json_delta) => {
-                                    if active_tool_uses.contains(&delta_event.index) {
-                                        renderer.print_tool_input(&json_delta.partial_json);
-                                    }
-                                }
-                                ContentBlockDelta::TextDelta(text_delta) => {
-                                    if active_tool_results.contains(&delta_event.index) {
-                                        renderer.print_tool_result_text(&text_delta.text);
-                                    } else {
-                                        renderer.print_text(&text_delta.text);
-                                        accumulated_text.push_str(&text_delta.text);
-                                    }
-                                }
-                                ContentBlockDelta::ThinkingDelta(thinking_delta) => {
-                                    if self.config.thinking_budget.is_some() {
-                                        renderer.print_thinking(&thinking_delta.thinking);
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                        MessageStreamEvent::ContentBlockStop(stop_event) => {
-                            if active_tool_uses.remove(&stop_event.index) {
-                                renderer.finish_tool_use();
-                            }
-                            if active_tool_results.remove(&stop_event.index) {
-                                renderer.finish_tool_result();
-                            }
-                        }
-                        MessageStreamEvent::MessageStop(_) => break,
-                    },
-                    Err(e) => {
-                        renderer.print_error(&e.to_string());
-                        // Remove the user message since the request failed
-                        self.messages.pop();
-                        return Err(e);
-                    }
-                }
+        match outcome {
+            Ok(outcome) => {
+                self.record_usage(outcome);
+                self.auto_save_transcript()?;
+                Ok(())
+            }
+            Err(err) => {
+                self.messages.truncate(previous_len);
+                Err(err)
             }
         }
-
-        // Finish the response (newline, reset styling)
-        if !was_interrupted {
-            renderer.finish_response();
-        }
-
-        // Add assistant response to history (even if interrupted, include what we got)
-        if !accumulated_text.is_empty() {
-            self.messages.push(MessageParam {
-                role: MessageRole::Assistant,
-                content: MessageParamContent::String(accumulated_text),
-            });
-        } else if was_interrupted {
-            // If interrupted with no text, remove the user message
-            self.messages.pop();
-        }
-
-        if let Some(usage) = turn_usage {
-            self.record_usage(usage);
-        } else {
-            self.last_turn_usage = None;
-        }
-
-        self.auto_save_transcript()?;
-
-        Ok(())
     }
 
     /// Clears the conversation history.
@@ -283,85 +233,86 @@ impl ChatSession {
 
     /// Changes the model used for responses.
     pub fn set_model(&mut self, model: Model) {
-        self.config.model = model;
+        self.agent.config_mut().model = model;
     }
 
     /// Returns the current model.
     pub fn model(&self) -> &Model {
-        &self.config.model
+        &self.agent.config().model
     }
 
     /// Sets or clears the system prompt.
     pub fn set_system_prompt(&mut self, prompt: Option<String>) {
-        self.config.system_prompt = prompt;
+        self.agent.config_mut().system_prompt = prompt;
     }
 
     /// Returns the current system prompt, if any.
     pub fn system_prompt(&self) -> Option<&str> {
-        self.config.system_prompt.as_deref()
+        self.agent.config().system_prompt.as_deref()
     }
 
     /// Sets the maximum tokens per response.
     pub fn set_max_tokens(&mut self, max_tokens: u32) {
-        self.config.max_tokens = max_tokens;
+        self.agent.config_mut().max_tokens = max_tokens;
     }
 
     /// Sets the sampling temperature.
     pub fn set_temperature(&mut self, temperature: Option<f32>) {
-        self.config.temperature = temperature;
+        self.agent.config_mut().temperature = temperature;
     }
 
     /// Sets the top-p value.
     pub fn set_top_p(&mut self, top_p: Option<f32>) {
-        self.config.top_p = top_p;
+        self.agent.config_mut().top_p = top_p;
     }
 
     /// Sets the top-k value.
     pub fn set_top_k(&mut self, top_k: Option<u32>) {
-        self.config.top_k = top_k;
+        self.agent.config_mut().top_k = top_k;
     }
 
     /// Adds a stop sequence to the persistent list.
     pub fn add_stop_sequence(&mut self, sequence: String) {
         if !self
-            .config
+            .agent
+            .config()
             .stop_sequences
             .iter()
             .any(|existing| existing == &sequence)
         {
-            self.config.stop_sequences.push(sequence);
+            self.agent.config_mut().stop_sequences.push(sequence);
         }
     }
 
     /// Clears all stop sequences.
     pub fn clear_stop_sequences(&mut self) {
-        self.config.stop_sequences.clear();
+        self.agent.config_mut().stop_sequences.clear();
     }
 
     /// Returns the configured stop sequences.
     pub fn stop_sequences(&self) -> &[String] {
-        &self.config.stop_sequences
+        &self.agent.config().stop_sequences
     }
 
     /// Sets the extended thinking budget.
     /// `None` disables thinking, `Some(budget)` enables with the given token budget.
     pub fn set_thinking_budget(&mut self, budget: Option<u32>) {
-        self.config.thinking_budget = budget;
+        self.agent.config_mut().thinking_budget = budget;
     }
 
     /// Returns the extended thinking budget, if enabled.
     pub fn thinking_budget(&self) -> Option<u32> {
-        self.config.thinking_budget
+        self.agent.config().thinking_budget
     }
 
     /// Sets the session token budget.
     pub fn set_session_budget(&mut self, budget: Option<u64>) {
-        self.config.session_budget_tokens = budget;
+        self.agent.config_mut().session_budget_tokens = budget;
     }
 
     /// Returns the remaining session budget, if any.
     pub fn session_budget_remaining(&self) -> Option<i64> {
-        self.config.session_budget_tokens.map(|limit| {
+        self.agent.config().session_budget_tokens.map(|limit| {
             let spent = self.budget_spent_tokens as i64;
             limit as i64 - spent
         })
@@ -369,12 +320,12 @@ impl ChatSession {
 
     /// Sets the auto-save transcript path.
     pub fn set_transcript_path(&mut self, path: Option<PathBuf>) {
-        self.config.transcript_path = path;
+        self.agent.config_mut().transcript_path = path;
     }
 
     /// Returns the configured transcript path, if any.
     pub fn transcript_path(&self) -> Option<&Path> {
-        self.config.transcript_path.as_deref()
+        self.agent.config().transcript_path.as_deref()
     }
 
     /// Saves the transcript to the specified path.
@@ -402,19 +353,20 @@ impl ChatSession {
 
     /// Returns the current session statistics snapshot.
     pub fn stats(&self) -> SessionStats {
+        let config = self.agent.config();
         SessionStats {
-            model: self.config.model.clone(),
+            model: config.model.clone(),
             message_count: self.message_count(),
-            max_tokens: self.config.max_tokens,
-            system_prompt: self.config.system_prompt.clone(),
-            temperature: self.config.temperature,
-            top_p: self.config.top_p,
-            top_k: self.config.top_k,
-            stop_sequences: self.config.stop_sequences.clone(),
-            thinking_budget: self.config.thinking_budget,
-            session_budget_tokens: self.config.session_budget_tokens,
+            max_tokens: config.max_tokens,
+            system_prompt: config.system_prompt.clone(),
+            temperature: config.temperature,
+            top_p: config.top_p,
+            top_k: config.top_k,
+            stop_sequences: config.stop_sequences.clone(),
+            thinking_budget: config.thinking_budget,
+            session_budget_tokens: config.session_budget_tokens,
             budget_spent_tokens: self.budget_spent_tokens,
-            transcript_path: self.config.transcript_path.clone(),
+            transcript_path: config.transcript_path.clone(),
             total_input_tokens: tokens_to_u64(self.usage_totals.input_tokens),
             total_output_tokens: tokens_to_u64(self.usage_totals.output_tokens),
             total_requests: self.request_count,
@@ -427,16 +379,17 @@ impl ChatSession {
         }
     }
 
-    fn record_usage(&mut self, usage: Usage) {
-        self.last_turn_usage = Some(usage);
-        self.usage_totals = self.usage_totals + usage;
-        self.request_count = self.request_count.saturating_add(1);
-        let turn_total = tokens_to_u64(usage.input_tokens) + tokens_to_u64(usage.output_tokens);
+    fn record_usage(&mut self, outcome: TurnOutcome) {
+        self.last_turn_usage = Some(outcome.usage);
+        self.usage_totals = self.usage_totals + outcome.usage;
+        self.request_count = self.request_count.saturating_add(outcome.request_count);
+        let turn_total =
+            tokens_to_u64(outcome.usage.input_tokens) + tokens_to_u64(outcome.usage.output_tokens);
         self.budget_spent_tokens = self.budget_spent_tokens.saturating_add(turn_total);
     }
 
     fn auto_save_transcript(&self) -> Result<()> {
-        if let Some(path) = &self.config.transcript_path {
+        if let Some(path) = &self.agent.config().transcript_path {
             self.save_transcript_to(path)
         } else {
             Ok(())
@@ -457,44 +410,6 @@ impl TranscriptFile {
             messages: messages.to_vec(),
         }
     }
-}
-
-fn render_tool_result_content(renderer: &mut dyn Renderer, content: &ToolResultBlockContent) {
-    match content {
-        ToolResultBlockContent::String(text) => renderer.print_tool_result_text(text),
-        ToolResultBlockContent::Array(items) => {
-            for (idx, item) in items.iter().enumerate() {
-                if idx > 0 {
-                    renderer.print_tool_result_text("\n");
-                }
-                match item {
-                    crate::types::Content::Text(text) => {
-                        renderer.print_tool_result_text(&text.text)
-                    }
-                    crate::types::Content::Image(_) => {
-                        renderer.print_tool_result_text("[image]");
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn usage_from_delta(delta_usage: &MessageDeltaUsage) -> Usage {
-    let mut usage = Usage::new(
-        delta_usage.input_tokens.unwrap_or(0),
-        delta_usage.output_tokens,
-    );
-    if let Some(cache) = delta_usage.cache_creation_input_tokens {
-        usage = usage.with_cache_creation_input_tokens(cache);
-    }
-    if let Some(cache_read) = delta_usage.cache_read_input_tokens {
-        usage = usage.with_cache_read_input_tokens(cache_read);
-    }
-    if let Some(server_tool) = &delta_usage.server_tool_use {
-        usage = usage.with_server_tool_use(*server_tool);
-    }
-    usage
 }
 
 fn tokens_to_u64(value: i32) -> u64 {
