@@ -2054,7 +2054,7 @@ impl Agent for () {}
 impl FileSystem for Path<'_> {
     async fn search(&self, search: &str) -> Result<String, std::io::Error> {
         let output = std::process::Command::new("grep")
-            .args(["-nRI", search])
+            .args(["-nRI", "--", search])
             .current_dir(self)
             .output()?;
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -2147,18 +2147,25 @@ impl FileSystem for Path<'_> {
     ) -> Result<String, std::io::Error> {
         let path = sanitize_path(self.clone(), path)?;
         if path.is_file() {
+            if insert_line == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "insert_line must be >= 1",
+                ));
+            }
             let content = std::fs::read_to_string(&path)?;
-            let lines = content
-                .split('\n')
-                .enumerate()
-                .map(|(idx, line)| {
-                    if idx == insert_line as usize {
-                        new_str.to_string() + "\n" + line
-                    } else {
-                        line.to_string()
-                    }
-                })
+            let mut lines = content
+                .split_terminator('\n')
+                .map(|line| line.to_string())
                 .collect::<Vec<_>>();
+            let insert_idx = insert_line as usize - 1;
+            if insert_idx > lines.len() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "insert_line out of range",
+                ));
+            }
+            lines.insert(insert_idx, new_str.to_string());
             let mut out = lines.join("\n");
             out.push('\n');
             std::fs::write(path, out)?;
@@ -2793,6 +2800,18 @@ mod tests {
     use super::*;
     use crate::Usage;
     use std::sync::atomic::Ordering;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn make_temp_dir(prefix: &str) -> std::path::PathBuf {
+        let mut dir = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        dir.push(format!("claudius_test_{prefix}_{}_{}", std::process::id(), nanos));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn budget_new_flat_rate_creates_with_correct_amount() {
@@ -3598,6 +3617,53 @@ mod tests {
                 )
                 .is_ok()
         );
+    }
+
+    #[tokio::test]
+    async fn filesystem_search_dash_query_is_pattern() {
+        let dir = make_temp_dir("search_dash");
+        let file_path = dir.join("file.txt");
+        std::fs::write(&file_path, "-n pattern\n").unwrap();
+        let base = Path::try_from(dir.as_path()).unwrap();
+
+        let output = base.search("-n").await.unwrap();
+        assert!(output.contains("file.txt:1:-n pattern"));
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn filesystem_insert_is_one_based_and_appends() {
+        let dir = make_temp_dir("insert_one_based");
+        let file_path = dir.join("file.txt");
+        std::fs::write(&file_path, "a\nb\n").unwrap();
+        let base = Path::try_from(dir.as_path()).unwrap();
+
+        base.insert("file.txt", 1, "x").await.unwrap();
+        let contents = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(contents, "x\na\nb\n");
+
+        base.insert("file.txt", 4, "y").await.unwrap();
+        let contents = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(contents, "x\na\nb\ny\n");
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn filesystem_insert_rejects_invalid_lines() {
+        let dir = make_temp_dir("insert_invalid");
+        let file_path = dir.join("file.txt");
+        std::fs::write(&file_path, "a\nb\n").unwrap();
+        let base = Path::try_from(dir.as_path()).unwrap();
+
+        let err = base.insert("file.txt", 0, "x").await.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+
+        let err = base.insert("file.txt", 5, "x").await.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+
+        std::fs::remove_dir_all(dir).ok();
     }
 
     // Permission tests

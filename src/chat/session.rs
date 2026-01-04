@@ -182,17 +182,25 @@ impl<A: ChatAgent> ChatSession<A> {
     ) -> Result<()> {
         let context = ();
         let session_budget_tokens = self.agent.config().session_budget_tokens;
-        if let Some(limit) = session_budget_tokens
-            && self.budget_spent_tokens >= limit
+        let budget_cap = match cap_max_tokens_for_budget(
+            session_budget_tokens,
+            self.budget_spent_tokens,
+            self.agent.config().max_tokens,
+        ) {
+            Ok(cap) => cap,
+            Err(err) => {
+                renderer.print_error(
+                    &context,
+                    "Session budget exhausted. Use /budget to increase or clear the limit.",
+                );
+                return Err(err);
+            }
+        };
+        let original_max_tokens = self.agent.config().max_tokens;
+        if let Some(capped) = budget_cap
+            && capped < original_max_tokens
         {
-            renderer.print_error(
-                &context,
-                "Session budget exhausted. Use /budget to increase or clear the limit.",
-            );
-            return Err(Error::bad_request(
-                "session budget exhausted",
-                Some("budget".to_string()),
-            ));
+            self.agent.config_mut().max_tokens = capped;
         }
 
         let previous_len = self.messages.len();
@@ -212,10 +220,16 @@ impl<A: ChatAgent> ChatSession<A> {
             Ok(outcome) => {
                 self.record_usage(outcome);
                 self.auto_save_transcript()?;
+                if self.agent.config().max_tokens != original_max_tokens {
+                    self.agent.config_mut().max_tokens = original_max_tokens;
+                }
                 Ok(())
             }
             Err(err) => {
                 self.messages.truncate(previous_len);
+                if self.agent.config().max_tokens != original_max_tokens {
+                    self.agent.config_mut().max_tokens = original_max_tokens;
+                }
                 Err(err)
             }
         }
@@ -416,6 +430,24 @@ fn tokens_to_u64(value: i32) -> u64 {
     value.max(0) as u64
 }
 
+fn cap_max_tokens_for_budget(
+    session_budget_tokens: Option<u64>,
+    spent_tokens: u64,
+    max_tokens: u32,
+) -> Result<Option<u32>> {
+    let Some(limit) = session_budget_tokens else {
+        return Ok(None);
+    };
+    let remaining = limit.saturating_sub(spent_tokens);
+    if remaining == 0 {
+        return Err(Error::bad_request(
+            "session budget exhausted",
+            Some("budget".to_string()),
+        ));
+    }
+    Ok(Some(std::cmp::min(max_tokens as u64, remaining) as u32))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,5 +503,29 @@ mod tests {
 
         session.set_system_prompt(None);
         assert!(session.system_prompt().is_none());
+    }
+
+    #[test]
+    fn cap_max_tokens_no_budget() {
+        let cap = cap_max_tokens_for_budget(None, 0, 4096).unwrap();
+        assert_eq!(cap, None);
+    }
+
+    #[test]
+    fn cap_max_tokens_under_budget() {
+        let cap = cap_max_tokens_for_budget(Some(1000), 200, 4096).unwrap();
+        assert_eq!(cap, Some(800));
+    }
+
+    #[test]
+    fn cap_max_tokens_preserves_smaller_max() {
+        let cap = cap_max_tokens_for_budget(Some(1000), 200, 300).unwrap();
+        assert_eq!(cap, Some(300));
+    }
+
+    #[test]
+    fn cap_max_tokens_exhausted_errors() {
+        let err = cap_max_tokens_for_budget(Some(100), 100, 50).unwrap_err();
+        assert!(err.to_string().contains("session budget exhausted"));
     }
 }
