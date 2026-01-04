@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use serde_json::{from_reader, to_string_pretty, to_writer_pretty};
+use serde_json::{from_reader, to_writer_pretty};
 use tokio::pin;
 
 use crate::Error;
@@ -462,10 +462,21 @@ impl TranscriptFile {
 fn render_tool_result_content(renderer: &mut dyn Renderer, content: &ToolResultBlockContent) {
     match content {
         ToolResultBlockContent::String(text) => renderer.print_tool_result_text(text),
-        _ => match to_string_pretty(content) {
-            Ok(json) => renderer.print_tool_result_text(&json),
-            Err(_) => renderer.print_tool_result_text("<unrenderable tool result>"),
-        },
+        ToolResultBlockContent::Array(items) => {
+            for (idx, item) in items.iter().enumerate() {
+                if idx > 0 {
+                    renderer.print_tool_result_text("\n");
+                }
+                match item {
+                    crate::types::Content::Text(text) => {
+                        renderer.print_tool_result_text(&text.text)
+                    }
+                    crate::types::Content::Image(_) => {
+                        renderer.print_tool_result_text("[image]");
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -9,6 +9,7 @@
 pub mod chat;
 
 mod agent;
+mod accumulating_stream;
 mod backoff;
 mod client;
 mod error;
@@ -18,15 +19,16 @@ mod sse;
 mod types;
 
 pub use agent::{
-    Agent, Budget, FileSystem, IntermediateToolResult, Mount, MountHierarchy, Tool, ToolCallback,
-    ToolResult, ToolSearchFileSystem,
+    Agent, AgentRenderer, AgentStreamContext, Budget, FileSystem, IntermediateToolResult, Mount,
+    MountHierarchy, PlainTextAgentRenderer, Tool, ToolCallback, ToolResult, ToolSearchFileSystem,
 };
+pub use accumulating_stream::AccumulatingStream;
 pub use client::Anthropic;
 pub use error::{Error, Result};
 pub use json_schema::JsonSchema;
 pub use prompt::{
-    assert_contains, assert_max_length, assert_min_length, assert_not_contains, assert_test_passed,
-    test_prompt, PromptTestConfig, PromptTestResult,
+    PromptTestConfig, PromptTestResult, assert_contains, assert_max_length, assert_min_length,
+    assert_not_contains, assert_test_passed, test_prompt,
 };
 pub use types::*;
 
