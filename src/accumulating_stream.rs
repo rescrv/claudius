@@ -272,33 +272,31 @@ impl ContentBlockBuilder {
                 cache_control,
             } => {
                 let input = if saw_delta {
-                    match serde_json::from_str::<Value>(&input_json) {
-                        Ok(value) => value,
-                        Err(err) => {
-                            if stop_reason == Some(StopReason::MaxTokens) {
-                                return Ok(None);
+                    if input_json.trim().is_empty() {
+                        Value::Null
+                    } else {
+                        match serde_json::from_str::<Value>(&input_json) {
+                            Ok(value) => value,
+                            Err(_err) => {
+                                if stop_reason == Some(StopReason::MaxTokens) {
+                                    return Ok(None);
+                                }
+                                Value::String(input_json)
                             }
-                            return Err(Error::serialization(
-                                "failed to parse tool input JSON",
-                                Some(Box::new(err)),
-                            ));
                         }
                     }
                 } else if let Some(input) = input_value {
                     input
-                } else if input_json.is_empty() {
+                } else if input_json.trim().is_empty() {
                     Value::Null
                 } else {
                     match serde_json::from_str::<Value>(&input_json) {
                         Ok(value) => value,
-                        Err(err) => {
+                        Err(_err) => {
                             if stop_reason == Some(StopReason::MaxTokens) {
                                 return Ok(None);
                             }
-                            return Err(Error::serialization(
-                                "failed to parse tool input JSON",
-                                Some(Box::new(err)),
-                            ));
+                            Value::String(input_json)
                         }
                     }
                 };

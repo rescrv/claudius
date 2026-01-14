@@ -22,8 +22,8 @@ mod types;
 
 pub use accumulating_stream::AccumulatingStream;
 pub use agent::{
-    Agent, Budget, FileSystem, IntermediateToolResult, Mount, MountHierarchy, Tool, ToolCallback,
-    ToolResult, ToolSearchFileSystem, TurnOutcome, TurnStep,
+    Agent, Budget, FileSystem, IntermediateToolResult, Mount, MountHierarchy, TokenKind, Tool,
+    ToolCallback, ToolResult, ToolSearchFileSystem, TurnOutcome, TurnStep,
 };
 pub use client::Anthropic;
 pub use error::{Error, Result};
