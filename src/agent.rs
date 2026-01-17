@@ -773,12 +773,27 @@ impl<A: Agent> Tool<A> for ToolSearchFileSystem {
 ///     }
 /// }
 /// ```
+#[derive(Debug)]
 pub struct Budget {
     remaining_micro_cents: Arc<AtomicU64>,
+    total_micro_cents: u64,
     input_token_rate_micro_cents: u64,
     output_token_rate_micro_cents: u64,
     cache_creation_token_rate_micro_cents: u64,
     cache_read_token_rate_micro_cents: u64,
+}
+
+/// Token categories used for cost accounting.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TokenKind {
+    /// Tokens counted as input tokens.
+    Input,
+    /// Tokens counted as output tokens.
+    Output,
+    /// Tokens counted as cache creation tokens.
+    CacheCreation,
+    /// Tokens counted as cache read tokens.
+    CacheRead,
 }
 
 impl Budget {
@@ -806,6 +821,7 @@ impl Budget {
         let remaining_micro_cents = Arc::new(AtomicU64::new(budget_micro_cents));
         Self {
             remaining_micro_cents,
+            total_micro_cents: budget_micro_cents,
             input_token_rate_micro_cents,
             output_token_rate_micro_cents,
             cache_creation_token_rate_micro_cents,
@@ -929,12 +945,12 @@ impl Budget {
     /// well within safe bounds.
     pub fn calculate_cost(&self, usage: &crate::Usage) -> u64 {
         let input_cost =
-            (usage.input_tokens as u64).saturating_mul(self.input_token_rate_micro_cents);
+            (usage.input_tokens.max(0) as u64).saturating_mul(self.input_token_rate_micro_cents);
         let output_cost =
-            (usage.output_tokens as u64).saturating_mul(self.output_token_rate_micro_cents);
-        let cache_creation_cost = (usage.cache_creation_input_tokens.unwrap_or(0) as u64)
+            (usage.output_tokens.max(0) as u64).saturating_mul(self.output_token_rate_micro_cents);
+        let cache_creation_cost = (usage.cache_creation_input_tokens.unwrap_or(0).max(0) as u64)
             .saturating_mul(self.cache_creation_token_rate_micro_cents);
-        let cache_read_cost = (usage.cache_read_input_tokens.unwrap_or(0) as u64)
+        let cache_read_cost = (usage.cache_read_input_tokens.unwrap_or(0).max(0) as u64)
             .saturating_mul(self.cache_read_token_rate_micro_cents);
 
         input_cost
@@ -1042,10 +1058,93 @@ impl Budget {
         self.remaining_micro_cents.load(Ordering::Relaxed)
     }
 
+    /// Returns the total micro-cents allocated to this budget.
+    pub fn total_micro_cents(&self) -> u64 {
+        self.total_micro_cents
+    }
+
+    /// Consumes a token count for a specific token category.
+    ///
+    /// Returns `true` if the budget was sufficient and the tokens were consumed.
+    pub fn consume_token(&self, kind: TokenKind, tokens: u64) -> bool {
+        let rate = match kind {
+            TokenKind::Input => self.input_token_rate_micro_cents,
+            TokenKind::Output => self.output_token_rate_micro_cents,
+            TokenKind::CacheCreation => self.cache_creation_token_rate_micro_cents,
+            TokenKind::CacheRead => self.cache_read_token_rate_micro_cents,
+        };
+        self.consume_cost_micro_cents(tokens.saturating_mul(rate))
+    }
+
+    /// Consumes budget based on an API usage record.
+    pub fn consume_usage(&self, usage: &crate::Usage) -> bool {
+        let cost = self.calculate_cost(usage);
+        self.consume_cost_micro_cents(cost)
+    }
+
+    /// Consumes budget based on an API usage record, saturating at zero.
+    ///
+    /// Returns the amount consumed in micro-cents.
+    pub fn consume_usage_saturating(&self, usage: &crate::Usage) -> u64 {
+        let cost = self.calculate_cost(usage);
+        self.consume_cost_micro_cents_saturating(cost)
+    }
+
+    fn consume_cost_micro_cents(&self, cost_micro_cents: u64) -> bool {
+        loop {
+            let witness = self.remaining_micro_cents.load(Ordering::Relaxed);
+            if witness < cost_micro_cents {
+                return false;
+            }
+            if self
+                .remaining_micro_cents
+                .compare_exchange(
+                    witness,
+                    witness.saturating_sub(cost_micro_cents),
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                )
+                .is_ok()
+            {
+                return true;
+            }
+        }
+    }
+
+    fn consume_cost_micro_cents_saturating(&self, cost_micro_cents: u64) -> u64 {
+        loop {
+            let witness = self.remaining_micro_cents.load(Ordering::Relaxed);
+            if witness == 0 {
+                return 0;
+            }
+            let new_value = witness.saturating_sub(cost_micro_cents);
+            if self
+                .remaining_micro_cents
+                .compare_exchange(witness, new_value, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
+                return witness.saturating_sub(new_value);
+            }
+        }
+    }
+
     /// Legacy field access for backward compatibility.
     #[deprecated(note = "Use remaining_micro_cents() instead")]
     pub fn remaining(&self) -> Arc<AtomicU64> {
         Arc::clone(&self.remaining_micro_cents)
+    }
+}
+
+impl Clone for Budget {
+    fn clone(&self) -> Self {
+        Self {
+            remaining_micro_cents: Arc::clone(&self.remaining_micro_cents),
+            total_micro_cents: self.total_micro_cents,
+            input_token_rate_micro_cents: self.input_token_rate_micro_cents,
+            output_token_rate_micro_cents: self.output_token_rate_micro_cents,
+            cache_creation_token_rate_micro_cents: self.cache_creation_token_rate_micro_cents,
+            cache_read_token_rate_micro_cents: self.cache_read_token_rate_micro_cents,
+        }
     }
 }
 
@@ -1344,6 +1443,18 @@ pub trait FileSystem: Send + Sync {
     async fn search(&self, search: &str) -> Result<String, std::io::Error>;
 
     /// Views the contents of a file, optionally within a specific line range.
+    ///
+    /// # Parameters
+    ///
+    /// * `path` - The path to the file to view
+    /// * `view_range` - Optional tuple of `(start, limit)` using 1-based line numbers.
+    ///   Returns lines where `start <= line_number < limit`. For example, `(1, 4)` returns
+    ///   lines 1, 2, and 3. Both `start` and `limit` must be >= 1.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path does not exist, is not readable, or if `view_range`
+    /// contains a zero value.
     async fn view(
         &self,
         path: &str,
@@ -1359,6 +1470,18 @@ pub trait FileSystem: Send + Sync {
     ) -> Result<String, std::io::Error>;
 
     /// Inserts text at a specific line in a file.
+    ///
+    /// # Parameters
+    ///
+    /// * `path` - The path to the file to modify
+    /// * `insert_line` - The 1-based line number where text will be inserted. Line 1 inserts
+    ///   before the first line. To append to the end of a file with N lines, use `N + 1`.
+    /// * `new_str` - The text to insert
+    ///
+    /// # Errors
+    ///
+    /// Returns [`std::io::ErrorKind::InvalidInput`] if `insert_line` is 0 or greater than
+    /// the number of lines + 1.
     async fn insert(
         &self,
         path: &str,
@@ -1895,10 +2018,10 @@ pub trait Agent: Send + Sync + Sized {
                 struct InsertTool {
                     path: String,
                     insert_line: u32,
-                    new_str: String,
+                    insert_text: String,
                 }
                 let args: InsertTool = serde_json::from_value(tool_use.input)?;
-                self.insert(&args.path, args.insert_line, &args.new_str)
+                self.insert(&args.path, args.insert_line, &args.insert_text)
                     .await
             }
             "create" => {
@@ -2061,6 +2184,14 @@ impl FileSystem for Path<'_> {
         path: &str,
         view_range: Option<(u32, u32)>,
     ) -> Result<String, std::io::Error> {
+        if let Some((start, limit)) = view_range
+            && (start == 0 || limit == 0)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "view_range values must be >= 1",
+            ));
+        }
         let path = sanitize_path(self.clone(), path)?;
         if path.is_file() {
             let content = std::fs::read_to_string(path)?;
@@ -2069,7 +2200,7 @@ impl FileSystem for Path<'_> {
                 .enumerate()
                 .filter(|(idx, _)| {
                     view_range
-                        .map(|(start, limit)| (start..limit).contains(&(*idx as u32 + 1)))
+                        .map(|(start, end)| (start..=end).contains(&(*idx as u32 + 1)))
                         .unwrap_or(true)
                 })
                 .map(|(_, line)| line)
@@ -3661,6 +3792,50 @@ mod tests {
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 
         let err = base.insert("file.txt", 5, "x").await.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn filesystem_view_range_is_one_based() {
+        let dir = make_temp_dir("view_one_based");
+        let file_path = dir.join("file.txt");
+        std::fs::write(&file_path, "line1\nline2\nline3\nline4\n").unwrap();
+        let base = Path::try_from(dir.as_path()).unwrap();
+
+        // view_range=(1, 2) should return lines 1 and 2 (1-based, inclusive)
+        let result = base.view("file.txt", Some((1, 2))).await.unwrap();
+        assert_eq!(result, "line1\nline2\n");
+
+        // view_range=(2, 3) should return lines 2 and 3
+        let result = base.view("file.txt", Some((2, 3))).await.unwrap();
+        assert_eq!(result, "line2\nline3\n");
+
+        // view_range=(1, 4) should return all 4 lines
+        let result = base.view("file.txt", Some((1, 4))).await.unwrap();
+        assert_eq!(result, "line1\nline2\nline3\nline4\n");
+
+        // view_range=(3, 3) should return just line 3
+        let result = base.view("file.txt", Some((3, 3))).await.unwrap();
+        assert_eq!(result, "line3\n");
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn filesystem_view_range_rejects_zero() {
+        let dir = make_temp_dir("view_zero");
+        let file_path = dir.join("file.txt");
+        std::fs::write(&file_path, "line1\nline2\n").unwrap();
+        let base = Path::try_from(dir.as_path()).unwrap();
+
+        // start=0 should error
+        let err = base.view("file.txt", Some((0, 2))).await.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+
+        // limit=0 should error
+        let err = base.view("file.txt", Some((1, 0))).await.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 
         std::fs::remove_dir_all(dir).ok();

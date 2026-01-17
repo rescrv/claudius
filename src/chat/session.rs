@@ -15,13 +15,14 @@ use crate::Error;
 use crate::chat::config::ChatConfig;
 use crate::error::Result;
 use crate::types::{
-    CacheControlEphemeral, ContentBlock, MessageParam, MessageParamContent, MessageRole, Model,
-    TextBlock, Usage,
+    CacheControlEphemeral, ContentBlock, MessageCreateTemplate, MessageParam, MessageParamContent,
+    MessageRole, Model, SystemPrompt, TextBlock, Usage,
 };
-use crate::{Agent, Anthropic, Budget, Renderer, SystemPrompt, ThinkingConfig, TurnOutcome};
+use crate::{Agent, Anthropic, Budget, Renderer, ThinkingConfig, TurnOutcome};
 
 /// Maximum number of cache control breakpoints allowed by the API.
 const MAX_CACHE_BREAKPOINTS: usize = 4;
+const BUDGET_BUFFER_MICRO_CENTS: u64 = 1;
 
 /// Agent behavior expected by the chat session.
 pub trait ChatAgent: Agent {
@@ -47,48 +48,55 @@ impl ConfigAgent {
 #[async_trait::async_trait]
 impl Agent for ConfigAgent {
     async fn max_tokens(&self) -> u32 {
-        self.config.max_tokens
+        self.config.max_tokens()
     }
 
     async fn model(&self) -> Model {
-        self.config.model.clone()
+        self.config.model()
     }
 
     async fn stop_sequences(&self) -> Option<Vec<String>> {
-        if self.config.stop_sequences.is_empty() {
+        let sequences = self.config.stop_sequences();
+        if sequences.is_empty() {
             None
         } else {
-            Some(self.config.stop_sequences.clone())
+            Some(sequences.to_vec())
         }
     }
 
     async fn system(&self) -> Option<SystemPrompt> {
-        let prompt = self.config.system_prompt.as_ref()?;
+        let prompt = self.config.template.system.as_ref()?;
 
         if self.config.caching_enabled {
-            // Return system prompt as blocks with cache_control marker
-            let block =
-                TextBlock::new(prompt.clone()).with_cache_control(CacheControlEphemeral::new());
-            Some(SystemPrompt::from_blocks(vec![block]))
+            let mut blocks = match prompt {
+                SystemPrompt::String(text) => vec![TextBlock::new(text.clone())],
+                SystemPrompt::Blocks(existing) => {
+                    existing.iter().map(|b| b.block.clone()).collect()
+                }
+            };
+            if let Some(last) = blocks.last_mut() {
+                last.cache_control = Some(CacheControlEphemeral::new());
+            }
+            Some(SystemPrompt::from_blocks(blocks))
         } else {
-            Some(SystemPrompt::from(prompt.clone()))
+            Some(prompt.clone())
         }
     }
 
     async fn temperature(&self) -> Option<f32> {
-        self.config.temperature
+        self.config.template.temperature
     }
 
     async fn thinking(&self) -> Option<ThinkingConfig> {
-        self.config.thinking_budget.map(ThinkingConfig::enabled)
+        self.config.template.thinking
     }
 
     async fn top_k(&self) -> Option<u32> {
-        self.config.top_k
+        self.config.template.top_k
     }
 
     async fn top_p(&self) -> Option<f32> {
-        self.config.top_p
+        self.config.template.top_p
     }
 }
 
@@ -113,7 +121,6 @@ pub struct ChatSession<A: ChatAgent> {
     usage_totals: Usage,
     last_turn_usage: Option<Usage>,
     request_count: u64,
-    budget_spent_tokens: u64,
     budget: Arc<Budget>,
 }
 
@@ -180,57 +187,41 @@ impl<A: ChatAgent> ChatSession<A> {
             usage_totals: Usage::new(0, 0),
             last_turn_usage: None,
             request_count: 0,
-            budget_spent_tokens: 0,
             budget,
         }
     }
 
-    /// Sends a user message and streams the response.
+    /// Sends a user message with content blocks and streams the response.
     ///
-    /// This method:
-    /// 1. Adds the user message to history
-    /// 2. Sends a streaming request to the API
-    /// 3. Renders response chunks as they arrive
-    /// 4. Adds the complete assistant response to history
+    /// This method accepts a `MessageParam` directly, allowing content blocks
+    /// such as documents, images, and text to be included.
     ///
     /// # Errors
     ///
     /// Returns an error if the API request fails.
-    pub async fn send_streaming(
+    pub async fn send_message(
         &mut self,
-        user_input: &str,
+        message: MessageParam,
         renderer: &mut dyn Renderer,
     ) -> Result<()> {
         let context = ();
-        let session_budget_tokens = self.agent.config().session_budget_tokens;
-        let budget_cap = match cap_max_tokens_for_budget(
-            session_budget_tokens,
-            self.budget_spent_tokens,
-            self.agent.config().max_tokens,
-        ) {
-            Ok(cap) => cap,
-            Err(err) => {
-                renderer.print_error(
-                    &context,
-                    "Session budget exhausted. Use /budget to increase or clear the limit.",
-                );
-                return Err(err);
-            }
-        };
-        let original_max_tokens = self.agent.config().max_tokens;
-        if let Some(capped) = budget_cap
-            && capped < original_max_tokens
+        if let Some(budget) = self.agent.config().session_budget.as_ref()
+            && !budget_allows_next_turn(budget, self.last_turn_usage.as_ref())
         {
-            self.agent.config_mut().max_tokens = capped;
+            renderer.print_error(
+                &context,
+                "Session budget exhausted. Use /budget to increase or clear the limit.",
+            );
+            return Err(Error::bad_request(
+                "session budget exhausted",
+                Some("budget".to_string()),
+            ));
         }
 
         let previous_len = self.messages.len();
 
         // Add user message to history
-        self.messages.push(MessageParam {
-            role: MessageRole::User,
-            content: MessageParamContent::String(user_input.to_string()),
-        });
+        self.messages.push(message);
 
         // Apply cache_control markers to recent user messages if caching is enabled
         if self.agent.config().caching_enabled {
@@ -246,16 +237,10 @@ impl<A: ChatAgent> ChatSession<A> {
             Ok(outcome) => {
                 self.record_usage(outcome);
                 self.auto_save_transcript()?;
-                if self.agent.config().max_tokens != original_max_tokens {
-                    self.agent.config_mut().max_tokens = original_max_tokens;
-                }
                 Ok(())
             }
             Err(err) => {
                 self.messages.truncate(previous_len);
-                if self.agent.config().max_tokens != original_max_tokens {
-                    self.agent.config_mut().max_tokens = original_max_tokens;
-                }
                 Err(err)
             }
         }
@@ -271,111 +256,24 @@ impl<A: ChatAgent> ChatSession<A> {
         self.messages.len()
     }
 
-    /// Changes the model used for responses.
-    pub fn set_model(&mut self, model: Model) {
-        self.agent.config_mut().model = model;
+    /// Returns the chat configuration.
+    pub fn config(&self) -> &ChatConfig {
+        self.agent.config()
     }
 
-    /// Returns the current model.
-    pub fn model(&self) -> &Model {
-        &self.agent.config().model
+    /// Returns the chat configuration for mutation.
+    pub fn config_mut(&mut self) -> &mut ChatConfig {
+        self.agent.config_mut()
     }
 
-    /// Sets or clears the system prompt.
-    pub fn set_system_prompt(&mut self, prompt: Option<String>) {
-        self.agent.config_mut().system_prompt = prompt;
+    /// Returns the message template used for requests.
+    pub fn template(&self) -> &MessageCreateTemplate {
+        &self.agent.config().template
     }
 
-    /// Returns the current system prompt, if any.
-    pub fn system_prompt(&self) -> Option<&str> {
-        self.agent.config().system_prompt.as_deref()
-    }
-
-    /// Sets the maximum tokens per response.
-    pub fn set_max_tokens(&mut self, max_tokens: u32) {
-        self.agent.config_mut().max_tokens = max_tokens;
-    }
-
-    /// Sets the sampling temperature.
-    pub fn set_temperature(&mut self, temperature: Option<f32>) {
-        self.agent.config_mut().temperature = temperature;
-    }
-
-    /// Sets the top-p value.
-    pub fn set_top_p(&mut self, top_p: Option<f32>) {
-        self.agent.config_mut().top_p = top_p;
-    }
-
-    /// Sets the top-k value.
-    pub fn set_top_k(&mut self, top_k: Option<u32>) {
-        self.agent.config_mut().top_k = top_k;
-    }
-
-    /// Adds a stop sequence to the persistent list.
-    pub fn add_stop_sequence(&mut self, sequence: String) {
-        if !self
-            .agent
-            .config()
-            .stop_sequences
-            .iter()
-            .any(|existing| existing == &sequence)
-        {
-            self.agent.config_mut().stop_sequences.push(sequence);
-        }
-    }
-
-    /// Clears all stop sequences.
-    pub fn clear_stop_sequences(&mut self) {
-        self.agent.config_mut().stop_sequences.clear();
-    }
-
-    /// Returns the configured stop sequences.
-    pub fn stop_sequences(&self) -> &[String] {
-        &self.agent.config().stop_sequences
-    }
-
-    /// Sets the extended thinking budget.
-    /// `None` disables thinking, `Some(budget)` enables with the given token budget.
-    pub fn set_thinking_budget(&mut self, budget: Option<u32>) {
-        self.agent.config_mut().thinking_budget = budget;
-    }
-
-    /// Returns the extended thinking budget, if enabled.
-    pub fn thinking_budget(&self) -> Option<u32> {
-        self.agent.config().thinking_budget
-    }
-
-    /// Sets whether prompt caching is enabled.
-    pub fn set_caching(&mut self, enabled: bool) {
-        self.agent.config_mut().caching_enabled = enabled;
-    }
-
-    /// Returns whether prompt caching is enabled.
-    pub fn caching_enabled(&self) -> bool {
-        self.agent.config().caching_enabled
-    }
-
-    /// Sets the session token budget.
-    pub fn set_session_budget(&mut self, budget: Option<u64>) {
-        self.agent.config_mut().session_budget_tokens = budget;
-    }
-
-    /// Returns the remaining session budget, if any.
-    pub fn session_budget_remaining(&self) -> Option<i64> {
-        self.agent.config().session_budget_tokens.map(|limit| {
-            let spent = self.budget_spent_tokens as i64;
-            limit as i64 - spent
-        })
-    }
-
-    /// Sets the auto-save transcript path.
-    pub fn set_transcript_path(&mut self, path: Option<PathBuf>) {
-        self.agent.config_mut().transcript_path = path;
-    }
-
-    /// Returns the configured transcript path, if any.
-    pub fn transcript_path(&self) -> Option<&Path> {
-        self.agent.config().transcript_path.as_deref()
+    /// Returns the message template used for requests for mutation.
+    pub fn template_mut(&mut self) -> &mut MessageCreateTemplate {
+        &mut self.agent.config_mut().template
     }
 
     /// Saves the transcript to the specified path.
@@ -404,18 +302,26 @@ impl<A: ChatAgent> ChatSession<A> {
     /// Returns the current session statistics snapshot.
     pub fn stats(&self) -> SessionStats {
         let config = self.agent.config();
+        let (session_budget_tokens, budget_spent_tokens) = match config.session_budget.as_ref() {
+            Some(budget) => {
+                let total = budget.total_micro_cents();
+                let remaining = budget.remaining_micro_cents();
+                (Some(total), total.saturating_sub(remaining))
+            }
+            None => (None, 0),
+        };
         SessionStats {
-            model: config.model.clone(),
+            model: config.model(),
             message_count: self.message_count(),
-            max_tokens: config.max_tokens,
-            system_prompt: config.system_prompt.clone(),
-            temperature: config.temperature,
-            top_p: config.top_p,
-            top_k: config.top_k,
-            stop_sequences: config.stop_sequences.clone(),
-            thinking_budget: config.thinking_budget,
-            session_budget_tokens: config.session_budget_tokens,
-            budget_spent_tokens: self.budget_spent_tokens,
+            max_tokens: config.max_tokens(),
+            system_prompt: config.system_prompt_text().map(str::to_string),
+            temperature: config.template.temperature,
+            top_p: config.template.top_p,
+            top_k: config.template.top_k,
+            stop_sequences: config.template.stop_sequences.clone().unwrap_or_default(),
+            thinking_budget: config.thinking_budget(),
+            session_budget_tokens,
+            budget_spent_tokens,
             transcript_path: config.transcript_path.clone(),
             total_input_tokens: tokens_to_u64(self.usage_totals.input_tokens),
             total_output_tokens: tokens_to_u64(self.usage_totals.output_tokens),
@@ -444,9 +350,9 @@ impl<A: ChatAgent> ChatSession<A> {
         self.last_turn_usage = Some(outcome.usage);
         self.usage_totals = self.usage_totals + outcome.usage;
         self.request_count = self.request_count.saturating_add(outcome.request_count);
-        let turn_total =
-            tokens_to_u64(outcome.usage.input_tokens) + tokens_to_u64(outcome.usage.output_tokens);
-        self.budget_spent_tokens = self.budget_spent_tokens.saturating_add(turn_total);
+        if let Some(budget) = self.agent.config().session_budget.as_ref() {
+            budget.consume_usage_saturating(&outcome.usage);
+        }
     }
 
     fn auto_save_transcript(&self) -> Result<()> {
@@ -477,22 +383,16 @@ fn tokens_to_u64(value: i32) -> u64 {
     value.max(0) as u64
 }
 
-fn cap_max_tokens_for_budget(
-    session_budget_tokens: Option<u64>,
-    spent_tokens: u64,
-    max_tokens: u32,
-) -> Result<Option<u32>> {
-    let Some(limit) = session_budget_tokens else {
-        return Ok(None);
-    };
-    let remaining = limit.saturating_sub(spent_tokens);
+fn budget_allows_next_turn(budget: &Budget, last_turn_usage: Option<&Usage>) -> bool {
+    let remaining = budget.remaining_micro_cents();
     if remaining == 0 {
-        return Err(Error::bad_request(
-            "session budget exhausted",
-            Some("budget".to_string()),
-        ));
+        return false;
     }
-    Ok(Some(std::cmp::min(max_tokens as u64, remaining) as u32))
+    let Some(usage) = last_turn_usage else {
+        return true;
+    };
+    let cost = budget.calculate_cost(usage);
+    cost.saturating_add(BUDGET_BUFFER_MICRO_CENTS) < remaining
 }
 
 /// Applies cache_control markers to the last content block of up to N user messages.
@@ -603,7 +503,7 @@ fn set_cache_control_on_block(block: &mut ContentBlock) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::KnownModel;
+    use crate::types::{KnownModel, SystemPrompt};
 
     #[test]
     fn new_session_empty() {
@@ -631,54 +531,59 @@ mod tests {
     }
 
     #[test]
-    fn set_model() {
+    fn template_updates_model() {
         let client = Anthropic::new(None).unwrap();
         let config = ChatConfig::default();
         let mut session = ChatSession::new(client, config);
 
-        assert_eq!(session.model(), &Model::Known(KnownModel::ClaudeHaiku45));
+        assert_eq!(
+            session.template().model,
+            Some(Model::Known(KnownModel::ClaudeHaiku45))
+        );
 
-        session.set_model(Model::Known(KnownModel::ClaudeSonnet40));
-        assert_eq!(session.model(), &Model::Known(KnownModel::ClaudeSonnet40));
+        session.template_mut().model = Some(Model::Known(KnownModel::ClaudeSonnet40));
+        assert_eq!(
+            session.template().model,
+            Some(Model::Known(KnownModel::ClaudeSonnet40))
+        );
     }
 
     #[test]
-    fn set_system_prompt() {
+    fn template_updates_system_prompt() {
         let client = Anthropic::new(None).unwrap();
         let config = ChatConfig::default();
         let mut session = ChatSession::new(client, config);
 
-        assert!(session.system_prompt().is_none());
+        assert!(session.template().system.is_none());
 
-        session.set_system_prompt(Some("Be helpful".to_string()));
-        assert_eq!(session.system_prompt(), Some("Be helpful"));
+        session.template_mut().system = Some(SystemPrompt::from("Be helpful"));
+        assert!(matches!(
+            session.template().system,
+            Some(SystemPrompt::String(ref text)) if text == "Be helpful"
+        ));
 
-        session.set_system_prompt(None);
-        assert!(session.system_prompt().is_none());
+        session.template_mut().system = None;
+        assert!(session.template().system.is_none());
     }
 
     #[test]
-    fn cap_max_tokens_no_budget() {
-        let cap = cap_max_tokens_for_budget(None, 0, 4096).unwrap();
-        assert_eq!(cap, None);
+    fn budget_allows_next_turn_without_usage() {
+        let budget = Budget::new_with_rates(1000, 1, 1, 0, 0);
+        assert!(budget_allows_next_turn(&budget, None));
     }
 
     #[test]
-    fn cap_max_tokens_under_budget() {
-        let cap = cap_max_tokens_for_budget(Some(1000), 200, 4096).unwrap();
-        assert_eq!(cap, Some(800));
+    fn budget_allows_next_turn_with_usage() {
+        let budget = Budget::new_with_rates(1000, 1, 1, 0, 0);
+        let usage = Usage::new(400, 0);
+        assert!(budget_allows_next_turn(&budget, Some(&usage)));
     }
 
     #[test]
-    fn cap_max_tokens_preserves_smaller_max() {
-        let cap = cap_max_tokens_for_budget(Some(1000), 200, 300).unwrap();
-        assert_eq!(cap, Some(300));
-    }
-
-    #[test]
-    fn cap_max_tokens_exhausted_errors() {
-        let err = cap_max_tokens_for_budget(Some(100), 100, 50).unwrap_err();
-        assert!(err.to_string().contains("session budget exhausted"));
+    fn budget_blocks_next_turn_when_over_grace() {
+        let budget = Budget::new_with_rates(100, 1, 1, 0, 0);
+        let usage = Usage::new(100, 0);
+        assert!(!budget_allows_next_turn(&budget, Some(&usage)));
     }
 
     #[test]

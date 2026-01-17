@@ -187,6 +187,50 @@ impl MessageCreateTemplate {
         self
     }
 
+    /// Merge another template into this one, overriding any fields set in `other`.
+    pub fn merge(mut self, other: MessageCreateTemplate) -> Self {
+        if other.max_tokens.is_some() {
+            self.max_tokens = other.max_tokens;
+        }
+        if other.messages.is_some() {
+            self.messages = other.messages;
+        }
+        if other.model.is_some() {
+            self.model = other.model;
+        }
+        if other.metadata.is_some() {
+            self.metadata = other.metadata;
+        }
+        if other.stop_sequences.is_some() {
+            self.stop_sequences = other.stop_sequences;
+        }
+        if other.system.is_some() {
+            self.system = other.system;
+        }
+        if other.temperature.is_some() {
+            self.temperature = other.temperature;
+        }
+        if other.thinking.is_some() {
+            self.thinking = other.thinking;
+        }
+        if other.tool_choice.is_some() {
+            self.tool_choice = other.tool_choice;
+        }
+        if other.tools.is_some() {
+            self.tools = other.tools;
+        }
+        if other.top_k.is_some() {
+            self.top_k = other.top_k;
+        }
+        if other.top_p.is_some() {
+            self.top_p = other.top_p;
+        }
+        if other.stream.is_some() {
+            self.stream = other.stream;
+        }
+        self
+    }
+
     /// Apply this template to the given `MessageCreateParams`.
     ///
     /// Fields that are `Some` in the template will override the corresponding
@@ -356,6 +400,23 @@ mod tests {
 
         assert_eq!(params.max_tokens, 2048);
         assert!(params.system.is_some());
+    }
+
+    #[test]
+    fn template_merge_overrides_fields() {
+        let base = MessageCreateTemplate::new()
+            .with_max_tokens(1024)
+            .with_model(KnownModel::Claude37SonnetLatest)
+            .with_stream(false);
+        let override_template = MessageCreateTemplate::new()
+            .with_max_tokens(2048)
+            .with_stream(true);
+
+        let merged = base.merge(override_template);
+
+        assert_eq!(merged.max_tokens, Some(2048));
+        assert!(merged.model.is_some());
+        assert_eq!(merged.stream, Some(true));
     }
 
     #[test]
