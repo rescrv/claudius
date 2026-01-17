@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    MessageParam, Metadata, Model, SystemPrompt, TextBlock, ThinkingConfig, ToolChoice,
-    ToolUnionParam,
+    MessageParam, Metadata, Model, OutputFormat, SystemPrompt, TextBlock, ThinkingConfig,
+    ToolChoice, ToolUnionParam,
 };
 
 /// Security limits for DoS prevention
@@ -43,6 +43,19 @@ pub struct MessageCreateParams {
     /// An object describing metadata about the request.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
+
+    /// Output format configuration for structured outputs.
+    ///
+    /// When set, constrains Claude's response to follow a specific JSON schema,
+    /// ensuring valid, parseable output for downstream processing.
+    ///
+    /// This feature requires the beta header `structured-outputs-2025-11-13`.
+    ///
+    /// See
+    /// [structured outputs](https://docs.anthropic.com/en/docs/build-with-claude/structured-outputs)
+    /// for details.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_format: Option<OutputFormat>,
 
     /// Custom text sequences that will cause the model to stop generating.
     ///
@@ -161,6 +174,7 @@ impl MessageCreateParams {
             messages,
             model,
             metadata: None,
+            output_format: None,
             stop_sequences: None,
             system: None,
             temperature: None,
@@ -180,6 +194,7 @@ impl MessageCreateParams {
             messages,
             model,
             metadata: None,
+            output_format: None,
             stop_sequences: None,
             system: None,
             temperature: None,
@@ -195,6 +210,34 @@ impl MessageCreateParams {
     /// Add metadata to the parameters.
     pub fn with_metadata(mut self, metadata: Metadata) -> Self {
         self.metadata = Some(metadata);
+        self
+    }
+
+    /// Add output format for structured outputs.
+    ///
+    /// When set, constrains Claude's response to follow a specific JSON schema,
+    /// ensuring valid, parseable output for downstream processing.
+    ///
+    /// This feature requires the beta header `structured-outputs-2025-11-13`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use serde_json::json;
+    /// use claudius::{MessageCreateParams, OutputFormat, KnownModel};
+    ///
+    /// let params = MessageCreateParams::simple("Extract info", KnownModel::ClaudeHaiku45)
+    ///     .with_output_format(OutputFormat::json_schema(json!({
+    ///         "type": "object",
+    ///         "properties": {
+    ///             "name": { "type": "string" }
+    ///         },
+    ///         "required": ["name"],
+    ///         "additionalProperties": false
+    ///     })));
+    /// ```
+    pub fn with_output_format(mut self, output_format: OutputFormat) -> Self {
+        self.output_format = Some(output_format);
         self
     }
 
@@ -486,6 +529,32 @@ impl MessageCreateParams {
         self.messages.extend(messages.into_iter().map(|m| m.into()));
         self
     }
+
+    /// Check if this request requires the structured outputs beta header.
+    ///
+    /// Returns `true` if either:
+    /// - `output_format` is set (for JSON outputs)
+    /// - Any tool has `strict: true` (for strict tool use)
+    ///
+    /// When this returns `true`, the client should include the
+    /// `anthropic-beta: structured-outputs-2025-11-13` header.
+    pub fn requires_structured_outputs_beta(&self) -> bool {
+        // Check if output_format is set
+        if self.output_format.is_some() {
+            return true;
+        }
+
+        // Check if any tool has strict mode enabled
+        if let Some(ref tools) = self.tools {
+            for tool in tools {
+                if tool.is_strict() {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
 }
 
 impl Default for MessageCreateParams {
@@ -497,6 +566,7 @@ impl Default for MessageCreateParams {
             messages: vec![],
             model: Model::Known(KnownModel::Claude37SonnetLatest),
             metadata: None,
+            output_format: None,
             stop_sequences: None,
             system: None,
             temperature: None,
@@ -657,5 +727,85 @@ mod tests {
             .with_system("You are a helpful assistant.");
 
         assert!(params.system.is_some());
+    }
+
+    #[test]
+    fn requires_structured_outputs_beta_with_output_format() {
+        use crate::types::OutputFormat;
+
+        let params = MessageCreateParams::simple("Hello", KnownModel::Claude37SonnetLatest)
+            .with_output_format(OutputFormat::json_schema(json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string" }
+                },
+                "required": ["name"],
+                "additionalProperties": false
+            })));
+
+        assert!(
+            params.requires_structured_outputs_beta(),
+            "params with output_format should require structured outputs beta"
+        );
+    }
+
+    #[test]
+    fn requires_structured_outputs_beta_with_strict_tool() {
+        use crate::types::{ToolParam, ToolUnionParam};
+
+        let tool = ToolParam::new(
+            "get_weather".to_string(),
+            json!({
+                "type": "object",
+                "properties": {
+                    "location": { "type": "string" }
+                },
+                "required": ["location"],
+                "additionalProperties": false
+            }),
+        )
+        .with_strict(true);
+
+        let params = MessageCreateParams::simple("Hello", KnownModel::Claude37SonnetLatest)
+            .with_tools(vec![ToolUnionParam::CustomTool(tool)]);
+
+        assert!(
+            params.requires_structured_outputs_beta(),
+            "params with strict tool should require structured outputs beta"
+        );
+    }
+
+    #[test]
+    fn requires_structured_outputs_beta_with_non_strict_tool() {
+        use crate::types::{ToolParam, ToolUnionParam};
+
+        let tool = ToolParam::new(
+            "get_weather".to_string(),
+            json!({
+                "type": "object",
+                "properties": {
+                    "location": { "type": "string" }
+                },
+                "required": ["location"]
+            }),
+        );
+
+        let params = MessageCreateParams::simple("Hello", KnownModel::Claude37SonnetLatest)
+            .with_tools(vec![ToolUnionParam::CustomTool(tool)]);
+
+        assert!(
+            !params.requires_structured_outputs_beta(),
+            "params with non-strict tool should not require structured outputs beta"
+        );
+    }
+
+    #[test]
+    fn requires_structured_outputs_beta_without_features() {
+        let params = MessageCreateParams::simple("Hello", KnownModel::Claude37SonnetLatest);
+
+        assert!(
+            !params.requires_structured_outputs_beta(),
+            "params without output_format or strict tools should not require structured outputs beta"
+        );
     }
 }

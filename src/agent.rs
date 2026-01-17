@@ -486,6 +486,7 @@ impl<A: Agent> Tool<A> for ToolSearchFileSystem {
             name,
             description,
             cache_control,
+            strict: None,
         })
     }
 }
@@ -1974,6 +1975,7 @@ pub trait Agent: Send + Sync + Sized {
             model: self.model().await,
             messages,
             metadata: self.metadata().await,
+            output_format: None,
             stop_sequences: self.stop_sequences().await,
             system: self.system().await.clone(),
             thinking: self.thinking().await,
