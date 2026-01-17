@@ -209,6 +209,7 @@ impl<A: Agent> ToolCallback<A> for BashCallback {
         #[derive(serde::Deserialize)]
         struct BashTool {
             command: String,
+            #[serde(default)]
             restart: bool,
         }
         let bash: BashTool = match serde_json::from_value(tool_use.input.clone()) {
@@ -1486,7 +1487,7 @@ pub trait FileSystem: Send + Sync {
         &self,
         path: &str,
         insert_line: u32,
-        new_str: &str,
+        insert_text: &str,
     ) -> Result<String, std::io::Error>;
 
     /// Create a file or error if it already exists.
@@ -2007,22 +2008,28 @@ pub trait Agent: Send + Sync + Sized {
                 struct StrReplaceTool {
                     path: String,
                     old_str: String,
-                    new_str: String,
+                    new_str: Option<String>,
                 }
                 let args: StrReplaceTool = serde_json::from_value(tool_use.input)?;
-                self.str_replace(&args.path, &args.old_str, &args.new_str)
-                    .await
+                let new_str = args.new_str.as_deref().unwrap_or("");
+                self.str_replace(&args.path, &args.old_str, new_str).await
             }
             "insert" => {
                 #[derive(serde::Deserialize)]
                 struct InsertTool {
                     path: String,
                     insert_line: u32,
-                    insert_text: String,
+                    insert_text: Option<String>,
+                    new_str: Option<String>,
                 }
                 let args: InsertTool = serde_json::from_value(tool_use.input)?;
-                self.insert(&args.path, args.insert_line, &args.insert_text)
-                    .await
+                let text = args.insert_text.or(args.new_str).ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "missing insert_text field",
+                    )
+                })?;
+                self.insert(&args.path, args.insert_line, &text).await
             }
             "create" => {
                 /// Tool parameters for file creation.
@@ -2103,10 +2110,10 @@ pub trait Agent: Send + Sync + Sized {
         &self,
         path: &str,
         insert_line: u32,
-        new_str: &str,
+        insert_text: &str,
     ) -> Result<String, std::io::Error> {
         if let Some(fs) = self.filesystem().await {
-            fs.insert(path, insert_line, new_str).await
+            fs.insert(path, insert_line, insert_text).await
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
@@ -2264,29 +2271,23 @@ impl FileSystem for Path<'_> {
         &self,
         path: &str,
         insert_line: u32,
-        new_str: &str,
+        insert_text: &str,
     ) -> Result<String, std::io::Error> {
         let path = sanitize_path(self.clone(), path)?;
         if path.is_file() {
-            if insert_line == 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "insert_line must be >= 1",
-                ));
-            }
             let content = std::fs::read_to_string(&path)?;
             let mut lines = content
                 .split_terminator('\n')
                 .map(|line| line.to_string())
                 .collect::<Vec<_>>();
-            let insert_idx = insert_line as usize - 1;
+            let insert_idx = insert_line as usize;
             if insert_idx > lines.len() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     "insert_line out of range",
                 ));
             }
-            lines.insert(insert_idx, new_str.to_string());
+            lines.insert(insert_idx, insert_text.to_string());
             let mut out = lines.join("\n");
             out.push('\n');
             std::fs::write(path, out)?;
@@ -2382,7 +2383,7 @@ impl FileSystem for Mount {
         &self,
         path: &str,
         insert_line: u32,
-        new_str: &str,
+        insert_text: &str,
     ) -> Result<String, std::io::Error> {
         match self.perm {
             Permissions::ReadOnly => Err(std::io::Error::new(
@@ -2390,7 +2391,7 @@ impl FileSystem for Mount {
                 "insert not allowed with ReadOnly permissions",
             )),
             Permissions::WriteOnly | Permissions::ReadWrite => {
-                self.fs.insert(path, insert_line, new_str).await
+                self.fs.insert(path, insert_line, insert_text).await
             }
         }
     }
@@ -2508,10 +2509,10 @@ impl FileSystem for MountHierarchy {
         &self,
         path: &str,
         insert_line: u32,
-        new_str: &str,
+        insert_text: &str,
     ) -> Result<String, std::io::Error> {
         let (fs, path) = self.fs_for_path(path)?;
-        fs.insert(path.as_str(), insert_line, new_str).await
+        fs.insert(path.as_str(), insert_line, insert_text).await
     }
 
     async fn create(&self, path: &str, file_text: &str) -> Result<String, std::io::Error> {
@@ -3369,7 +3370,7 @@ mod tests {
             &self,
             _path: &str,
             _old_str: &str,
-            _new_str: &str,
+            _insert_text: &str,
         ) -> Result<String, std::io::Error> {
             self.str_replace_result.to_result()
         }
@@ -3378,7 +3379,7 @@ mod tests {
             &self,
             _path: &str,
             _insert_line: u32,
-            _new_str: &str,
+            _insert_text: &str,
         ) -> Result<String, std::io::Error> {
             self.insert_result.to_result()
         }
@@ -3764,33 +3765,48 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn filesystem_insert_is_one_based_and_appends() {
-        let dir = make_temp_dir("insert_one_based");
+    async fn filesystem_insert_zero_prepends() {
+        let dir = make_temp_dir("insert_zero");
         let file_path = dir.join("file.txt");
         std::fs::write(&file_path, "a\nb\n").unwrap();
         let base = Path::try_from(dir.as_path()).unwrap();
 
-        base.insert("file.txt", 1, "x").await.unwrap();
+        // insert_line=0 places text at the beginning of the file
+        base.insert("file.txt", 0, "x").await.unwrap();
         let contents = std::fs::read_to_string(&file_path).unwrap();
         assert_eq!(contents, "x\na\nb\n");
-
-        base.insert("file.txt", 4, "y").await.unwrap();
-        let contents = std::fs::read_to_string(&file_path).unwrap();
-        assert_eq!(contents, "x\na\nb\ny\n");
 
         std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
-    async fn filesystem_insert_rejects_invalid_lines() {
+    async fn filesystem_insert_after_line() {
+        let dir = make_temp_dir("insert_after");
+        let file_path = dir.join("file.txt");
+        std::fs::write(&file_path, "a\nb\n").unwrap();
+        let base = Path::try_from(dir.as_path()).unwrap();
+
+        // insert_line=1 inserts after line 1
+        base.insert("file.txt", 1, "x").await.unwrap();
+        let contents = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(contents, "a\nx\nb\n");
+
+        // insert_line=3 appends at the end (after line 3)
+        base.insert("file.txt", 3, "y").await.unwrap();
+        let contents = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(contents, "a\nx\nb\ny\n");
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn filesystem_insert_rejects_out_of_range() {
         let dir = make_temp_dir("insert_invalid");
         let file_path = dir.join("file.txt");
         std::fs::write(&file_path, "a\nb\n").unwrap();
         let base = Path::try_from(dir.as_path()).unwrap();
 
-        let err = base.insert("file.txt", 0, "x").await.unwrap_err();
-        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
-
+        // insert_line=5 is out of range for a 2-line file
         let err = base.insert("file.txt", 5, "x").await.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 
@@ -4691,5 +4707,59 @@ mod tests {
         // Test legacy consume method
         assert!(allocation.consume(25)); // Legacy method
         assert_eq!(allocation.remaining_tokens(), 25);
+    }
+
+    #[tokio::test]
+    async fn insert_at_line_zero_prepends_to_file() {
+        let temp_dir = make_temp_dir("insert_zero");
+        let file_path = temp_dir.join("test.txt");
+        std::fs::write(&file_path, "line1\nline2\nline3\n").unwrap();
+
+        let path = Path::try_from(temp_dir.clone()).unwrap();
+        let result = path.insert("test.txt", 0, "prepended").await;
+        assert!(
+            result.is_ok(),
+            "insert at line 0 should succeed: {result:?}"
+        );
+
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(content, "prepended\nline1\nline2\nline3\n");
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn insert_at_line_one_inserts_after_first_line() {
+        let temp_dir = make_temp_dir("insert_one");
+        let file_path = temp_dir.join("test.txt");
+        std::fs::write(&file_path, "line1\nline2\nline3\n").unwrap();
+
+        let path = Path::try_from(temp_dir.clone()).unwrap();
+        let result = path.insert("test.txt", 1, "inserted").await;
+        assert!(
+            result.is_ok(),
+            "insert at line 1 should succeed: {result:?}"
+        );
+
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(content, "line1\ninserted\nline2\nline3\n");
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn str_replace_without_new_str_deletes_old_str() {
+        let temp_dir = make_temp_dir("str_replace_delete");
+        let file_path = temp_dir.join("test.txt");
+        std::fs::write(&file_path, "hello world\n").unwrap();
+
+        let path = Path::try_from(temp_dir.clone()).unwrap();
+        let result = path.str_replace("test.txt", " world", "").await;
+        assert!(
+            result.is_ok(),
+            "str_replace with empty new_str should succeed: {result:?}"
+        );
+
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(content, "hello\n");
+        std::fs::remove_dir_all(temp_dir).unwrap();
     }
 }
