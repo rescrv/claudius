@@ -81,6 +81,23 @@ impl ToolUnionParam {
     pub fn new_web_search_tool() -> Self {
         Self::WebSearch20250305(WebSearchTool20250305::new())
     }
+
+    /// Check if this tool has strict mode enabled.
+    ///
+    /// Only custom tools can have strict mode enabled. All other tool types
+    /// return `false`.
+    pub fn is_strict(&self) -> bool {
+        match self {
+            Self::CustomTool(tool) => tool.strict == Some(true),
+            // Built-in tools don't support strict mode
+            Self::Bash20241022(_)
+            | Self::Bash20250124(_)
+            | Self::TextEditor20250124(_)
+            | Self::TextEditor20250429(_)
+            | Self::TextEditor20250728(_)
+            | Self::WebSearch20250305(_) => false,
+        }
+    }
 }
 
 #[cfg(test)]

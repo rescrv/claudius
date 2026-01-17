@@ -23,6 +23,7 @@ use crate::types::{
 const DEFAULT_API_URL: &str = "https://api.anthropic.com";
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
+const STRUCTURED_OUTPUTS_BETA: &str = "structured-outputs-2025-11-13";
 
 /// Client for the Anthropic API with performance optimizations.
 #[derive(Debug, Clone)]
@@ -457,10 +458,23 @@ impl Anthropic {
         // Ensure stream is disabled
         params.stream = false;
 
+        // Check if structured outputs beta header is needed
+        let headers = if params.requires_structured_outputs_beta() {
+            let mut headers = self.default_headers();
+            headers.insert(
+                "anthropic-beta",
+                HeaderValue::from_static(STRUCTURED_OUTPUTS_BETA),
+            );
+            Some(headers)
+        } else {
+            None
+        };
+
         let result = self
             .retry_with_backoff(|| async {
                 let url = self.build_url("messages");
-                self.execute_post_request(&url, &params, None).await
+                self.execute_post_request(&url, &params, headers.clone())
+                    .await
             })
             .await;
 
@@ -499,6 +513,9 @@ impl Anthropic {
             return Err(err);
         }
 
+        // Check if structured outputs beta header is needed
+        let needs_beta = params.requires_structured_outputs_beta();
+
         let response = self
             .retry_with_backoff(|| async {
                 let url = self.build_url("messages");
@@ -508,6 +525,12 @@ impl Anthropic {
                     header::ACCEPT,
                     HeaderValue::from_static("text/event-stream"),
                 );
+                if needs_beta {
+                    headers.insert(
+                        "anthropic-beta",
+                        HeaderValue::from_static(STRUCTURED_OUTPUTS_BETA),
+                    );
+                }
 
                 let response = self
                     .client
