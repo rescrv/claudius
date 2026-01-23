@@ -22,5 +22,5 @@ mod session;
 
 pub use crate::render::{PlainTextRenderer, Renderer, StreamContext};
 pub use commands::{ChatCommand, help_text, parse_command};
-pub use config::{ChatArgs, ChatConfig};
+pub use config::{ChatArgs, ChatArgsError, ChatConfig};
 pub use session::{ChatAgent, ChatSession, ConfigAgent, SessionStats};
