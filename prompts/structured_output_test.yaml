@@ -1,0 +1,40 @@
+name: "Structured Output Test"
+prompt: "Extract the following information from this text: John Smith is a 42-year-old software engineer from Seattle who speaks English and Spanish."
+system: "You are a helpful assistant that extracts structured information from text. Always respond with valid JSON matching the requested schema."
+model: "claude-haiku-4-5"
+max_tokens: 500
+temperature: 0.0
+output_format:
+  type: "json_schema"
+  schema:
+    type: "object"
+    properties:
+      name:
+        type: "string"
+        description: "The person's full name"
+      age:
+        type: "integer"
+        description: "The person's age in years"
+      occupation:
+        type: "string"
+        description: "The person's job or profession"
+      location:
+        type: "string"
+        description: "The person's city or location"
+      languages:
+        type: "array"
+        items:
+          type: "string"
+        description: "Languages the person speaks"
+    required:
+      - "name"
+      - "age"
+      - "occupation"
+      - "location"
+      - "languages"
+    additionalProperties: false
+expected_contains:
+  - "John Smith"
+  - "42"
+  - "Seattle"
+  - "software engineer"
