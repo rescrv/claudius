@@ -28,13 +28,58 @@ pub struct ChatArgs {
     #[arrrg(optional, "Max tokens per response (default: 4096)", "TOKENS")]
     pub max_tokens: Option<u32>,
 
+    /// Sampling temperature (0.0 to 1.0).
+    #[arrrg(optional, "Sampling temperature (0.0 to 1.0)", "TEMP")]
+    pub temperature: Option<String>,
+
+    /// Top-p (nucleus) sampling (0.0 to 1.0).
+    #[arrrg(optional, "Top-p (nucleus) sampling (0.0 to 1.0)", "TOP_P")]
+    pub top_p: Option<String>,
+
+    /// Top-k sampling.
+    #[arrrg(optional, "Top-k sampling", "TOP_K")]
+    pub top_k: Option<u32>,
+
+    /// Thinking budget (enables extended thinking with given token budget).
+    #[arrrg(
+        optional,
+        "Thinking budget in tokens (enables extended thinking)",
+        "TOKENS"
+    )]
+    pub thinking: Option<u32>,
+
     /// Disable ANSI colors and styles.
     #[arrrg(flag, "Disable ANSI colors/styles")]
     pub no_color: bool,
 }
 
-impl From<ChatArgs> for MessageCreateTemplate {
-    fn from(args: ChatArgs) -> Self {
+/// Error type for parsing ChatArgs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatArgsError {
+    message: String,
+}
+
+impl std::fmt::Display for ChatArgsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for ChatArgsError {}
+
+fn parse_f32_arg(value: &str, name: &str) -> Result<f32, ChatArgsError> {
+    value.parse::<f32>().map_err(|_| ChatArgsError {
+        message: format!(
+            "invalid value for --{}: '{}' is not a valid number",
+            name, value
+        ),
+    })
+}
+
+impl TryFrom<ChatArgs> for MessageCreateTemplate {
+    type Error = ChatArgsError;
+
+    fn try_from(args: ChatArgs) -> Result<Self, Self::Error> {
         let mut template = MessageCreateTemplate::new();
 
         if let Some(model) = args.model {
@@ -50,7 +95,21 @@ impl From<ChatArgs> for MessageCreateTemplate {
             template = template.with_max_tokens(max_tokens);
         }
 
-        template
+        if let Some(ref temp) = args.temperature {
+            template.temperature = Some(parse_f32_arg(temp, "temperature")?);
+        }
+
+        if let Some(ref top_p) = args.top_p {
+            template.top_p = Some(parse_f32_arg(top_p, "top-p")?);
+        }
+
+        template.top_k = args.top_k;
+
+        if let Some(thinking) = args.thinking {
+            template.thinking = Some(ThinkingConfig::enabled(thinking));
+        }
+
+        Ok(template)
     }
 }
 
@@ -250,18 +309,20 @@ impl Default for ChatConfig {
     }
 }
 
-impl From<ChatArgs> for ChatConfig {
-    fn from(args: ChatArgs) -> Self {
-        let use_color = !args.no_color;
-        let template = default_template().merge(MessageCreateTemplate::from(args));
+impl TryFrom<ChatArgs> for ChatConfig {
+    type Error = ChatArgsError;
 
-        ChatConfig {
+    fn try_from(args: ChatArgs) -> Result<Self, Self::Error> {
+        let use_color = !args.no_color;
+        let template = default_template().merge(MessageCreateTemplate::try_from(args)?);
+
+        Ok(ChatConfig {
             template,
             use_color,
             session_budget: None,
             transcript_path: None,
             caching_enabled: true,
-        }
+        })
     }
 }
 
@@ -296,7 +357,7 @@ mod tests {
     #[test]
     fn config_from_args_defaults() {
         let args = ChatArgs::default();
-        let config = ChatConfig::from(args);
+        let config = ChatConfig::try_from(args).unwrap();
         assert_eq!(config.model(), Model::Known(KnownModel::ClaudeHaiku45));
         assert_eq!(config.max_tokens(), 4096);
         assert!(config.use_color);
@@ -309,13 +370,46 @@ mod tests {
             model: Some("claude-sonnet-4-0".to_string()),
             system: Some("You are helpful.".to_string()),
             max_tokens: Some(8192),
+            temperature: Some("0.7".to_string()),
+            top_p: Some("0.9".to_string()),
+            top_k: Some(40),
+            thinking: Some(2048),
             no_color: true,
         };
-        let config = ChatConfig::from(args);
+        let config = ChatConfig::try_from(args).unwrap();
         assert_eq!(config.model(), Model::Known(KnownModel::ClaudeSonnet40));
         assert_eq!(config.system_prompt_text(), Some("You are helpful."));
         assert_eq!(config.max_tokens(), 8192);
+        assert_eq!(config.template.temperature, Some(0.7));
+        assert_eq!(config.template.top_p, Some(0.9));
+        assert_eq!(config.template.top_k, Some(40));
+        assert_eq!(config.thinking_budget(), Some(2048));
         assert!(!config.use_color);
+    }
+
+    #[test]
+    fn config_from_args_invalid_temperature() {
+        let args = ChatArgs {
+            temperature: Some("not-a-number".to_string()),
+            ..Default::default()
+        };
+        let result = ChatConfig::try_from(args);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("--temperature"));
+        assert!(err.message.contains("not-a-number"));
+    }
+
+    #[test]
+    fn config_from_args_invalid_top_p() {
+        let args = ChatArgs {
+            top_p: Some("invalid".to_string()),
+            ..Default::default()
+        };
+        let result = ChatConfig::try_from(args);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("--top-p"));
     }
 
     #[test]

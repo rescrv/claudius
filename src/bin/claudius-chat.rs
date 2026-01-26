@@ -48,7 +48,7 @@ use claudius::{Anthropic, Model, SystemPrompt, ThinkingConfig};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (args, _) = ChatArgs::from_command_line_relaxed("claudius-chat [OPTIONS]");
-    let config = ChatConfig::from(args);
+    let config = ChatConfig::try_from(args)?;
     let use_color = config.use_color;
 
     let client = Anthropic::new(None)?;
