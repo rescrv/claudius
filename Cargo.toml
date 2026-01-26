@@ -1,6 +1,6 @@
 [package]
 name = "claudius"
-version = "0.17.0"
+version = "0.18.0"
 authors = ["Robert Escriva <robert@rescrv.net>"]
 edition = "2024"
 description = "SDK for the Anthropic API"
