@@ -22,7 +22,7 @@
 
 use crate::{
     Anthropic, ContentBlock, KnownModel, Message, MessageCreateParams, MessageParam, MessageRole,
-    Model, ToolChoice, ToolUnionParam,
+    Model, OutputFormat, ToolChoice, ToolUnionParam,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -146,6 +146,12 @@ pub struct PromptTestConfig {
 
     /// Expected error message (substring match).
     pub expected_error_message: Option<String>,
+
+    /// Output format for structured outputs.
+    ///
+    /// When set, constrains Claude's response to follow a specific JSON schema,
+    /// ensuring valid, parseable output for downstream processing.
+    pub output_format: Option<OutputFormat>,
 }
 
 /// Default model to use for prompt tests when none is specified.
@@ -221,6 +227,7 @@ impl PromptTestConfig {
             expected_tool_calls: None,
             expect_error: None,
             expected_error_message: None,
+            output_format: None,
         }
     }
 
@@ -261,6 +268,7 @@ impl PromptTestConfig {
             expected_tool_calls: None,
             expect_error: None,
             expected_error_message: None,
+            output_format: None,
         }
     }
 
@@ -352,6 +360,32 @@ impl PromptTestConfig {
     pub fn expect_error_message(mut self, message: impl Into<String>) -> Self {
         self.expected_error_message = Some(message.into());
         self.expect_error = Some(true);
+        self
+    }
+
+    /// Set the output format for structured outputs.
+    ///
+    /// When set, constrains Claude's response to follow a specific JSON schema,
+    /// ensuring valid, parseable output for downstream processing.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use claudius::{PromptTestConfig, OutputFormat};
+    /// # use serde_json::json;
+    /// let config = PromptTestConfig::new("Extract the person's name and age")
+    ///     .with_output_format(OutputFormat::json_schema(json!({
+    ///         "type": "object",
+    ///         "properties": {
+    ///             "name": { "type": "string" },
+    ///             "age": { "type": "integer" }
+    ///         },
+    ///         "required": ["name", "age"],
+    ///         "additionalProperties": false
+    ///     })));
+    /// ```
+    pub fn with_output_format(mut self, output_format: OutputFormat) -> Self {
+        self.output_format = Some(output_format);
         self
     }
 
@@ -600,6 +634,9 @@ impl PromptTestConfig {
         if other.expected_error_message.is_some() {
             self.expected_error_message = other.expected_error_message;
         }
+        if other.output_format.is_some() {
+            self.output_format = other.output_format;
+        }
         self
     }
 
@@ -700,6 +737,11 @@ impl PromptTestConfig {
         // Add tool choice if provided
         if let Some(ref tool_choice) = self.tool_choice {
             params = params.with_tool_choice(tool_choice.clone());
+        }
+
+        // Add output format for structured outputs
+        if let Some(ref output_format) = self.output_format {
+            params = params.with_output_format(output_format.clone());
         }
 
         // Make the API call and handle errors gracefully
@@ -1124,6 +1166,65 @@ mod tests {
         assert_eq!(config.prompt, deserialized.prompt);
         assert_eq!(config.system, deserialized.system);
         assert_eq!(config.expected_contains, deserialized.expected_contains);
+    }
+
+    #[test]
+    fn output_format_builder() {
+        use serde_json::json;
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" },
+                "age": { "type": "integer" }
+            },
+            "required": ["name", "age"],
+            "additionalProperties": false
+        });
+
+        let config = PromptTestConfig::new("Extract info")
+            .with_output_format(OutputFormat::json_schema(schema.clone()));
+
+        assert!(config.output_format.is_some());
+        match config.output_format.unwrap() {
+            OutputFormat::JsonSchema {
+                schema: inner_schema,
+            } => {
+                assert_eq!(inner_schema, schema);
+            }
+        }
+    }
+
+    #[test]
+    fn output_format_yaml_serialization() {
+        use serde_json::json;
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "result": { "type": "string" }
+            },
+            "required": ["result"],
+            "additionalProperties": false
+        });
+
+        let config = PromptTestConfig::new("Test prompt")
+            .with_name("Structured Output Test")
+            .with_output_format(OutputFormat::json_schema(schema.clone()));
+
+        let yaml = serde_yaml::to_string(&config).expect("Should serialize to YAML");
+        let deserialized: PromptTestConfig =
+            serde_yaml::from_str(&yaml).expect("Should deserialize from YAML");
+
+        assert_eq!(config.name, deserialized.name);
+        assert!(deserialized.output_format.is_some());
+        match deserialized.output_format.unwrap() {
+            OutputFormat::JsonSchema {
+                schema: inner_schema,
+            } => {
+                assert_eq!(inner_schema, schema);
+            }
+        }
     }
 
     #[test]
