@@ -1,33 +1,37 @@
 name: ci
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 env:
   CARGO_TERM_COLOR: always
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-
-    - name: cargo clippy
-      run: cargo clippy --all-targets -- -D clippy::all -D warnings
-    - name: cargo test
-      run: cargo test
-      env:
-        CLAUDIUS_API_KEY: ${{ secrets.CLAUDIUS_API_KEY }}
-    - name: prompt tests
-      run: |
-        # Run valid YAML files (excluding base.yaml which has no prompt/messages)
-        cargo run --bin claudius-prompt -- --test --verbose prompts/*.yaml prompts/*.txt
-      env:
-        CLAUDIUS_API_KEY: ${{ secrets.CLAUDIUS_API_KEY }}
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D clippy::all -D warnings
+      - name: cargo build
+        run: |
+          cargo build --bin claudius-prompt --features native-tls
+          cargo build --bin claudius-prompt --features rustls-tls
+      - name: cargo test
+        run: cargo test
+        env:
+          CLAUDIUS_API_KEY: ${{ secrets.CLAUDIUS_API_KEY }}
+      - name: prompt tests
+        run: |
+          # Run valid YAML files (excluding base.yaml which has no prompt/messages)
+          cargo run --bin claudius-prompt -- --test --verbose prompts/*.yaml prompts/*.txt
+        env:
+          CLAUDIUS_API_KEY: ${{ secrets.CLAUDIUS_API_KEY }}
