@@ -12,16 +12,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, to_writer_pretty};
 
 use crate::Error;
+use crate::cache_control::apply_cache_control_to_messages;
 use crate::chat::config::ChatConfig;
 use crate::error::Result;
 use crate::types::{
-    CacheControlEphemeral, ContentBlock, MessageCreateTemplate, MessageParam, MessageParamContent,
-    MessageRole, Model, SystemPrompt, TextBlock, Usage,
+    CacheControlEphemeral, MessageCreateTemplate, MessageParam, Model, SystemPrompt, TextBlock,
+    Usage,
 };
 use crate::{Agent, Anthropic, Budget, Renderer, ThinkingConfig, TurnOutcome};
 
-/// Maximum number of cache control breakpoints allowed by the API.
-const MAX_CACHE_BREAKPOINTS: usize = 4;
 const BUDGET_BUFFER_MICRO_CENTS: u64 = 1;
 
 /// Agent behavior expected by the chat session.
@@ -395,115 +394,12 @@ fn budget_allows_next_turn(budget: &Budget, last_turn_usage: Option<&Usage>) -> 
     cost.saturating_add(BUDGET_BUFFER_MICRO_CENTS) < remaining
 }
 
-/// Applies cache_control markers to the last content block of up to N user messages.
-///
-/// The system prompt uses one cache breakpoint, so we apply markers to the last
-/// (MAX_CACHE_BREAKPOINTS - 1) user messages. This function first clears any existing
-/// cache_control markers to avoid exceeding the API limit of 4 breakpoints.
-fn apply_cache_control_to_messages(messages: &mut [MessageParam]) {
-    // First, clear all existing cache_control markers from all messages
-    for msg in messages.iter_mut() {
-        clear_cache_control_from_message(msg);
-    }
-
-    // Find indices of user messages (in reverse order)
-    let user_indices: Vec<usize> = messages
-        .iter()
-        .enumerate()
-        .filter(|(_, msg)| msg.role == MessageRole::User)
-        .map(|(idx, _)| idx)
-        .rev()
-        .take(MAX_CACHE_BREAKPOINTS - 1) // Reserve one breakpoint for system prompt
-        .collect();
-
-    for idx in user_indices {
-        apply_cache_control_to_message(&mut messages[idx]);
-    }
-}
-
-/// Clears cache_control from all content blocks in a message.
-fn clear_cache_control_from_message(message: &mut MessageParam) {
-    if let MessageParamContent::Array(blocks) = &mut message.content {
-        for block in blocks.iter_mut() {
-            clear_cache_control_on_block(block);
-        }
-    }
-}
-
-/// Clears cache_control on a content block.
-fn clear_cache_control_on_block(block: &mut ContentBlock) {
-    match block {
-        ContentBlock::Text(text_block) => {
-            text_block.cache_control = None;
-        }
-        ContentBlock::ToolResult(tool_result) => {
-            tool_result.cache_control = None;
-        }
-        ContentBlock::ToolUse(tool_use) => {
-            tool_use.cache_control = None;
-        }
-        ContentBlock::Image(image_block) => {
-            image_block.cache_control = None;
-        }
-        ContentBlock::Document(document_block) => {
-            document_block.cache_control = None;
-        }
-        ContentBlock::ServerToolUse(server_tool_use) => {
-            server_tool_use.cache_control = None;
-        }
-        ContentBlock::WebSearchToolResult(web_search_result) => {
-            web_search_result.cache_control = None;
-        }
-        // Thinking blocks don't support cache_control
-        ContentBlock::Thinking(_) | ContentBlock::RedactedThinking(_) => {}
-    }
-}
-
-/// Applies cache_control to the last content block of a single message.
-fn apply_cache_control_to_message(message: &mut MessageParam) {
-    match &mut message.content {
-        MessageParamContent::String(text) => {
-            // Convert string to a single text block with cache_control
-            let block = ContentBlock::Text(
-                TextBlock::new(text.clone()).with_cache_control(CacheControlEphemeral::new()),
-            );
-            message.content = MessageParamContent::Array(vec![block]);
-        }
-        MessageParamContent::Array(blocks) => {
-            // Find the last cacheable block and add cache_control
-            if let Some(last_block) = blocks.last_mut() {
-                set_cache_control_on_block(last_block);
-            }
-        }
-    }
-}
-
-/// Sets cache_control on a content block if it supports caching.
-fn set_cache_control_on_block(block: &mut ContentBlock) {
-    match block {
-        ContentBlock::Text(text_block) => {
-            text_block.cache_control = Some(CacheControlEphemeral::new());
-        }
-        ContentBlock::ToolResult(tool_result) => {
-            tool_result.cache_control = Some(CacheControlEphemeral::new());
-        }
-        ContentBlock::ToolUse(tool_use) => {
-            tool_use.cache_control = Some(CacheControlEphemeral::new());
-        }
-        // Other block types don't support cache_control in user messages
-        ContentBlock::Image(_)
-        | ContentBlock::Document(_)
-        | ContentBlock::ServerToolUse(_)
-        | ContentBlock::WebSearchToolResult(_)
-        | ContentBlock::Thinking(_)
-        | ContentBlock::RedactedThinking(_) => {}
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cache_control::apply_cache_control_to_message;
     use crate::types::{KnownModel, SystemPrompt};
+    use crate::{ContentBlock, MessageParamContent, MessageRole};
 
     #[test]
     fn new_session_empty() {
