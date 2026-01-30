@@ -127,6 +127,9 @@ impl Anthropic {
     /// The API key can be provided directly or read from the CLAUDIUS_API_KEY or ANTHROPIC_API_KEY
     /// environment variables. If an environment variable value starts with "file://", it will be
     /// treated as a file path and the API key will be read from that file.
+    ///
+    /// The base URL is resolved from the CLAUDIUS_BASE_URL or ANTHROPIC_BASE_URL environment
+    /// variables, in that order. If neither is set, the default Anthropic API URL is used.
     pub fn new(api_key: Option<String>) -> Result<Self> {
         let api_key = match api_key {
             Some(key) => Self::resolve_api_key(&key)?,
@@ -160,10 +163,15 @@ impl Anthropic {
         // Pre-build headers for performance
         let cached_headers = Arc::new(Self::build_default_headers(&api_key)?);
 
+        // Resolve base URL from environment variables, defaulting to the API URL
+        let base_url = env::var("CLAUDIUS_BASE_URL")
+            .or_else(|_| env::var("ANTHROPIC_BASE_URL"))
+            .unwrap_or_else(|_| DEFAULT_API_URL.to_string());
+
         Ok(Self {
             api_key,
             client,
-            base_url: DEFAULT_API_URL.to_string(),
+            base_url,
             timeout,
             max_retries: 3,
             throughput_ops_sec: 1.0 / 60.0,
