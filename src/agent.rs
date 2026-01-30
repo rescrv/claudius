@@ -8,6 +8,9 @@ use std::time::Instant;
 use futures::StreamExt;
 use utf8path::Path;
 
+use crate::cache_control::{
+    MAX_CACHE_BREAKPOINTS, count_system_cache_controls, prune_cache_controls_in_messages,
+};
 use crate::observability::{
     AGENT_TOOL_CALLS, AGENT_TOOL_DURATION, AGENT_TOOL_ERRORS, AGENT_TURN_DURATION,
     AGENT_TURN_REQUESTS,
@@ -20,9 +23,6 @@ use crate::{
     ToolParam, ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124,
     ToolTextEditor20250429, ToolTextEditor20250728, ToolUnionParam, ToolUseBlock, Usage,
     WebSearchTool20250305, push_or_merge_message,
-};
-use crate::cache_control::{
-    MAX_CACHE_BREAKPOINTS, count_system_cache_controls, prune_cache_controls_in_messages,
 };
 
 struct StreamingContext<'a> {
