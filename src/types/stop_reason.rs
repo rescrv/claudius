@@ -23,6 +23,9 @@ pub enum StopReason {
 
     /// The model refused to respond due to safety or other considerations
     Refusal,
+
+    /// The response stopped because it exceeded the model's context window
+    ModelContextWindowExceeded,
 }
 
 impl fmt::Display for StopReason {
@@ -34,6 +37,7 @@ impl fmt::Display for StopReason {
             StopReason::ToolUse => write!(f, "tool_use"),
             StopReason::PauseTurn => write!(f, "pause_turn"),
             StopReason::Refusal => write!(f, "refusal"),
+            StopReason::ModelContextWindowExceeded => write!(f, "model_context_window_exceeded"),
         }
     }
 }
@@ -67,6 +71,7 @@ impl FromStr for StopReason {
             "tool_use" => Ok(StopReason::ToolUse),
             "pause_turn" => Ok(StopReason::PauseTurn),
             "refusal" => Ok(StopReason::Refusal),
+            "model_context_window_exceeded" => Ok(StopReason::ModelContextWindowExceeded),
             _ => Err(StopReasonParseError {
                 invalid_value: s.to_string(),
             }),
@@ -107,5 +112,25 @@ mod tests {
 
         let reason = StopReason::MaxTokens;
         assert_eq!(reason.to_string(), "max_tokens");
+    }
+
+    #[test]
+    fn serialization_model_context_window_exceeded() {
+        let reason = StopReason::ModelContextWindowExceeded;
+        let json = serde_json::to_string(&reason).unwrap();
+        assert_eq!(json, r#""model_context_window_exceeded""#);
+    }
+
+    #[test]
+    fn deserialization_model_context_window_exceeded() {
+        let json = r#""model_context_window_exceeded""#;
+        let reason: StopReason = serde_json::from_str(json).unwrap();
+        assert_eq!(reason, StopReason::ModelContextWindowExceeded);
+    }
+
+    #[test]
+    fn display_model_context_window_exceeded() {
+        let reason = StopReason::ModelContextWindowExceeded;
+        assert_eq!(reason.to_string(), "model_context_window_exceeded");
     }
 }

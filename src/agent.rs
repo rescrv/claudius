@@ -1976,6 +1976,7 @@ pub trait Agent: Send + Sync + Sized {
             messages,
             metadata: self.metadata().await,
             output_format: None,
+            output_config: None,
             stop_sequences: self.stop_sequences().await,
             system: self.system().await.clone(),
             thinking: self.thinking().await,
@@ -2754,6 +2755,13 @@ async fn step_default_turn_impl<A: Agent>(
                 };
                 return ControlFlow::Break(Ok(TurnOutcome {
                     stop_reason,
+                    usage: usage_total,
+                    request_count,
+                }));
+            }
+            Some(StopReason::ModelContextWindowExceeded) => {
+                return ControlFlow::Break(Ok(TurnOutcome {
+                    stop_reason: StopReason::ModelContextWindowExceeded,
                     usage: usage_total,
                     request_count,
                 }));
