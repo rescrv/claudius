@@ -24,6 +24,9 @@ pub enum KnownModel {
     /// Claude Opus 4.5 (alias)
     ClaudeOpus45,
 
+    /// Claude Opus 4.6 (alias)
+    ClaudeOpus46,
+
     /// Claude 3.7 Sonnet (latest version)
     Claude37SonnetLatest,
 
@@ -93,6 +96,7 @@ impl fmt::Display for KnownModel {
         match self {
             KnownModel::ClaudeOpus4520251101 => write!(f, "claude-opus-4-5-20251101"),
             KnownModel::ClaudeOpus45 => write!(f, "claude-opus-4-5"),
+            KnownModel::ClaudeOpus46 => write!(f, "claude-opus-4-6"),
             KnownModel::Claude37SonnetLatest => write!(f, "claude-3-7-sonnet-latest"),
             KnownModel::Claude37Sonnet20250219 => write!(f, "claude-3-7-sonnet-20250219"),
             KnownModel::Claude35HaikuLatest => write!(f, "claude-3-5-haiku-latest"),
@@ -136,6 +140,7 @@ impl<'de> Deserialize<'de> for Model {
         match s.as_str() {
             "claude-opus-4-5-20251101" => Ok(Model::Known(KnownModel::ClaudeOpus4520251101)),
             "claude-opus-4-5" => Ok(Model::Known(KnownModel::ClaudeOpus45)),
+            "claude-opus-4-6" => Ok(Model::Known(KnownModel::ClaudeOpus46)),
             "claude-3-7-sonnet-latest" => Ok(Model::Known(KnownModel::Claude37SonnetLatest)),
             "claude-3-7-sonnet-20250219" => Ok(Model::Known(KnownModel::Claude37Sonnet20250219)),
             "claude-3-5-haiku-latest" => Ok(Model::Known(KnownModel::Claude35HaikuLatest)),
@@ -173,6 +178,7 @@ impl FromStr for KnownModel {
         match s {
             "claude-opus-4-5-20251101" => Ok(KnownModel::ClaudeOpus4520251101),
             "claude-opus-4-5" => Ok(KnownModel::ClaudeOpus45),
+            "claude-opus-4-6" => Ok(KnownModel::ClaudeOpus46),
             "claude-3-7-sonnet-latest" => Ok(KnownModel::Claude37SonnetLatest),
             "claude-3-7-sonnet-20250219" => Ok(KnownModel::Claude37Sonnet20250219),
             "claude-3-5-haiku-latest" => Ok(KnownModel::Claude35HaikuLatest),
@@ -325,6 +331,20 @@ mod tests {
         let json = r#""claude-sonnet-4-5-20250929""#;
         let model: Model = serde_json::from_str(json).unwrap();
         assert_eq!(model, Model::Known(KnownModel::ClaudeSonnet4520250929));
+    }
+
+    #[test]
+    fn claude_46_models() {
+        // Test Claude Opus 4.6 model
+        let model = Model::Known(KnownModel::ClaudeOpus46);
+        assert_eq!(model.to_string(), "claude-opus-4-6");
+        let json = serde_json::to_string(&model).unwrap();
+        assert_eq!(json, r#""claude-opus-4-6""#);
+
+        // Test deserialization of Claude 4.6 model
+        let json = r#""claude-opus-4-6""#;
+        let model: Model = serde_json::from_str(json).unwrap();
+        assert_eq!(model, Model::Known(KnownModel::ClaudeOpus46));
     }
 
     #[test]
