@@ -1429,10 +1429,14 @@ impl Drop for BudgetAllocation<'_> {
 
 /////////////////////////////////////////// Permissions ///////////////////////////////////////////
 
+/// Permissions for filesystem mount points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Permissions {
+    /// Read-only access to the filesystem.
     ReadOnly,
+    /// Full read and write access to the filesystem.
     ReadWrite,
+    /// Write-only access to the filesystem.
     WriteOnly,
 }
 
@@ -2435,6 +2439,7 @@ impl FileSystem for Mount {
 ///
 /// Maintains a collection of mount points with different permissions,
 /// routing filesystem operations to the appropriate mount based on path.
+#[derive(Default)]
 pub struct MountHierarchy {
     mounts: Vec<Mount>,
 }
