@@ -24,8 +24,8 @@ mod types;
 
 pub use accumulating_stream::AccumulatingStream;
 pub use agent::{
-    Agent, Budget, FileSystem, IntermediateToolResult, Mount, MountHierarchy, TokenKind, Tool,
-    ToolCallback, ToolResult, ToolSearchFileSystem, TurnOutcome, TurnStep,
+    Agent, Budget, FileSystem, IntermediateToolResult, Mount, MountHierarchy, Permissions,
+    TokenKind, Tool, ToolCallback, ToolResult, ToolSearchFileSystem, TurnOutcome, TurnStep,
 };
 pub use client::{Anthropic, LoggingStream};
 pub use client_logger::ClientLogger;
@@ -33,8 +33,8 @@ pub use error::{Error, Result};
 pub use json_schema::JsonSchema;
 pub use observability::register_biometrics;
 pub use prompt::{
-    PromptTestConfig, PromptTestResult, assert_contains, assert_max_length, assert_min_length,
-    assert_not_contains, assert_test_passed, test_prompt,
+    assert_contains, assert_max_length, assert_min_length, assert_not_contains, assert_test_passed,
+    test_prompt, PromptTestConfig, PromptTestResult,
 };
 pub use render::{AgentStreamContext, PlainTextRenderer, Renderer, StreamContext};
 pub use types::*;
