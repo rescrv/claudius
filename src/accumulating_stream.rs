@@ -273,7 +273,7 @@ impl ContentBlockBuilder {
             } => {
                 let input = if saw_delta {
                     if input_json.trim().is_empty() {
-                        Value::Null
+                        Value::Object(serde_json::Map::new())
                     } else {
                         match serde_json::from_str::<Value>(&input_json) {
                             Ok(value) => value,
@@ -288,7 +288,7 @@ impl ContentBlockBuilder {
                 } else if let Some(input) = input_value {
                     input
                 } else if input_json.trim().is_empty() {
-                    Value::Null
+                    Value::Object(serde_json::Map::new())
                 } else {
                     match serde_json::from_str::<Value>(&input_json) {
                         Ok(value) => value,
@@ -334,8 +334,9 @@ impl ContentBlockBuilder {
 mod tests {
     use super::*;
     use crate::{
-        ContentBlockStartEvent, KnownModel, MessageDelta, MessageDeltaEvent, MessageDeltaUsage,
-        MessageStartEvent, Model, TextDelta, Usage,
+        ContentBlockDeltaEvent, ContentBlockStartEvent, ContentBlockStopEvent, InputJsonDelta,
+        KnownModel, MessageDelta, MessageDeltaEvent, MessageDeltaUsage, MessageStartEvent, Model,
+        TextDelta, Usage,
     };
     use futures::stream;
 
@@ -418,5 +419,137 @@ mod tests {
             message.usage.output_tokens, 10,
             "output_tokens should be from message_delta"
         );
+    }
+
+    /// Verifies that tool use with empty input JSON becomes an empty object, not null.
+    #[tokio::test]
+    async fn empty_tool_input_becomes_empty_object() {
+        let usage = Usage::new(100, 0);
+        let start_message = Message::new(
+            "msg_test".to_string(),
+            Vec::new(),
+            Model::Known(KnownModel::Claude37SonnetLatest),
+            usage,
+        );
+        let start_event = MessageStreamEvent::MessageStart(MessageStartEvent::new(start_message));
+
+        // Build content_block_start for tool_use with initial empty input
+        let tool_use_block =
+            ContentBlock::ToolUse(ToolUseBlock::new("tool_123", "get_document", Value::Null));
+        let content_start =
+            MessageStreamEvent::ContentBlockStart(ContentBlockStartEvent::new(tool_use_block, 0));
+
+        // Build content_block_delta with empty JSON (simulating no input parameters)
+        let json_delta = InputJsonDelta::new(String::new());
+        let content_delta = MessageStreamEvent::ContentBlockDelta(ContentBlockDeltaEvent::new(
+            ContentBlockDelta::InputJsonDelta(json_delta),
+            0,
+        ));
+
+        // Build content_block_stop
+        let content_stop = MessageStreamEvent::ContentBlockStop(ContentBlockStopEvent::new(0));
+
+        // Build message_delta
+        let delta_usage = MessageDeltaUsage::new(10);
+        let message_delta = MessageDelta::new().with_stop_reason(StopReason::ToolUse);
+        let delta_event =
+            MessageStreamEvent::MessageDelta(MessageDeltaEvent::new(message_delta, delta_usage));
+
+        let events = vec![
+            Ok(start_event),
+            Ok(content_start),
+            Ok(content_delta),
+            Ok(content_stop),
+            Ok(delta_event),
+        ];
+        let event_stream = stream::iter(events);
+
+        let (mut acc_stream, rx) = AccumulatingStream::new(event_stream);
+
+        use futures::StreamExt;
+        while acc_stream.next().await.is_some() {}
+
+        let message = rx
+            .await
+            .expect("channel closed")
+            .expect("accumulation failed");
+
+        assert_eq!(message.content.len(), 1, "Should have one content block");
+        let tool_use = message.content[0]
+            .as_tool_use()
+            .expect("Expected ToolUseBlock");
+
+        // Empty input should be an empty object, not null
+        assert!(
+            tool_use.input.is_object(),
+            "Empty tool input should be an object, not null. Got: {:?}",
+            tool_use.input
+        );
+        assert!(
+            tool_use
+                .input
+                .as_object()
+                .expect("input should be object")
+                .is_empty(),
+            "Empty tool input should be an empty object"
+        );
+        println!("tool_use.input: {:?}", tool_use.input);
+    }
+
+    /// Verifies that tool use with no delta events uses initial input_value.
+    #[tokio::test]
+    async fn tool_input_without_delta_uses_initial_value() {
+        let usage = Usage::new(100, 0);
+        let start_message = Message::new(
+            "msg_test".to_string(),
+            Vec::new(),
+            Model::Known(KnownModel::Claude37SonnetLatest),
+            usage,
+        );
+        let start_event = MessageStreamEvent::MessageStart(MessageStartEvent::new(start_message));
+
+        // Build content_block_start for tool_use with an actual input value
+        let input = serde_json::json!({"key": "value"});
+        let tool_use_block =
+            ContentBlock::ToolUse(ToolUseBlock::new("tool_123", "get_document", input.clone()));
+        let content_start =
+            MessageStreamEvent::ContentBlockStart(ContentBlockStartEvent::new(tool_use_block, 0));
+
+        // No delta events - the input should come from the initial value
+
+        let content_stop = MessageStreamEvent::ContentBlockStop(ContentBlockStopEvent::new(0));
+
+        let delta_usage = MessageDeltaUsage::new(10);
+        let message_delta = MessageDelta::new().with_stop_reason(StopReason::ToolUse);
+        let delta_event =
+            MessageStreamEvent::MessageDelta(MessageDeltaEvent::new(message_delta, delta_usage));
+
+        let events = vec![
+            Ok(start_event),
+            Ok(content_start),
+            Ok(content_stop),
+            Ok(delta_event),
+        ];
+        let event_stream = stream::iter(events);
+
+        let (mut acc_stream, rx) = AccumulatingStream::new(event_stream);
+
+        use futures::StreamExt;
+        while acc_stream.next().await.is_some() {}
+
+        let message = rx
+            .await
+            .expect("channel closed")
+            .expect("accumulation failed");
+
+        let tool_use = message.content[0]
+            .as_tool_use()
+            .expect("Expected ToolUseBlock");
+
+        assert_eq!(
+            tool_use.input, input,
+            "Tool input should match initial value"
+        );
+        println!("tool_use.input: {:?}", tool_use.input);
     }
 }
