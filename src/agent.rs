@@ -21,6 +21,9 @@ use crate::{
     ToolTextEditor20250429, ToolTextEditor20250728, ToolUnionParam, ToolUseBlock, Usage,
     WebSearchTool20250305, push_or_merge_message,
 };
+use crate::cache_control::{
+    MAX_CACHE_BREAKPOINTS, count_system_cache_controls, prune_cache_controls_in_messages,
+};
 
 struct StreamingContext<'a> {
     renderer: &'a mut dyn Renderer,
@@ -1963,6 +1966,12 @@ pub trait Agent: Send + Sync + Sized {
         messages: Vec<MessageParam>,
         stream: bool,
     ) -> MessageCreateParams {
+        let system = self.system().await;
+        let mut messages = messages;
+        let system_cache_controls = count_system_cache_controls(&system);
+        let keep_latest = MAX_CACHE_BREAKPOINTS.saturating_sub(system_cache_controls);
+        prune_cache_controls_in_messages(&mut messages, keep_latest);
+
         let tools = self
             .tools()
             .await
@@ -1977,7 +1986,7 @@ pub trait Agent: Send + Sync + Sized {
             metadata: self.metadata().await,
             output_format: None,
             stop_sequences: self.stop_sequences().await,
-            system: self.system().await.clone(),
+            system,
             thinking: self.thinking().await,
             temperature: self.temperature().await,
             top_k: self.top_k().await,
