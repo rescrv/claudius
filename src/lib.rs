@@ -33,8 +33,8 @@ pub use error::{Error, Result};
 pub use json_schema::JsonSchema;
 pub use observability::register_biometrics;
 pub use prompt::{
-    assert_contains, assert_max_length, assert_min_length, assert_not_contains, assert_test_passed,
-    test_prompt, PromptTestConfig, PromptTestResult,
+    PromptTestConfig, PromptTestResult, assert_contains, assert_max_length, assert_min_length,
+    assert_not_contains, assert_test_passed, test_prompt,
 };
 pub use render::{AgentStreamContext, PlainTextRenderer, Renderer, StreamContext};
 pub use types::*;
