@@ -8,9 +8,12 @@ license = "Apache-2.0"
 repository = "https://github.com/rescrv/claudius"
 
 [features]
-default = ["binaries"]
+default = ["binaries", "native-tls"]
 
 binaries = []
+
+rustls-tls = ["reqwest/rustls-tls"]
+native-tls = ["reqwest/native-tls"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -18,7 +21,7 @@ serde_json = { version = "1.0", features = ["preserve_order"] }
 base64 = "0.22"
 url = "2.5"
 time = { version = "0.3", features = ["serde", "macros", "formatting", "parsing"] }
-reqwest = { version = "0.13", features = ["json", "query", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "stream"] }
 bytes = "1.11"
 futures = "0.3"
 tokio = { version = "^1.49", features = ["full"] }
