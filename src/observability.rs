@@ -23,7 +23,7 @@ pub(crate) static AGENT_TOOL_DURATION: Moments =
     Moments::new("claudius.agent.tool_duration_seconds");
 
 /// Register this crate's biometrics with the provided collector.
-pub fn register_biometrics(collector: Collector) {
+pub fn register_biometrics(collector: &Collector) {
     collector.register_counter(&CLIENT_REQUESTS);
     collector.register_counter(&CLIENT_REQUEST_ERRORS);
     collector.register_counter(&CLIENT_REQUEST_RETRIES);

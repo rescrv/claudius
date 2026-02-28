@@ -1,14 +1,19 @@
+use std::env;
+use std::fs;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
+
 use futures::Stream;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client as ReqwestClient, Response, header};
 use serde::Deserialize;
-use std::env;
-use std::fs;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
+use crate::AccumulatingStream;
 use crate::backoff::ExponentialBackoff;
+use crate::client_logger::ClientLogger;
 use crate::error::{Error, Result};
 use crate::observability::{
     CLIENT_REQUEST_DURATION, CLIENT_REQUEST_ERRORS, CLIENT_REQUEST_RETRIES, CLIENT_REQUESTS,
@@ -19,6 +24,57 @@ use crate::types::{
     Message, MessageCountTokensParams, MessageCreateParams, MessageStreamEvent, MessageTokensCount,
     ModelInfo, ModelListParams, ModelListResponse,
 };
+
+/// A stream wrapper that logs events and the final message through a [`ClientLogger`].
+///
+/// This stream passes through all events from the underlying [`AccumulatingStream`],
+/// logging each event as it occurs and logging the final reconstructed message
+/// when the stream completes.
+pub struct LoggingStream<'a> {
+    inner: AccumulatingStream,
+    logger: &'a dyn ClientLogger,
+    receiver: Option<tokio::sync::oneshot::Receiver<Result<Message>>>,
+}
+
+impl<'a> LoggingStream<'a> {
+    /// Create a new logging stream wrapper.
+    fn new(
+        inner: AccumulatingStream,
+        receiver: tokio::sync::oneshot::Receiver<Result<Message>>,
+        logger: &'a dyn ClientLogger,
+    ) -> Self {
+        Self {
+            inner,
+            logger,
+            receiver: Some(receiver),
+        }
+    }
+}
+
+impl Stream for LoggingStream<'_> {
+    type Item = Result<MessageStreamEvent>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let inner = Pin::new(&mut self.inner);
+        match inner.poll_next(cx) {
+            Poll::Ready(Some(Ok(event))) => {
+                self.logger.log_stream_event(&event);
+                Poll::Ready(Some(Ok(event)))
+            }
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
+            Poll::Ready(None) => {
+                // Stream ended - try to get the accumulated message
+                if let Some(mut receiver) = self.receiver.take()
+                    && let Ok(Ok(ref message)) = receiver.try_recv()
+                {
+                    self.logger.log_stream_message(message);
+                }
+                Poll::Ready(None)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
 
 const DEFAULT_API_URL: &str = "https://api.anthropic.com";
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
@@ -71,6 +127,9 @@ impl Anthropic {
     /// The API key can be provided directly or read from the CLAUDIUS_API_KEY or ANTHROPIC_API_KEY
     /// environment variables. If an environment variable value starts with "file://", it will be
     /// treated as a file path and the API key will be read from that file.
+    ///
+    /// The base URL is resolved from the CLAUDIUS_BASE_URL or ANTHROPIC_BASE_URL environment
+    /// variables, in that order. If neither is set, the default Anthropic API URL is used.
     pub fn new(api_key: Option<String>) -> Result<Self> {
         let api_key = match api_key {
             Some(key) => Self::resolve_api_key(&key)?,
@@ -104,10 +163,15 @@ impl Anthropic {
         // Pre-build headers for performance
         let cached_headers = Arc::new(Self::build_default_headers(&api_key)?);
 
+        // Resolve base URL from environment variables, defaulting to the API URL
+        let base_url = env::var("CLAUDIUS_BASE_URL")
+            .or_else(|_| env::var("ANTHROPIC_BASE_URL"))
+            .unwrap_or_else(|_| DEFAULT_API_URL.to_string());
+
         Ok(Self {
             api_key,
             client,
-            base_url: DEFAULT_API_URL.to_string(),
+            base_url,
             timeout,
             max_retries: 3,
             throughput_ops_sec: 1.0 / 60.0,
@@ -485,6 +549,22 @@ impl Anthropic {
         result
     }
 
+    /// Send a message to the API with logging and get a non-streaming response.
+    ///
+    /// This method is identical to [`send`](Self::send) but additionally logs
+    /// the response through the provided [`ClientLogger`].
+    pub async fn send_with_logger(
+        &self,
+        params: MessageCreateParams,
+        logger: &dyn ClientLogger,
+    ) -> Result<Message> {
+        let result = self.send(params).await;
+        if let Ok(ref message) = result {
+            logger.log_response(message);
+        }
+        result
+    }
+
     /// Send a message to the API and get a streaming response.
     ///
     /// Returns a stream of MessageStreamEvent objects that can be processed incrementally.
@@ -563,6 +643,25 @@ impl Anthropic {
 
         // Create an SSE processor
         Ok(process_sse(stream))
+    }
+
+    /// Send a message to the API with logging and get a streaming response.
+    ///
+    /// This method is identical to [`stream`](Self::stream) but additionally logs
+    /// each streaming event and the final reconstructed message through the
+    /// provided [`ClientLogger`].
+    ///
+    /// Returns a [`LoggingStream`] that wraps an [`AccumulatingStream`], logging
+    /// each event as it passes through and logging the final message when the
+    /// stream completes.
+    pub async fn stream_with_logger<'a>(
+        &self,
+        params: &MessageCreateParams,
+        logger: &'a dyn ClientLogger,
+    ) -> Result<LoggingStream<'a>> {
+        let raw_stream = self.stream(params).await?;
+        let (accumulating_stream, receiver) = AccumulatingStream::new(raw_stream);
+        Ok(LoggingStream::new(accumulating_stream, receiver, logger))
     }
 
     /// Count tokens for a message.

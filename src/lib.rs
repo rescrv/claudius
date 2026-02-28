@@ -11,7 +11,9 @@ pub mod chat;
 mod accumulating_stream;
 mod agent;
 mod backoff;
+mod cache_control;
 mod client;
+mod client_logger;
 mod error;
 mod json_schema;
 mod observability;
@@ -22,10 +24,11 @@ mod types;
 
 pub use accumulating_stream::AccumulatingStream;
 pub use agent::{
-    Agent, Budget, FileSystem, IntermediateToolResult, Mount, MountHierarchy, TokenKind, Tool,
-    ToolCallback, ToolResult, ToolSearchFileSystem, TurnOutcome, TurnStep,
+    Agent, Budget, FileSystem, IntermediateToolResult, Mount, MountHierarchy, Permissions,
+    TokenKind, Tool, ToolCallback, ToolResult, ToolSearchFileSystem, TurnOutcome, TurnStep,
 };
-pub use client::Anthropic;
+pub use client::{Anthropic, LoggingStream};
+pub use client_logger::ClientLogger;
 pub use error::{Error, Result};
 pub use json_schema::JsonSchema;
 pub use observability::register_biometrics;

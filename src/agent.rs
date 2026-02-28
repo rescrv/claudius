@@ -8,6 +8,9 @@ use std::time::Instant;
 use futures::StreamExt;
 use utf8path::Path;
 
+use crate::cache_control::{
+    MAX_CACHE_BREAKPOINTS, count_system_cache_controls, prune_cache_controls_in_messages,
+};
 use crate::observability::{
     AGENT_TOOL_CALLS, AGENT_TOOL_DURATION, AGENT_TOOL_ERRORS, AGENT_TURN_DURATION,
     AGENT_TURN_REQUESTS,
@@ -1426,10 +1429,14 @@ impl Drop for BudgetAllocation<'_> {
 
 /////////////////////////////////////////// Permissions ///////////////////////////////////////////
 
+/// Permissions for filesystem mount points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Permissions {
+    /// Read-only access to the filesystem.
     ReadOnly,
+    /// Full read and write access to the filesystem.
     ReadWrite,
+    /// Write-only access to the filesystem.
     WriteOnly,
 }
 
@@ -1963,6 +1970,12 @@ pub trait Agent: Send + Sync + Sized {
         messages: Vec<MessageParam>,
         stream: bool,
     ) -> MessageCreateParams {
+        let system = self.system().await;
+        let mut messages = messages;
+        let system_cache_controls = count_system_cache_controls(&system);
+        let keep_latest = MAX_CACHE_BREAKPOINTS.saturating_sub(system_cache_controls);
+        prune_cache_controls_in_messages(&mut messages, keep_latest);
+
         let tools = self
             .tools()
             .await
@@ -1977,7 +1990,7 @@ pub trait Agent: Send + Sync + Sized {
             metadata: self.metadata().await,
             output_format: None,
             stop_sequences: self.stop_sequences().await,
-            system: self.system().await.clone(),
+            system,
             thinking: self.thinking().await,
             temperature: self.temperature().await,
             top_k: self.top_k().await,
@@ -2426,6 +2439,7 @@ impl FileSystem for Mount {
 ///
 /// Maintains a collection of mount points with different permissions,
 /// routing filesystem operations to the appropriate mount based on path.
+#[derive(Default)]
 pub struct MountHierarchy {
     mounts: Vec<Mount>,
 }
