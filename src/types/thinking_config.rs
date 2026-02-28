@@ -10,6 +10,14 @@ pub enum ThinkingConfig {
     #[serde(rename = "disabled")]
     Disabled,
 
+    /// Adaptive thinking configuration.
+    ///
+    /// When enabled, Claude automatically determines the appropriate amount of thinking
+    /// based on the task complexity. Use with the effort parameter in `OutputConfig`
+    /// to control thinking depth.
+    #[serde(rename = "adaptive")]
+    Adaptive,
+
     /// Enabled thinking configuration with a token budget.
     #[serde(rename = "enabled")]
     Enabled {
@@ -31,6 +39,7 @@ impl ThinkingConfig {
     pub fn num_tokens(&self) -> u32 {
         match self {
             ThinkingConfig::Disabled => 0,
+            ThinkingConfig::Adaptive => 0,
             ThinkingConfig::Enabled { budget_tokens } => *budget_tokens,
         }
     }
@@ -45,6 +54,11 @@ impl ThinkingConfig {
     /// Create a new disabled thinking configuration.
     pub fn disabled() -> Self {
         Self::Disabled
+    }
+
+    /// Create a new adaptive thinking configuration.
+    pub fn adaptive() -> Self {
+        Self::Adaptive
     }
 }
 
@@ -112,6 +126,32 @@ mod tests {
         match config {
             ThinkingConfig::Disabled => {}
             _ => panic!("Expected Disabled variant"),
+        }
+    }
+
+    #[test]
+    fn thinking_config_adaptive_serialization() {
+        let config = ThinkingConfig::adaptive();
+        let json = to_value(config).unwrap();
+
+        assert_eq!(
+            json,
+            json!({
+                "type": "adaptive"
+            })
+        );
+    }
+
+    #[test]
+    fn thinking_config_adaptive_deserialization() {
+        let json = json!({
+            "type": "adaptive"
+        });
+
+        let config: ThinkingConfig = serde_json::from_value(json).unwrap();
+        match config {
+            ThinkingConfig::Adaptive => {}
+            _ => panic!("Expected Adaptive variant"),
         }
     }
 }
