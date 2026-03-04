@@ -30,12 +30,6 @@ pub enum KnownModel {
     /// Claude 3.7 Sonnet (2025-02-19 version)
     Claude37Sonnet20250219,
 
-    /// Claude 3.5 Haiku (latest version)
-    Claude35HaikuLatest,
-
-    /// Claude 3.5 Haiku (2024-10-22 version)
-    Claude35Haiku20241022,
-
     /// Claude Haiku 4.5 (alias)
     ClaudeHaiku45,
 
@@ -95,8 +89,6 @@ impl fmt::Display for KnownModel {
             KnownModel::ClaudeOpus45 => write!(f, "claude-opus-4-5"),
             KnownModel::Claude37SonnetLatest => write!(f, "claude-3-7-sonnet-latest"),
             KnownModel::Claude37Sonnet20250219 => write!(f, "claude-3-7-sonnet-20250219"),
-            KnownModel::Claude35HaikuLatest => write!(f, "claude-3-5-haiku-latest"),
-            KnownModel::Claude35Haiku20241022 => write!(f, "claude-3-5-haiku-20241022"),
             KnownModel::ClaudeHaiku45 => write!(f, "claude-haiku-4-5"),
             KnownModel::ClaudeHaiku4520251001 => write!(f, "claude-haiku-4-5-20251001"),
             KnownModel::ClaudeSonnet420250514 => write!(f, "claude-sonnet-4-20250514"),
@@ -138,8 +130,6 @@ impl<'de> Deserialize<'de> for Model {
             "claude-opus-4-5" => Ok(Model::Known(KnownModel::ClaudeOpus45)),
             "claude-3-7-sonnet-latest" => Ok(Model::Known(KnownModel::Claude37SonnetLatest)),
             "claude-3-7-sonnet-20250219" => Ok(Model::Known(KnownModel::Claude37Sonnet20250219)),
-            "claude-3-5-haiku-latest" => Ok(Model::Known(KnownModel::Claude35HaikuLatest)),
-            "claude-3-5-haiku-20241022" => Ok(Model::Known(KnownModel::Claude35Haiku20241022)),
             "claude-haiku-4-5" => Ok(Model::Known(KnownModel::ClaudeHaiku45)),
             "claude-haiku-4-5-20251001" => Ok(Model::Known(KnownModel::ClaudeHaiku4520251001)),
             "claude-sonnet-4-20250514" => Ok(Model::Known(KnownModel::ClaudeSonnet420250514)),
@@ -175,8 +165,6 @@ impl FromStr for KnownModel {
             "claude-opus-4-5" => Ok(KnownModel::ClaudeOpus45),
             "claude-3-7-sonnet-latest" => Ok(KnownModel::Claude37SonnetLatest),
             "claude-3-7-sonnet-20250219" => Ok(KnownModel::Claude37Sonnet20250219),
-            "claude-3-5-haiku-latest" => Ok(KnownModel::Claude35HaikuLatest),
-            "claude-3-5-haiku-20241022" => Ok(KnownModel::Claude35Haiku20241022),
             "claude-haiku-4-5" => Ok(KnownModel::ClaudeHaiku45),
             "claude-haiku-4-5-20251001" => Ok(KnownModel::ClaudeHaiku4520251001),
             "claude-sonnet-4-20250514" => Ok(KnownModel::ClaudeSonnet420250514),
