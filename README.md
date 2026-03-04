@@ -405,7 +405,7 @@ Test configurations can be written in YAML format with comprehensive assertion s
 ```yaml
 name: "Simple Math Test"
 prompt: "What is 2 + 2? Please respond with just the number."
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 50
 temperature: 0.0
 system: "You are a helpful math assistant."
@@ -432,7 +432,7 @@ messages:
   - role: "user"
     content: "Tell me about ownership and borrowing."
 system: "You are a helpful Rust programming tutor."
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 400
 temperature: 0.3
 expected_contains:
@@ -448,7 +448,7 @@ Configuration inheritance allows for reusable base configurations:
 ```yaml
 # base.yaml
 name: "Base Configuration"
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 100
 temperature: 0.5
 system: "You are a helpful assistant."
@@ -468,7 +468,7 @@ File references enable modular prompt and system configurations:
 name: "File Reference Test"
 prompt: "prompt.yaml"      # Contents loaded from prompt.yaml
 system: "system.md"        # Contents loaded from system.md
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 400
 expected_contains:
   - "helpful"
@@ -498,7 +498,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a test configuration
     let config = PromptTestConfig::new("What is 2 + 2?")
         .with_name("Simple Math Test")
-        .with_model("claude-3-5-haiku-latest")
+        .with_model("claude-haiku-4-5")
         .with_max_tokens(50)
         .with_temperature(0.0)
         .expect_contains("4")

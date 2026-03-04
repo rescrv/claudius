@@ -28,7 +28,7 @@ mod tests {
                 "Say 'test passed'".to_string(),
                 MessageRole::User,
             )],
-            Model::Known(KnownModel::Claude35HaikuLatest),
+            Model::Known(KnownModel::ClaudeHaiku45),
         );
 
         let response = client.send(params).await;
@@ -54,7 +54,7 @@ mod tests {
                 "Count to 3".to_string(),
                 MessageRole::User,
             )],
-            Model::Known(KnownModel::Claude35HaikuLatest),
+            Model::Known(KnownModel::ClaudeHaiku45),
         );
 
         let stream = client.stream(&params).await;
@@ -199,27 +199,25 @@ mod tests {
                 "Say 'streaming test passed' briefly".to_string(),
                 MessageRole::User,
             )],
-            Model::Known(KnownModel::Claude35HaikuLatest),
+            Model::Known(KnownModel::ClaudeHaiku45),
         );
 
         let result = client.stream(&params).await;
-        assert!(
-            result.is_ok(),
-            "Streaming request should succeed with env API key"
-        );
+        let stream = match result {
+            Ok(stream) => stream,
+            Err(err) => panic!("Streaming request failed with env API key: {err:?}"),
+        };
 
         // Verify we get a proper stream by consuming at least one event
-        if let Ok(stream) = result {
-            use futures::StreamExt;
-            let mut pinned_stream = std::pin::pin!(stream);
-            let first_event = pinned_stream.next().await;
-            assert!(
-                first_event.is_some(),
-                "Stream should yield at least one event"
-            );
-            if let Some(event_result) = first_event {
-                assert!(event_result.is_ok(), "First stream event should be valid");
-            }
+        use futures::StreamExt;
+        let mut pinned_stream = std::pin::pin!(stream);
+        let first_event = pinned_stream.next().await;
+        assert!(
+            first_event.is_some(),
+            "Stream should yield at least one event"
+        );
+        if let Some(event_result) = first_event {
+            assert!(event_result.is_ok(), "First stream event should be valid");
         }
     }
 
@@ -239,28 +237,26 @@ mod tests {
                 "Say 'non-streaming test passed' briefly".to_string(),
                 MessageRole::User,
             )],
-            Model::Known(KnownModel::Claude35HaikuLatest),
+            Model::Known(KnownModel::ClaudeHaiku45),
         );
 
         let response = client.send(params).await;
-        assert!(
-            response.is_ok(),
-            "Non-streaming request should succeed with env API key"
-        );
+        let message = match response {
+            Ok(message) => message,
+            Err(err) => panic!("Non-streaming request failed with env API key: {err:?}"),
+        };
 
-        if let Ok(message) = response {
-            assert!(
-                !message.content.is_empty(),
-                "Response should contain content"
-            );
-            assert!(
-                message.usage.input_tokens > 0,
-                "Should report input token usage"
-            );
-            assert!(
-                message.usage.output_tokens > 0,
-                "Should report output token usage"
-            );
-        }
+        assert!(
+            !message.content.is_empty(),
+            "Response should contain content"
+        );
+        assert!(
+            message.usage.input_tokens > 0,
+            "Should report input token usage"
+        );
+        assert!(
+            message.usage.output_tokens > 0,
+            "Should report output token usage"
+        );
     }
 }

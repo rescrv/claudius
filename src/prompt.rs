@@ -53,7 +53,7 @@ use std::time::{Duration, Instant};
 /// ```rust
 /// # use claudius::PromptTestConfig;
 /// let config = PromptTestConfig::new("What is the capital of France?")
-///     .with_model("claude-3-5-haiku-latest")
+///     .with_model("claude-haiku-4-5")
 ///     .expect_contains("Paris");
 /// ```
 ///
@@ -63,7 +63,7 @@ use std::time::{Duration, Instant};
 /// name: "Geography Test"
 /// prompt: "prompt.yaml"    # Content loaded from prompt.yaml
 /// system: "system.md"      # Content loaded from system.md
-/// model: "claude-3-5-haiku-latest"
+/// model: "claude-haiku-4-5"
 /// expected_contains:
 ///   - "capital"
 /// ```
@@ -155,7 +155,7 @@ pub struct PromptTestConfig {
 }
 
 /// Default model to use for prompt tests when none is specified.
-const DEFAULT_MODEL: &str = "claude-3-5-haiku-latest";
+const DEFAULT_MODEL: &str = "claude-haiku-4-5";
 
 /// Default maximum tokens for prompt tests when none is specified.
 const DEFAULT_MAX_TOKENS: u32 = 1000;
@@ -425,7 +425,7 @@ impl PromptTestConfig {
     /// name: "My Test"
     /// prompt: "prompt.yaml"     # This file will be loaded
     /// system: "system.md"       # This file will be loaded
-    /// model: "claude-3-5-haiku-latest"
+    /// model: "claude-haiku-4-5"
     /// ```
     ///
     /// The content of `prompt.yaml` and `system.md` (relative to the config file)
@@ -1239,7 +1239,7 @@ mod tests {
 name: "Base Config"
 prompt: "Base prompt"
 system: "Base system"
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 100
 temperature: 0.5
 expected_contains:
@@ -1330,7 +1330,7 @@ prompt: "test"
         let base_yaml = r#"
 name: "Subdir Base Config"
 system: "Base system"
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 100
 "#;
         let base_file = subdir.join("base.yaml");
@@ -1389,7 +1389,7 @@ prompt: "Child prompt 2"
         let config_yaml = r#"
 name: "Relative Prompt Test"
 prompt: "prompt.yaml"
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 100
 "#;
         let config_file = test_dir.join("config.yaml");
@@ -1422,7 +1422,7 @@ max_tokens: 100
 name: "Relative System Test"
 prompt: "Hello world"
 system: "system.md"
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 100
 "#;
         let config_file = test_dir.join("config.yaml");
@@ -1462,7 +1462,7 @@ max_tokens: 100
 name: "Subdirectory Test"
 prompt: "prompt.yaml"
 system: "system.md"
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 "#;
         let config_file = subdir.join("config.yaml");
         std::fs::write(&config_file, config_yaml).unwrap();
@@ -1490,7 +1490,7 @@ model: "claude-3-5-haiku-latest"
 name: "Absolute Path Test"
 prompt: "/absolute/path/prompt.yaml"
 system: "/absolute/path/system.md"
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 "#;
         let config_file = test_dir.join("config.yaml");
         std::fs::write(&config_file, config_yaml).unwrap();
@@ -1527,7 +1527,7 @@ model: "claude-3-5-haiku-latest"
 name: "Parent System Test"
 prompt: "Hello world"
 system: "../system.md"
-model: "claude-3-5-haiku-latest"
+model: "claude-haiku-4-5"
 max_tokens: 100
 "#;
         let config_file = subdir.join("test.yaml");
