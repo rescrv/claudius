@@ -1,6 +1,6 @@
 [package]
 name = "claudius"
-version = "0.18.0"
+version = "0.19.0"
 authors = ["Robert Escriva <robert@rescrv.net>"]
 edition = "2024"
 description = "SDK for the Anthropic API"
@@ -13,25 +13,26 @@ default = ["binaries"]
 binaries = []
 
 [dependencies]
+async-trait = "0.1"
+base64 = "0.22"
+bytes = "1.11"
+ctrlc = { version = "3.5", features = ["termination"] }
+futures = "0.3"
+getopts = "0.2"
+reqwest = { version = "0.13", features = ["json", "query", "stream"] }
+rustyline = "17.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
-base64 = "0.22"
-url = "2.5"
+serde_yaml = "0.9"
 time = { version = "0.3", features = ["serde", "macros", "formatting", "parsing"] }
-reqwest = { version = "0.13", features = ["json", "query", "stream"] }
-bytes = "1.11"
-futures = "0.3"
 tokio = { version = "^1.49", features = ["full"] }
 tokio-util = { version = "^0.7", features = ["codec"] }
-async-trait = "0.1"
-utf8path = "0.9"
-serde_yaml = "0.9"
-arrrg = "0.8"
-arrrg_derive = "0.8"
-getopts = "0.2"
-rustyline = "17.0"
-ctrlc = { version = "3.5", features = ["termination"] }
-biometrics = "0.12"
+url = "2.5"
+
+arrrg = "^0.8"
+arrrg_derive = "^0.8"
+biometrics = "^0.12"
+utf8path = "^0.9"
 
 [[bin]]
 name = "median-text"
