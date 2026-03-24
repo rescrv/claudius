@@ -37,6 +37,7 @@ pub use prompt::{
     assert_not_contains, assert_test_passed, test_prompt,
 };
 pub use render::{AgentStreamContext, PlainTextRenderer, Renderer, StreamContext};
+pub use sse::{SseEvent, parse_message_stream_event, process_message_stream_sse, process_sse};
 pub use types::*;
 
 /// Pushes a message to the messages vector, or merges it with the last message if they have the same role.
