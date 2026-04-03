@@ -143,6 +143,14 @@ pub struct MessageCreateParams {
     /// See [streaming](https://docs.anthropic.com/en/api/messages-streaming) for
     /// details.
     pub stream: bool,
+
+    /// Beta feature headers to include with this request.
+    ///
+    /// These are merged with any client-level default betas and the
+    /// auto-detected `structured-outputs-2025-11-13` beta. Duplicates are
+    /// removed before sending.
+    #[serde(skip)]
+    pub betas: Option<Vec<String>>,
 }
 
 impl MessageCreateParams {
@@ -184,6 +192,7 @@ impl MessageCreateParams {
             top_k: None,
             top_p: None,
             stream: false,
+            betas: None,
         }
     }
 
@@ -204,6 +213,7 @@ impl MessageCreateParams {
             top_k: None,
             top_p: None,
             stream: true,
+            betas: None,
         }
     }
 
@@ -306,6 +316,24 @@ impl MessageCreateParams {
     /// Sets the streaming option.
     pub fn with_stream(mut self, stream: bool) -> Self {
         self.stream = stream;
+        self
+    }
+
+    /// Set the beta feature headers for this request.
+    ///
+    /// These are merged with any client-level default betas and the
+    /// auto-detected `structured-outputs-2025-11-13` beta. Duplicates are
+    /// removed before sending.
+    pub fn with_betas(mut self, betas: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.betas = Some(betas.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Add a single beta feature header for this request.
+    ///
+    /// Appends to any previously set betas.
+    pub fn with_beta(mut self, beta: impl Into<String>) -> Self {
+        self.betas.get_or_insert_with(Vec::new).push(beta.into());
         self
     }
 
@@ -576,6 +604,7 @@ impl Default for MessageCreateParams {
             top_k: None,
             top_p: None,
             stream: false,
+            betas: None,
         }
     }
 }
@@ -806,6 +835,47 @@ mod tests {
         assert!(
             !params.requires_structured_outputs_beta(),
             "params without output_format or strict tools should not require structured outputs beta"
+        );
+    }
+
+    #[test]
+    fn with_betas_sets_betas() {
+        let params = MessageCreateParams::simple("Hello", KnownModel::Claude37SonnetLatest)
+            .with_betas(["compact-2026-01-12", "some-other-beta"]);
+
+        assert_eq!(
+            params.betas,
+            Some(vec![
+                "compact-2026-01-12".to_string(),
+                "some-other-beta".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn with_beta_appends() {
+        let params = MessageCreateParams::simple("Hello", KnownModel::Claude37SonnetLatest)
+            .with_beta("compact-2026-01-12")
+            .with_beta("some-other-beta");
+
+        assert_eq!(
+            params.betas,
+            Some(vec![
+                "compact-2026-01-12".to_string(),
+                "some-other-beta".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn betas_not_serialized() {
+        let params = MessageCreateParams::simple("Hello", KnownModel::Claude37SonnetLatest)
+            .with_beta("compact-2026-01-12");
+
+        let json = to_value(&params).unwrap();
+        assert!(
+            json.get("betas").is_none(),
+            "betas should not appear in serialized JSON"
         );
     }
 }

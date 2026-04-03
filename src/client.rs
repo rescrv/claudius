@@ -93,6 +93,8 @@ pub struct Anthropic {
     reserve_capacity: f64,
     /// Cached headers for performance - Arc for cheap cloning
     cached_headers: Arc<HeaderMap>,
+    /// Beta feature headers included on every request.
+    default_betas: Vec<String>,
 }
 
 impl Anthropic {
@@ -177,6 +179,7 @@ impl Anthropic {
             throughput_ops_sec: 1.0 / 60.0,
             reserve_capacity: 1.0 / 60.0,
             cached_headers,
+            default_betas: Vec::new(),
         })
     }
 
@@ -254,6 +257,18 @@ impl Anthropic {
         self
     }
 
+    /// Set default beta feature headers included on every request.
+    ///
+    /// These are merged with any per-request betas and auto-detected betas
+    /// (like `structured-outputs-2025-11-13`). Duplicates are removed.
+    pub fn with_default_betas(
+        mut self,
+        betas: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.default_betas = betas.into_iter().map(Into::into).collect();
+        self
+    }
+
     /// Set both a custom base URL and timeout for this client.
     ///
     /// This is a convenience method that chains with_base_url and with_timeout.
@@ -305,6 +320,56 @@ impl Anthropic {
     fn build_url(&self, endpoint: &str) -> String {
         let base = self.base_url.trim_end_matches('/');
         format!("{}/v1/{}", base, endpoint)
+    }
+
+    /// Collect all beta strings from client defaults, per-request, and auto-detected sources.
+    ///
+    /// Returns a deduplicated, ordered list.
+    fn collect_betas(
+        &self,
+        request_betas: Option<&[String]>,
+        auto_betas: &[&str],
+    ) -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
+        let mut result = Vec::new();
+
+        for beta in &self.default_betas {
+            if seen.insert(beta.as_str().to_owned()) {
+                result.push(beta.clone());
+            }
+        }
+
+        if let Some(betas) = request_betas {
+            for beta in betas {
+                if seen.insert(beta.clone()) {
+                    result.push(beta.clone());
+                }
+            }
+        }
+
+        for &beta in auto_betas {
+            if seen.insert(beta.to_owned()) {
+                result.push(beta.to_owned());
+            }
+        }
+
+        result
+    }
+
+    /// Build headers with the `anthropic-beta` header set from the given betas.
+    ///
+    /// Returns `None` if there are no betas, avoiding an unnecessary header clone.
+    fn headers_with_betas(&self, betas: &[String]) -> Option<HeaderMap> {
+        if betas.is_empty() {
+            return None;
+        }
+        let mut headers = self.default_headers();
+        let value = betas.join(", ");
+        // Beta header values are ASCII, so from_str should not fail.
+        if let Ok(hv) = HeaderValue::from_str(&value) {
+            headers.insert("anthropic-beta", hv);
+        }
+        Some(headers)
     }
 
     /// Retry wrapper that implements exponential backoff with header-based retry-after
@@ -484,8 +549,10 @@ impl Anthropic {
         &self,
         url: &str,
         query_params: Option<&[(String, String)]>,
+        headers: Option<HeaderMap>,
     ) -> Result<T> {
-        let mut request = self.client.get(url).headers(self.default_headers());
+        let headers = headers.unwrap_or_else(|| self.default_headers());
+        let mut request = self.client.get(url).headers(headers);
 
         if let Some(params) = query_params {
             for (key, value) in params {
@@ -522,17 +589,14 @@ impl Anthropic {
         // Ensure stream is disabled
         params.stream = false;
 
-        // Check if structured outputs beta header is needed
-        let headers = if params.requires_structured_outputs_beta() {
-            let mut headers = self.default_headers();
-            headers.insert(
-                "anthropic-beta",
-                HeaderValue::from_static(STRUCTURED_OUTPUTS_BETA),
-            );
-            Some(headers)
+        // Collect all betas: client defaults + per-request + auto-detected
+        let auto_betas: Vec<&str> = if params.requires_structured_outputs_beta() {
+            vec![STRUCTURED_OUTPUTS_BETA]
         } else {
-            None
+            vec![]
         };
+        let all_betas = self.collect_betas(params.betas.as_deref(), &auto_betas);
+        let headers = self.headers_with_betas(&all_betas);
 
         let result = self
             .retry_with_backoff(|| async {
@@ -593,24 +657,25 @@ impl Anthropic {
             return Err(err);
         }
 
-        // Check if structured outputs beta header is needed
-        let needs_beta = params.requires_structured_outputs_beta();
+        // Collect all betas: client defaults + per-request + auto-detected
+        let auto_betas: Vec<&str> = if params.requires_structured_outputs_beta() {
+            vec![STRUCTURED_OUTPUTS_BETA]
+        } else {
+            vec![]
+        };
+        let all_betas = self.collect_betas(params.betas.as_deref(), &auto_betas);
 
         let response = self
             .retry_with_backoff(|| async {
                 let url = self.build_url("messages");
 
-                let mut headers = self.default_headers();
+                let mut headers = self
+                    .headers_with_betas(&all_betas)
+                    .unwrap_or_else(|| self.default_headers());
                 headers.insert(
                     header::ACCEPT,
                     HeaderValue::from_static("text/event-stream"),
                 );
-                if needs_beta {
-                    headers.insert(
-                        "anthropic-beta",
-                        HeaderValue::from_static(STRUCTURED_OUTPUTS_BETA),
-                    );
-                }
 
                 let response = self
                     .client
@@ -674,10 +739,16 @@ impl Anthropic {
     ) -> Result<MessageTokensCount> {
         let start = Instant::now();
         CLIENT_REQUESTS.click();
+
+        // Collect betas: client defaults + per-request
+        let all_betas = self.collect_betas(params.betas.as_deref(), &[]);
+        let headers = self.headers_with_betas(&all_betas);
+
         let result = self
             .retry_with_backoff(|| async {
                 let url = self.build_url("messages/count_tokens");
-                self.execute_post_request(&url, &params, None).await
+                self.execute_post_request(&url, &params, headers.clone())
+                    .await
             })
             .await;
 
@@ -695,6 +766,12 @@ impl Anthropic {
     pub async fn list_models(&self, params: Option<ModelListParams>) -> Result<ModelListResponse> {
         let start = Instant::now();
         CLIENT_REQUESTS.click();
+
+        // Collect betas: client defaults + per-request from ModelListParams
+        let request_betas = params.as_ref().and_then(|p| p.betas.as_deref());
+        let all_betas = self.collect_betas(request_betas, &[]);
+        let headers = self.headers_with_betas(&all_betas);
+
         let result = self
             .retry_with_backoff(|| async {
                 let url = self.build_url("models");
@@ -713,7 +790,7 @@ impl Anthropic {
                     params
                 });
 
-                self.execute_get_request(&url, query_params.as_deref())
+                self.execute_get_request(&url, query_params.as_deref(), headers.clone())
                     .await
             })
             .await;
@@ -735,7 +812,7 @@ impl Anthropic {
         let result = self
             .retry_with_backoff(|| async {
                 let url = self.build_url(&format!("models/{}", model_id));
-                self.execute_get_request(&url, None).await
+                self.execute_get_request(&url, None, None).await
             })
             .await;
 
@@ -764,6 +841,7 @@ mod tests {
             throughput_ops_sec: 1.0 / 60.0,
             reserve_capacity: 1.0 / 60.0,
             cached_headers: Arc::new(HeaderMap::new()),
+            default_betas: Vec::new(),
         };
 
         let attempt_counter = Arc::new(AtomicUsize::new(0));
@@ -798,6 +876,7 @@ mod tests {
             throughput_ops_sec: 1.0 / 60.0,
             reserve_capacity: 1.0 / 60.0,
             cached_headers: Arc::new(HeaderMap::new()),
+            default_betas: Vec::new(),
         };
 
         let attempt_counter = Arc::new(AtomicUsize::new(0));
@@ -830,6 +909,7 @@ mod tests {
             throughput_ops_sec: 1.0 / 60.0,
             reserve_capacity: 1.0 / 60.0,
             cached_headers: Arc::new(HeaderMap::new()),
+            default_betas: Vec::new(),
         };
 
         let attempt_counter = Arc::new(AtomicUsize::new(0));
@@ -863,6 +943,7 @@ mod tests {
             throughput_ops_sec: 1.0 / 60.0,
             reserve_capacity: 1.0 / 60.0,
             cached_headers: Arc::new(HeaderMap::new()),
+            default_betas: Vec::new(),
         };
 
         let attempt_counter = Arc::new(AtomicUsize::new(0));
@@ -1090,6 +1171,7 @@ mod tests {
             throughput_ops_sec: 1.0,
             reserve_capacity: 1.0,
             cached_headers: Arc::new(HeaderMap::new()),
+            default_betas: Vec::new(),
         };
 
         let attempt_counter = Arc::new(AtomicUsize::new(0));
@@ -1122,5 +1204,87 @@ mod tests {
 
         // Verify all operations executed
         assert_eq!(attempt_counter.load(Ordering::SeqCst), 3);
+    }
+
+    fn test_client() -> Anthropic {
+        Anthropic {
+            api_key: "test".to_string(),
+            client: ReqwestClient::new(),
+            base_url: "http://localhost".to_string(),
+            timeout: Duration::from_secs(1),
+            max_retries: 0,
+            throughput_ops_sec: 1.0 / 60.0,
+            reserve_capacity: 1.0 / 60.0,
+            cached_headers: Arc::new(HeaderMap::new()),
+            default_betas: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn collect_betas_empty() {
+        let client = test_client();
+        let result = client.collect_betas(None, &[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn collect_betas_client_defaults_only() {
+        let client = test_client().with_default_betas(["alpha", "bravo"]);
+        let result = client.collect_betas(None, &[]);
+        assert_eq!(result, vec!["alpha", "bravo"]);
+    }
+
+    #[test]
+    fn collect_betas_request_only() {
+        let client = test_client();
+        let request = vec!["compact-2026-01-12".to_string()];
+        let result = client.collect_betas(Some(&request), &[]);
+        assert_eq!(result, vec!["compact-2026-01-12"]);
+    }
+
+    #[test]
+    fn collect_betas_auto_only() {
+        let client = test_client();
+        let result = client.collect_betas(None, &[STRUCTURED_OUTPUTS_BETA]);
+        assert_eq!(result, vec![STRUCTURED_OUTPUTS_BETA]);
+    }
+
+    #[test]
+    fn collect_betas_merges_all_sources() {
+        let client = test_client().with_default_betas(["default-beta"]);
+        let request = vec!["request-beta".to_string()];
+        let result = client.collect_betas(Some(&request), &["auto-beta"]);
+        assert_eq!(result, vec!["default-beta", "request-beta", "auto-beta"]);
+    }
+
+    #[test]
+    fn collect_betas_deduplicates() {
+        let client = test_client().with_default_betas(["shared-beta", "default-only"]);
+        let request = vec!["shared-beta".to_string(), "request-only".to_string()];
+        let result = client.collect_betas(Some(&request), &["shared-beta"]);
+        assert_eq!(result, vec!["shared-beta", "default-only", "request-only"]);
+    }
+
+    #[test]
+    fn headers_with_betas_none_when_empty() {
+        let client = test_client();
+        assert!(client.headers_with_betas(&[]).is_none());
+    }
+
+    #[test]
+    fn headers_with_betas_joins_with_comma() {
+        let client = test_client();
+        let betas = vec!["alpha".to_string(), "bravo".to_string()];
+        let headers = client.headers_with_betas(&betas).unwrap();
+        assert_eq!(
+            headers.get("anthropic-beta").unwrap().to_str().unwrap(),
+            "alpha, bravo"
+        );
+    }
+
+    #[test]
+    fn with_default_betas_builder() {
+        let client = test_client().with_default_betas(["a", "b", "c"]);
+        assert_eq!(client.default_betas, vec!["a", "b", "c"]);
     }
 }

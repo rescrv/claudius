@@ -1609,6 +1609,14 @@ pub trait Agent: Send + Sync + Sized {
         None
     }
 
+    /// Returns default beta feature headers for this agent's requests.
+    ///
+    /// These are merged with any client-level default betas and auto-detected
+    /// betas. Duplicates are removed.
+    async fn betas(&self) -> Option<Vec<String>> {
+        None
+    }
+
     /// Returns the filesystem implementation for this agent.
     async fn filesystem(&self) -> Option<&dyn FileSystem> {
         None
@@ -1998,6 +2006,7 @@ pub trait Agent: Send + Sync + Sized {
             stream,
             tool_choice: self.tool_choice().await,
             tools,
+            betas: self.betas().await,
         }
     }
 

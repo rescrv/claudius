@@ -65,6 +65,13 @@ pub struct MessageCountTokensParams {
     /// return results back to the model using `tool_result` content blocks.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ToolUnionParam>>,
+
+    /// Beta feature headers to include with this request.
+    ///
+    /// These are merged with any client-level default betas. Duplicates are
+    /// removed before sending.
+    #[serde(skip)]
+    pub betas: Option<Vec<String>>,
 }
 
 impl MessageCountTokensParams {
@@ -77,6 +84,7 @@ impl MessageCountTokensParams {
             thinking: None,
             tool_choice: None,
             tools: None,
+            betas: None,
         }
     }
 
@@ -113,6 +121,23 @@ impl MessageCountTokensParams {
     /// Add tools.
     pub fn with_tools(mut self, tools: Vec<ToolUnionParam>) -> Self {
         self.tools = Some(tools);
+        self
+    }
+
+    /// Set the beta feature headers for this request.
+    ///
+    /// These are merged with any client-level default betas. Duplicates are
+    /// removed before sending.
+    pub fn with_betas(mut self, betas: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.betas = Some(betas.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Add a single beta feature header for this request.
+    ///
+    /// Appends to any previously set betas.
+    pub fn with_beta(mut self, beta: impl Into<String>) -> Self {
+        self.betas.get_or_insert_with(Vec::new).push(beta.into());
         self
     }
 }
