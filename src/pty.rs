@@ -713,6 +713,12 @@ async fn pty_write_all(fd: &AsyncFd<OwnedFd>, buf: &[u8]) -> std::io::Result<()>
     Ok(())
 }
 
+/// Returns `true` if the error represents an EIO on the PTY master, which on Linux signals that
+/// the slave side has been closed (equivalent to EOF on macOS).
+fn is_pty_eof(err: &std::io::Error) -> bool {
+    err.raw_os_error() == Some(libc::EIO)
+}
+
 /// Reads available bytes from the PTY master fd, waiting on readability.
 /// Returns `Ok(bytes)` or an error.
 async fn pty_read(fd: &AsyncFd<OwnedFd>) -> std::io::Result<Vec<u8>> {
@@ -731,6 +737,12 @@ async fn pty_read(fd: &AsyncFd<OwnedFd>) -> std::io::Result<Vec<u8>> {
                 return Ok(buf);
             }
             Ok(Err(err)) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Ok(Err(err)) if is_pty_eof(&err) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "PTY master EIO: shell exited",
+                ));
+            }
             Ok(Err(err)) => return Err(err),
             Err(_) => continue,
         }
@@ -746,6 +758,7 @@ fn drain_available(fd: &AsyncFd<OwnedFd>) -> std::io::Result<()> {
             Ok(_) => continue,
             Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
             Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err) if is_pty_eof(&err) => return Ok(()),
             Err(err) => return Err(err),
         }
     }
