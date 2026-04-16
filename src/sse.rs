@@ -568,9 +568,7 @@ mod tests {
     #[tokio::test]
     async fn handle_split_utf8_across_chunks() {
         let stream = stream::iter(vec![
-            Ok::<Bytes, reqwest::Error>(Bytes::from_static(
-                b"event: ping\ndata: caf\xc3",
-            )),
+            Ok::<Bytes, reqwest::Error>(Bytes::from_static(b"event: ping\ndata: caf\xc3")),
             Ok::<Bytes, reqwest::Error>(Bytes::from_static(b"\xa9\n\n")),
         ]);
 

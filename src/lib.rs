@@ -18,6 +18,7 @@ mod error;
 mod json_schema;
 mod observability;
 mod prompt;
+mod pty;
 mod render;
 mod sse;
 mod types;
@@ -36,6 +37,7 @@ pub use prompt::{
     PromptTestConfig, PromptTestResult, assert_contains, assert_max_length, assert_min_length,
     assert_not_contains, assert_test_passed, test_prompt,
 };
+pub use pty::{BashPtyConfig, BashPtyResult, BashPtySession};
 pub use render::{AgentStreamContext, PlainTextRenderer, Renderer, StreamContext};
 pub use sse::{SseEvent, parse_message_stream_event, process_message_stream_sse, process_sse};
 pub use types::*;
