@@ -24,6 +24,10 @@ pub struct BashPtyConfig {
     pub env: BTreeMap<String, String>,
     /// Path to the shell binary (default: `/bin/bash`).
     pub shell: PathBuf,
+    /// When set, the spawned process is `wrapper[0]` with argv
+    /// `[wrapper[0..], shell, --noprofile, --norc, -i]`.
+    /// Use this to run the shell inside a sandbox or other wrapper.
+    pub shell_wrapper: Option<Vec<String>>,
     /// Terminal row count.
     pub rows: u16,
     /// Terminal column count.
@@ -38,6 +42,7 @@ impl Default for BashPtyConfig {
             cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
             env: BTreeMap::new(),
             shell: PathBuf::from("/bin/bash"),
+            shell_wrapper: None,
             rows: 24,
             cols: 80,
             command_timeout: DEFAULT_COMMAND_TIMEOUT,
@@ -493,13 +498,40 @@ impl BashPtySession {
         let arg_norc = CString::new("--norc").unwrap();
         let arg_i = CString::new("-i").unwrap();
         let envp_storage = shell_environment(&env)?;
-        let mut argv = vec![
-            shell_c.as_ptr() as *mut libc::c_char,
-            arg_noprofile.as_ptr() as *mut libc::c_char,
-            arg_norc.as_ptr() as *mut libc::c_char,
-            arg_i.as_ptr() as *mut libc::c_char,
-            std::ptr::null_mut(),
-        ];
+
+        // If a wrapper is configured, the spawned binary is wrapper[0] and
+        // the full argv is [wrapper[0], wrapper[1..], shell, --noprofile, --norc, -i].
+        let (spawn_path, extra_args_storage);
+        if let Some(ref wrapper) = self.config.shell_wrapper {
+            assert!(!wrapper.is_empty(), "shell_wrapper must not be empty");
+            spawn_path = PathBuf::from(&wrapper[0]);
+            extra_args_storage = wrapper[1..]
+                .iter()
+                .map(|arg| CString::new(arg.as_bytes()).unwrap())
+                .collect::<Vec<_>>();
+        } else {
+            spawn_path = shell_path.clone();
+            extra_args_storage = vec![];
+        }
+        let spawn_c = cstring_from_path(&spawn_path, "spawn path")?;
+
+        let mut argv_storage = vec![spawn_c.clone()];
+        for arg in &extra_args_storage {
+            argv_storage.push(arg.clone());
+        }
+        if self.config.shell_wrapper.is_some() {
+            argv_storage.push(shell_c.clone());
+        }
+        argv_storage.push(arg_noprofile.clone());
+        argv_storage.push(arg_norc.clone());
+        argv_storage.push(arg_i.clone());
+
+        let mut argv: Vec<*mut libc::c_char> = argv_storage
+            .iter()
+            .map(|s| s.as_ptr() as *mut libc::c_char)
+            .collect();
+        argv.push(std::ptr::null_mut());
+
         let mut envp = envp_storage
             .iter()
             .map(|entry| entry.as_ptr() as *mut libc::c_char)
@@ -521,7 +553,7 @@ impl BashPtySession {
         let ret = unsafe {
             libc::posix_spawnp(
                 &mut pid,
-                shell_c.as_ptr(),
+                spawn_c.as_ptr(),
                 file_actions.as_ptr(),
                 attr.as_ptr(),
                 argv.as_mut_ptr(),
@@ -1091,6 +1123,7 @@ mod tests {
         assert_eq!(config.cwd, expected_cwd);
         assert_eq!(config.env, BTreeMap::new());
         assert_eq!(config.shell, PathBuf::from("/bin/bash"));
+        assert_eq!(config.shell_wrapper, None);
         assert_eq!(config.rows, 24);
         assert_eq!(config.cols, 80);
         assert_eq!(config.command_timeout, DEFAULT_COMMAND_TIMEOUT);
