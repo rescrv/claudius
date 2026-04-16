@@ -88,7 +88,7 @@ fn open_pty(rows: u16, cols: u16) -> std::io::Result<(OwnedFd, OwnedFd)> {
             &mut slave,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
-            &mut ws,
+            &ws as *const libc::winsize as *mut libc::winsize,
         )
     };
     if ret != 0 {
@@ -937,8 +937,8 @@ mod tests {
     use std::ffi::OsString;
     use std::fs;
     use std::os::fd::OwnedFd;
-    use std::os::unix::fs::PermissionsExt;
     use std::os::unix::ffi::OsStringExt;
+    use std::os::unix::fs::PermissionsExt;
     use std::os::unix::io::FromRawFd;
     use std::os::unix::process::ExitStatusExt;
     use std::path::{Path, PathBuf};
@@ -1207,7 +1207,9 @@ mod tests {
             Some("rest")
         );
         assert_eq!(
-            strip_osc133_marker(&format!("{OSC133_COMMAND_DONE_PREFIX}7{OSC_TERMINATOR}rest")),
+            strip_osc133_marker(&format!(
+                "{OSC133_COMMAND_DONE_PREFIX}7{OSC_TERMINATOR}rest"
+            )),
             Some("rest")
         );
     }
@@ -1215,7 +1217,9 @@ mod tests {
     #[test]
     fn strip_osc133_marker_rejects_malformed_done_marker() {
         assert_eq!(
-            strip_osc133_marker(&format!("{OSC133_COMMAND_DONE_PREFIX}x{OSC_TERMINATOR}rest")),
+            strip_osc133_marker(&format!(
+                "{OSC133_COMMAND_DONE_PREFIX}x{OSC_TERMINATOR}rest"
+            )),
             None
         );
         assert_eq!(
@@ -1234,9 +1238,8 @@ mod tests {
 
     #[test]
     fn strip_internal_markers_preserves_unknown_escape_sequences_and_malformed_markers() {
-        let raw = format!(
-            "\u{1b}[31mred\u{1b}[0m {OSC133_COMMAND_DONE_PREFIX}x{OSC_TERMINATOR}tail"
-        );
+        let raw =
+            format!("\u{1b}[31mred\u{1b}[0m {OSC133_COMMAND_DONE_PREFIX}x{OSC_TERMINATOR}tail");
         assert_eq!(strip_internal_markers(&raw), raw);
     }
 
@@ -1367,7 +1370,10 @@ mod tests {
         disable_echo(&master).expect("disable echo");
 
         let termios = get_termios(&master);
-        assert_eq!(termios.c_lflag & (libc::ECHO | libc::ECHOE | libc::ECHOK | libc::ECHONL), 0);
+        assert_eq!(
+            termios.c_lflag & (libc::ECHO | libc::ECHOE | libc::ECHOK | libc::ECHONL),
+            0
+        );
     }
 
     #[test]
@@ -1464,7 +1470,9 @@ mod tests {
         let read_fd = AsyncFd::new(read_fd).expect("wrap read fd");
         drop(write_fd);
 
-        let err = pty_read(&read_fd).await.expect_err("closed writer should yield eof");
+        let err = pty_read(&read_fd)
+            .await
+            .expect_err("closed writer should yield eof");
         assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof);
         assert!(err.to_string().contains("PTY master EOF"));
     }
@@ -1723,7 +1731,10 @@ HEREDOC"#;
             "plain nonzero commands should not kill the shell"
         );
 
-        let r = session.run("printf after", false).await.expect("after false");
+        let r = session
+            .run("printf after", false)
+            .await
+            .expect("after false");
         assert_bash_pty_result_eq(
             &r,
             BashPtyResult {
