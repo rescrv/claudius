@@ -127,8 +127,7 @@ pub struct ChatConfig {
     pub session_budget: Option<Budget>,
     /// Path to persist transcripts automatically after each assistant turn.
     pub transcript_path: Option<PathBuf>,
-    /// Whether to enable prompt caching for the system prompt.
-    /// When enabled, the system prompt will include cache_control markers.
+    /// Whether prompt caching is enabled for this session.
     pub caching_enabled: bool,
 }
 
