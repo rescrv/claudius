@@ -8,21 +8,18 @@ use std::time::Instant;
 use futures::StreamExt;
 use utf8path::Path;
 
-use crate::cache_control::{
-    MAX_CACHE_BREAKPOINTS, count_system_cache_controls, prune_cache_controls_in_messages,
-};
+use crate::cache_control::apply_cache_controls;
 use crate::observability::{
     AGENT_TOOL_CALLS, AGENT_TOOL_DURATION, AGENT_TOOL_ERRORS, AGENT_TURN_DURATION,
     AGENT_TURN_REQUESTS,
 };
 use crate::{
-    AccumulatingStream, AgentStreamContext, Anthropic, CacheControlEphemeral, ContentBlock,
-    ContentBlockDelta, Error, KnownModel, Message, MessageCreateParams, MessageParam,
-    MessageParamContent, MessageRole, MessageStreamEvent, Metadata, Model, Renderer, StopReason,
-    StreamContext, SystemPrompt, ThinkingConfig, ToolBash20241022, ToolBash20250124, ToolChoice,
-    ToolParam, ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124,
-    ToolTextEditor20250429, ToolTextEditor20250728, ToolUnionParam, ToolUseBlock, Usage,
-    WebSearchTool20250305, push_or_merge_message,
+    AccumulatingStream, AgentStreamContext, Anthropic, ContentBlock, ContentBlockDelta, Error,
+    KnownModel, Message, MessageCreateParams, MessageParam, MessageParamContent, MessageRole,
+    MessageStreamEvent, Metadata, Model, Renderer, StopReason, StreamContext, SystemPrompt,
+    ThinkingConfig, ToolBash20241022, ToolBash20250124, ToolChoice, ToolParam, ToolResultBlock,
+    ToolResultBlockContent, ToolTextEditor20250124, ToolTextEditor20250429, ToolTextEditor20250728,
+    ToolUnionParam, ToolUseBlock, Usage, WebSearchTool20250305, push_or_merge_message,
 };
 
 struct StreamingContext<'a> {
@@ -1587,6 +1584,11 @@ pub trait Agent: Send + Sync + Sized {
         None
     }
 
+    /// Returns whether prompt caching is enabled.
+    fn caching_enabled(&self) -> bool {
+        false
+    }
+
     /// Returns the temperature for response generation.
     async fn temperature(&self) -> Option<f32> {
         None
@@ -1978,11 +1980,11 @@ pub trait Agent: Send + Sync + Sized {
         messages: Vec<MessageParam>,
         stream: bool,
     ) -> MessageCreateParams {
-        let system = self.system().await;
+        let mut system = self.system().await;
         let mut messages = messages;
-        let system_cache_controls = count_system_cache_controls(&system);
-        let keep_latest = MAX_CACHE_BREAKPOINTS.saturating_sub(system_cache_controls);
-        prune_cache_controls_in_messages(&mut messages, keep_latest);
+        if self.caching_enabled() {
+            apply_cache_controls(&mut system, &mut messages);
+        }
 
         let tools = self
             .tools()
@@ -2623,56 +2625,16 @@ fn push_tool_result(
 ) {
     match result {
         Ok(block) => {
-            let mut block = block;
-            if block.cache_control.is_none() {
-                block.cache_control = Some(CacheControlEphemeral::new());
-            }
             if let Some((renderer, context)) = renderer {
                 render_tool_result_block(renderer, context, &block);
             }
             tool_results.push(block.into());
         }
         Err(block) => {
-            let mut block = block;
-            if block.cache_control.is_none() {
-                block.cache_control = Some(CacheControlEphemeral::new());
-            }
             if let Some((renderer, context)) = renderer {
                 render_tool_result_block(renderer, context, &block);
             }
             tool_results.push(block.with_error(true).into());
-        }
-    }
-    prune_tool_result_cache_controls(tool_results, 4);
-}
-
-fn prune_tool_result_cache_controls(tool_results: &mut [ContentBlock], keep_latest: usize) {
-    if keep_latest == 0 {
-        for block in tool_results.iter_mut() {
-            if let ContentBlock::ToolResult(tool_result) = block {
-                tool_result.cache_control = None;
-            }
-        }
-        return;
-    }
-
-    let mut cached_indices = Vec::new();
-    for (idx, block) in tool_results.iter().enumerate() {
-        if let ContentBlock::ToolResult(tool_result) = block
-            && tool_result.cache_control.is_some()
-        {
-            cached_indices.push(idx);
-        }
-    }
-
-    if cached_indices.len() <= keep_latest {
-        return;
-    }
-
-    let drop_count = cached_indices.len() - keep_latest;
-    for idx in cached_indices.into_iter().take(drop_count) {
-        if let ContentBlock::ToolResult(tool_result) = &mut tool_results[idx] {
-            tool_result.cache_control = None;
         }
     }
 }
