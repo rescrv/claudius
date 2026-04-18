@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -1456,6 +1456,15 @@ pub trait FileSystem: Send + Sync {
     /// Searches for files matching the given query.
     async fn search(&self, search: &str) -> Result<String, std::io::Error>;
 
+    /// Lists directory entries, if `path` is a directory.
+    ///
+    /// Implementations return `Ok(None)` when they cannot distinguish directory
+    /// listings from other `view` results.
+    async fn list_directory(&self, path: &str) -> Result<Option<String>, std::io::Error> {
+        let _ = path;
+        Ok(None)
+    }
+
     /// Views the contents of a file, optionally within a specific line range.
     ///
     /// # Parameters
@@ -2211,19 +2220,21 @@ impl FileSystem for Path<'_> {
         Ok(stdout.to_string() + "\n" + &stderr + &count)
     }
 
+    async fn list_directory(&self, path: &str) -> Result<Option<String>, std::io::Error> {
+        let path = sanitize_path(self.clone(), path)?;
+        if path.is_dir() {
+            Ok(Some(directory_listing(&path)?))
+        } else {
+            Ok(None)
+        }
+    }
+
     async fn view(
         &self,
         path: &str,
         view_range: Option<(u32, u32)>,
     ) -> Result<String, std::io::Error> {
-        if let Some((start, limit)) = view_range
-            && (start == 0 || limit == 0)
-        {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "view_range values must be >= 1",
-            ));
-        }
+        validate_view_range(view_range)?;
         let path = sanitize_path(self.clone(), path)?;
         if path.is_file() {
             let content = std::fs::read_to_string(path)?;
@@ -2241,16 +2252,7 @@ impl FileSystem for Path<'_> {
             ret.push('\n');
             Ok(ret)
         } else if path.is_dir() {
-            let mut listing = String::new();
-            for dirent in std::fs::read_dir(&path)? {
-                let dirent = dirent?;
-                let p = Path::try_from(dirent.path()).map_err(std::io::Error::other)?;
-                if let Some(p) = p.strip_prefix(path.clone()) {
-                    listing.push_str(p.as_str());
-                    listing.push('\n');
-                }
-            }
-            Ok(listing)
+            directory_listing(&path)
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
@@ -2373,6 +2375,16 @@ impl FileSystem for Mount {
         }
     }
 
+    async fn list_directory(&self, path: &str) -> Result<Option<String>, std::io::Error> {
+        match self.perm {
+            Permissions::WriteOnly => Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "view not allowed with WriteOnly permissions",
+            )),
+            Permissions::ReadOnly | Permissions::ReadWrite => self.fs.list_directory(path).await,
+        }
+    }
+
     async fn view(
         &self,
         path: &str,
@@ -2486,7 +2498,7 @@ impl MountHierarchy {
         Ok(())
     }
 
-    fn fs_for_path(&self, path: &str) -> Result<(&dyn FileSystem, Path<'static>), std::io::Error> {
+    fn mount_for_path(&self, path: &str) -> Result<(&Mount, Path<'static>), std::io::Error> {
         for mount in self.mounts.iter().rev() {
             if let Some(path) = Path::from(path).strip_prefix(mount.path.clone()) {
                 let path = path.into_owned();
@@ -2496,6 +2508,29 @@ impl MountHierarchy {
         Err(std::io::Error::other(
             "filesystem not initialized".to_string(),
         ))
+    }
+
+    fn fs_for_path(&self, path: &str) -> Result<(&dyn FileSystem, Path<'static>), std::io::Error> {
+        let (mount, path) = self.mount_for_path(path)?;
+        Ok((mount, path))
+    }
+
+    fn virtual_directory_entries(&self, path: &str) -> BTreeSet<String> {
+        let path = Path::from(path);
+        let mut seen_mount_paths = HashSet::new();
+        let mut entries = BTreeSet::new();
+        for mount in self.mounts.iter().rev() {
+            if !seen_mount_paths.insert(mount.path.as_str().to_string()) {
+                continue;
+            }
+            if !matches!(mount.perm, Permissions::ReadOnly | Permissions::ReadWrite) {
+                continue;
+            }
+            if let Some(entry) = immediate_child_component(&mount.path, &path) {
+                entries.insert(entry);
+            }
+        }
+        entries
     }
 }
 
@@ -2517,8 +2552,21 @@ impl FileSystem for MountHierarchy {
         path: &str,
         view_range: Option<(u32, u32)>,
     ) -> Result<String, std::io::Error> {
-        let (fs, path) = self.fs_for_path(path)?;
-        fs.view(path.as_str(), view_range).await
+        let (mount, mounted_path) = self.mount_for_path(path)?;
+        let virtual_entries = self.virtual_directory_entries(path);
+        if virtual_entries.is_empty() {
+            return mount.view(mounted_path.as_str(), view_range).await;
+        }
+        validate_view_range(view_range)?;
+        let mut entries = virtual_entries;
+        if let Some(listing) = mount.list_directory(mounted_path.as_str()).await? {
+            for entry in listing.lines() {
+                if !entry.is_empty() {
+                    entries.insert(entry.to_string());
+                }
+            }
+        }
+        Ok(format_directory_entries(entries))
     }
 
     async fn str_replace(
@@ -2548,6 +2596,76 @@ impl FileSystem for MountHierarchy {
 }
 
 /////////////////////////////////////////////// Misc ///////////////////////////////////////////////
+
+fn validate_view_range(view_range: Option<(u32, u32)>) -> Result<(), std::io::Error> {
+    if let Some((start, limit)) = view_range
+        && (start == 0 || limit == 0)
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "view_range values must be >= 1",
+        ));
+    }
+    Ok(())
+}
+
+fn directory_listing(path: &Path) -> Result<String, std::io::Error> {
+    let mut listing = String::new();
+    for dirent in std::fs::read_dir(path)? {
+        let dirent = dirent?;
+        let p = Path::try_from(dirent.path()).map_err(std::io::Error::other)?;
+        if let Some(p) = p.strip_prefix(path.clone()) {
+            listing.push_str(p.as_str());
+            listing.push('\n');
+        }
+    }
+    Ok(listing)
+}
+
+fn immediate_child_component(path: &Path, prefix: &Path) -> Option<String> {
+    if path.has_root() != prefix.has_root() || path.has_app_defined() != prefix.has_app_defined() {
+        return None;
+    }
+    let path_components = ordinary_components(path)?;
+    let prefix_components = ordinary_components(prefix)?;
+    if prefix_components.len() >= path_components.len() {
+        return None;
+    }
+    if path_components
+        .iter()
+        .zip(prefix_components.iter())
+        .all(|(path, prefix)| path == prefix)
+    {
+        Some(path_components[prefix_components.len()].clone())
+    } else {
+        None
+    }
+}
+
+fn ordinary_components(path: &Path) -> Option<Vec<String>> {
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            utf8path::Component::RootDir
+            | utf8path::Component::AppDefined
+            | utf8path::Component::CurDir => {}
+            utf8path::Component::ParentDir => return None,
+            utf8path::Component::Normal(component) => {
+                components.push(component.as_str().to_string())
+            }
+        }
+    }
+    Some(components)
+}
+
+fn format_directory_entries(entries: BTreeSet<String>) -> String {
+    let mut listing = String::new();
+    for entry in entries {
+        listing.push_str(&entry);
+        listing.push('\n');
+    }
+    listing
+}
 
 fn sanitize_path(base: Path, path: &str) -> Result<Path<'static>, std::io::Error> {
     let path = Path::from(path);
@@ -3515,6 +3633,321 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
         assert!(err.to_string().contains("view error from root"));
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_views_virtual_mount_parent_directory() {
+        let workspace = make_temp_dir("mount_parent_workspace");
+        let skill = make_temp_dir("mount_parent_skill");
+        std::fs::write(skill.join("SKILL.md"), "# Rust").unwrap();
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::ReadOnly,
+                Path::try_from(skill.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let content = hierarchy.view("/skills/rust/SKILL.md", None).await.unwrap();
+        assert_eq!(content, "# Rust\n");
+
+        let listing = hierarchy.view("/skills", None).await.unwrap();
+        assert_eq!(listing, "rust\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(skill).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_directory_lists_only_immediate_children() {
+        let workspace = make_temp_dir("mount_immediate_workspace");
+        let rustfmt = make_temp_dir("mount_immediate_rustfmt");
+        let lint = make_temp_dir("mount_immediate_lint");
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust/rustfmt".into(),
+                Permissions::ReadOnly,
+                Path::try_from(rustfmt.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/python/lint".into(),
+                Permissions::ReadOnly,
+                Path::try_from(lint.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let listing = hierarchy.view("/skills", None).await.unwrap();
+        assert_eq!(listing, "python\nrust\n");
+
+        let listing = hierarchy.view("/skills/python", None).await.unwrap();
+        assert_eq!(listing, "lint\n");
+
+        let listing = hierarchy.view("/skills/rust", None).await.unwrap();
+        assert_eq!(listing, "rustfmt\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(rustfmt).ok();
+        std::fs::remove_dir_all(lint).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_directory_merges_physical_directory_entries() {
+        let workspace = make_temp_dir("mount_merge_workspace");
+        let skill = make_temp_dir("mount_merge_skill");
+        std::fs::create_dir_all(workspace.join("skills")).unwrap();
+        std::fs::write(workspace.join("skills/local.txt"), "local\n").unwrap();
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::ReadOnly,
+                Path::try_from(skill.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let listing = hierarchy.view("/skills", None).await.unwrap();
+        assert_eq!(listing, "local.txt\nrust\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(skill).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_directory_overrides_physical_file() {
+        let workspace = make_temp_dir("mount_file_workspace");
+        let skill = make_temp_dir("mount_file_skill");
+        std::fs::write(workspace.join("skills"), "not a directory\n").unwrap();
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::ReadOnly,
+                Path::try_from(skill.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let listing = hierarchy.view("/skills", None).await.unwrap();
+        assert_eq!(listing, "rust\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(skill).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_entries_are_merged_at_exact_mounts() {
+        let workspace = make_temp_dir("mount_exact_workspace");
+        let skills = make_temp_dir("mount_exact_skills");
+        let rust = make_temp_dir("mount_exact_rust");
+        std::fs::write(skills.join("local.txt"), "local\n").unwrap();
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills".into(),
+                Permissions::ReadOnly,
+                Path::try_from(skills.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::ReadOnly,
+                Path::try_from(rust.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let listing = hierarchy.view("/skills", None).await.unwrap();
+        assert_eq!(listing, "local.txt\nrust\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(skills).ok();
+        std::fs::remove_dir_all(rust).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_entries_are_merged_at_root() {
+        let workspace = make_temp_dir("mount_root_workspace");
+        let skill = make_temp_dir("mount_root_skill");
+        std::fs::write(workspace.join("README.md"), "workspace\n").unwrap();
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::ReadOnly,
+                Path::try_from(skill.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let listing = hierarchy.view("/", None).await.unwrap();
+        assert_eq!(listing, "README.md\nskills\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(skill).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_directory_omits_write_only_children() {
+        let workspace = make_temp_dir("mount_perms_workspace");
+        let read = make_temp_dir("mount_perms_read");
+        let write = make_temp_dir("mount_perms_write");
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/read".into(),
+                Permissions::ReadOnly,
+                Path::try_from(read.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/write".into(),
+                Permissions::WriteOnly,
+                Path::try_from(write.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let listing = hierarchy.view("/skills", None).await.unwrap();
+        assert_eq!(listing, "read\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(read).ok();
+        std::fs::remove_dir_all(write).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_directory_respects_overlay_permissions() {
+        let workspace = make_temp_dir("mount_overlay_workspace");
+        let readable = make_temp_dir("mount_overlay_readable");
+        let hidden = make_temp_dir("mount_overlay_hidden");
+        let python = make_temp_dir("mount_overlay_python");
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::ReadOnly,
+                Path::try_from(readable.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::WriteOnly,
+                Path::try_from(hidden.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/python".into(),
+                Permissions::ReadOnly,
+                Path::try_from(python.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let listing = hierarchy.view("/skills", None).await.unwrap();
+        assert_eq!(listing, "python\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(readable).ok();
+        std::fs::remove_dir_all(hidden).ok();
+        std::fs::remove_dir_all(python).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_directory_rejects_invalid_view_range() {
+        let workspace = make_temp_dir("mount_range_workspace");
+        let skill = make_temp_dir("mount_range_skill");
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::ReadOnly,
+                Path::try_from(skill.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let result = hierarchy.view("/skills", Some((0, 1))).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(err.to_string(), "view_range values must be >= 1");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(skill).ok();
     }
 
     #[tokio::test]
