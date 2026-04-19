@@ -14,12 +14,13 @@ use crate::observability::{
     AGENT_TURN_REQUESTS,
 };
 use crate::{
-    AccumulatingStream, AgentStreamContext, Anthropic, ContentBlock, ContentBlockDelta, Error,
-    KnownModel, Message, MessageCreateParams, MessageParam, MessageParamContent, MessageRole,
-    MessageStreamEvent, Metadata, Model, Renderer, StopReason, StreamContext, SystemPrompt,
-    ThinkingConfig, ToolBash20241022, ToolBash20250124, ToolChoice, ToolParam, ToolResultBlock,
-    ToolResultBlockContent, ToolTextEditor20250124, ToolTextEditor20250429, ToolTextEditor20250728,
-    ToolUnionParam, ToolUseBlock, Usage, WebSearchTool20250305, push_or_merge_message,
+    AccumulatingStream, AgentStreamContext, Anthropic, CacheControlEphemeral, ContentBlock,
+    ContentBlockDelta, Error, KnownModel, Message, MessageCreateParams, MessageParam,
+    MessageParamContent, MessageRole, MessageStreamEvent, Metadata, Model, Renderer, StopReason,
+    StreamContext, SystemPrompt, ThinkingConfig, ToolBash20241022, ToolBash20250124, ToolChoice,
+    ToolParam, ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124,
+    ToolTextEditor20250429, ToolTextEditor20250728, ToolUnionParam, ToolUseBlock, Usage,
+    WebSearchTool20250305, push_or_merge_message,
 };
 
 struct StreamingContext<'a> {
@@ -1990,11 +1991,9 @@ pub trait Agent: Send + Sync + Sized {
         stream: bool,
     ) -> MessageCreateParams {
         let mut system = self.system().await;
-        let mut messages = messages;
         if self.caching_enabled() {
-            apply_cache_controls(&mut system, &mut messages);
+            apply_cache_controls(&mut system);
         }
-
         let tools = self
             .tools()
             .await
@@ -2006,6 +2005,11 @@ pub trait Agent: Send + Sync + Sized {
             max_tokens,
             model: self.model().await,
             messages,
+            cache_control: if self.caching_enabled() {
+                Some(CacheControlEphemeral::new())
+            } else {
+                None
+            },
             metadata: self.metadata().await,
             output_format: None,
             stop_sequences: self.stop_sequences().await,

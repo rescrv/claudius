@@ -34,6 +34,7 @@ From the set of documents provided, select the document that makes the most sens
 
 Output the corrected/unified document and only the corrected/unified document.
 "#.into()),
+        cache_control: None,
         metadata: None,
         output_format: None,
         stop_sequences: None,
