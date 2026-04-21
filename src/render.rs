@@ -103,6 +103,17 @@ impl StreamContext for AgentStreamContext {
 
 impl StreamContext for () {}
 
+/// A line of operator input read by an interactive renderer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OperatorLine {
+    /// A complete input line.
+    Line(String),
+    /// End-of-file was received.
+    Eof,
+    /// Input was interrupted.
+    Interrupted,
+}
+
 /// Trait for rendering streaming output.
 ///
 /// This abstraction allows for different rendering strategies:
@@ -176,6 +187,14 @@ pub trait Renderer: Send {
     /// Returns true if streaming should be interrupted.
     fn should_interrupt(&self) -> bool {
         false
+    }
+
+    /// Reads a line of operator input, if this renderer is interactive.
+    ///
+    /// Renderers that do not own an input source should return `Ok(None)`.
+    fn read_operator_line(&mut self, prompt: &str) -> io::Result<Option<OperatorLine>> {
+        _ = prompt;
+        Ok(None)
     }
 }
 
@@ -446,5 +465,11 @@ mod tests {
     fn renderer_without_color() {
         let renderer = PlainTextRenderer::with_color(false);
         assert!(!renderer.use_color);
+    }
+
+    #[test]
+    fn renderer_without_input_returns_none() {
+        let mut renderer = PlainTextRenderer::new();
+        assert_eq!(renderer.read_operator_line("> ").unwrap(), None);
     }
 }

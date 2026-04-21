@@ -29,6 +29,7 @@
 //! - `/stats` - Show session statistics
 //! - `/quit` - Exit the application
 
+use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -37,12 +38,114 @@ use arrrg::CommandLine;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use claudius::Renderer;
 use claudius::chat::{
     ChatAgent, ChatArgs, ChatCommand, ChatConfig, ChatSession, PlainTextRenderer, help_text,
     parse_command,
 };
-use claudius::{Anthropic, Model, SystemPrompt, ThinkingConfig};
+use claudius::{Anthropic, Model, StopReason, SystemPrompt, ThinkingConfig};
+use claudius::{OperatorLine, Renderer, StreamContext};
+
+struct ChatTerminal {
+    editor: DefaultEditor,
+    renderer: PlainTextRenderer,
+}
+
+impl ChatTerminal {
+    fn new(
+        use_color: bool,
+        interrupted: Arc<AtomicBool>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(Self {
+            editor: DefaultEditor::new()?,
+            renderer: PlainTextRenderer::with_color_and_interrupt(use_color, interrupted),
+        })
+    }
+
+    fn read_line(&mut self, prompt: &str) -> io::Result<OperatorLine> {
+        match self.editor.readline(prompt) {
+            Ok(line) => Ok(OperatorLine::Line(line)),
+            Err(ReadlineError::Interrupted) => Ok(OperatorLine::Interrupted),
+            Err(ReadlineError::Eof) => Ok(OperatorLine::Eof),
+            Err(err) => Err(io::Error::other(err.to_string())),
+        }
+    }
+
+    fn add_history_entry(&mut self, line: &str) {
+        let _ = self.editor.add_history_entry(line);
+    }
+}
+
+impl Renderer for ChatTerminal {
+    fn start_agent(&mut self, context: &dyn StreamContext) {
+        self.renderer.start_agent(context);
+    }
+
+    fn finish_agent(&mut self, context: &dyn StreamContext, stop_reason: Option<&StopReason>) {
+        self.renderer.finish_agent(context, stop_reason);
+    }
+
+    fn print_text(&mut self, context: &dyn StreamContext, text: &str) {
+        self.renderer.print_text(context, text);
+    }
+
+    fn print_thinking(&mut self, context: &dyn StreamContext, text: &str) {
+        self.renderer.print_thinking(context, text);
+    }
+
+    fn print_error(&mut self, context: &dyn StreamContext, error: &str) {
+        self.renderer.print_error(context, error);
+    }
+
+    fn print_info(&mut self, context: &dyn StreamContext, info: &str) {
+        self.renderer.print_info(context, info);
+    }
+
+    fn start_tool_use(&mut self, context: &dyn StreamContext, name: &str, id: &str) {
+        self.renderer.start_tool_use(context, name, id);
+    }
+
+    fn print_tool_input(&mut self, context: &dyn StreamContext, partial_json: &str) {
+        self.renderer.print_tool_input(context, partial_json);
+    }
+
+    fn finish_tool_use(&mut self, context: &dyn StreamContext) {
+        self.renderer.finish_tool_use(context);
+    }
+
+    fn start_tool_result(
+        &mut self,
+        context: &dyn StreamContext,
+        tool_use_id: &str,
+        is_error: bool,
+    ) {
+        self.renderer
+            .start_tool_result(context, tool_use_id, is_error);
+    }
+
+    fn print_tool_result_text(&mut self, context: &dyn StreamContext, text: &str) {
+        self.renderer.print_tool_result_text(context, text);
+    }
+
+    fn finish_tool_result(&mut self, context: &dyn StreamContext) {
+        self.renderer.finish_tool_result(context);
+    }
+
+    fn finish_response(&mut self, context: &dyn StreamContext) {
+        self.renderer.finish_response(context);
+    }
+
+    fn print_interrupted(&mut self, context: &dyn StreamContext) {
+        self.renderer.print_interrupted(context);
+    }
+
+    fn should_interrupt(&self) -> bool {
+        self.renderer.should_interrupt()
+    }
+
+    fn read_operator_line(&mut self, prompt: &str) -> io::Result<Option<OperatorLine>> {
+        self.read_line(prompt).map(Some)
+    }
+}
 
 /// Main entry point for the claudius-chat application.
 #[tokio::main]
@@ -53,11 +156,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = Anthropic::new(None)?;
     let mut session = ChatSession::new(client, config);
-    let mut rl = DefaultEditor::new()?;
 
     // Flag for interrupt handling during streaming
     let interrupted = Arc::new(AtomicBool::new(false));
-    let mut renderer = PlainTextRenderer::with_color_and_interrupt(use_color, interrupted.clone());
+    let mut terminal = ChatTerminal::new(use_color, interrupted.clone())?;
     let context = ();
 
     // Set up Ctrl+C handler
@@ -73,16 +175,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Reset interrupt flag before each input
         interrupted.store(false, Ordering::Relaxed);
 
-        let readline = rl.readline("You: ");
-
-        match readline {
-            Ok(line) => {
+        match terminal.read_line("You: ") {
+            Ok(OperatorLine::Line(line)) => {
                 let line = line.trim();
                 if line.is_empty() {
                     continue;
                 }
 
-                let _ = rl.add_history_entry(line);
+                terminal.add_history_entry(line);
 
                 // Check for slash commands
                 if let Some(cmd) = parse_command(line) {
@@ -93,7 +193,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         ChatCommand::Clear => {
                             session.clear();
-                            renderer.print_info(&context, "Conversation cleared.");
+                            terminal.print_info(&context, "Conversation cleared.");
                         }
                         ChatCommand::Help => {
                             for line in help_text().lines() {
@@ -105,45 +205,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .parse()
                                 .unwrap_or_else(|_| Model::Custom(model_name.clone()));
                             session.template_mut().model = Some(model);
-                            renderer
+                            terminal
                                 .print_info(&context, &format!("Model changed to: {}", model_name));
                         }
                         ChatCommand::System(prompt) => {
                             session.template_mut().system = prompt.clone().map(SystemPrompt::from);
                             match prompt {
-                                Some(p) => renderer
+                                Some(p) => terminal
                                     .print_info(&context, &format!("System prompt set to: {}", p)),
-                                None => renderer.print_info(&context, "System prompt cleared."),
+                                None => terminal.print_info(&context, "System prompt cleared."),
                             }
                         }
                         ChatCommand::MaxTokens(value) => {
                             session.template_mut().max_tokens = Some(value);
-                            renderer.print_info(&context, &format!("max_tokens set to {value}"));
+                            terminal.print_info(&context, &format!("max_tokens set to {value}"));
                         }
                         ChatCommand::Temperature(value) => {
                             session.template_mut().temperature = Some(value);
-                            renderer
+                            terminal
                                 .print_info(&context, &format!("temperature set to {:.2}", value));
                         }
                         ChatCommand::ClearTemperature => {
                             session.template_mut().temperature = None;
-                            renderer.print_info(&context, "temperature reset to model default");
+                            terminal.print_info(&context, "temperature reset to model default");
                         }
                         ChatCommand::TopP(value) => {
                             session.template_mut().top_p = Some(value);
-                            renderer.print_info(&context, &format!("top_p set to {:.2}", value));
+                            terminal.print_info(&context, &format!("top_p set to {:.2}", value));
                         }
                         ChatCommand::ClearTopP => {
                             session.template_mut().top_p = None;
-                            renderer.print_info(&context, "top_p reset to model default");
+                            terminal.print_info(&context, "top_p reset to model default");
                         }
                         ChatCommand::TopK(value) => {
                             session.template_mut().top_k = Some(value);
-                            renderer.print_info(&context, &format!("top_k set to {value}"));
+                            terminal.print_info(&context, &format!("top_k set to {value}"));
                         }
                         ChatCommand::ClearTopK => {
                             session.template_mut().top_k = None;
-                            renderer.print_info(&context, "top_k reset to model default");
+                            terminal.print_info(&context, "top_k reset to model default");
                         }
                         ChatCommand::AddStopSequence(sequence) => {
                             let stop_sequences = session
@@ -153,12 +253,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if !stop_sequences.iter().any(|s| s == &sequence) {
                                 stop_sequences.push(sequence.clone());
                             }
-                            renderer
+                            terminal
                                 .print_info(&context, &format!("Added stop sequence: {sequence}"));
                         }
                         ChatCommand::ClearStopSequences => {
                             session.template_mut().stop_sequences = None;
-                            renderer.print_info(&context, "Stop sequences cleared.");
+                            terminal.print_info(&context, "Stop sequences cleared.");
                         }
                         ChatCommand::ListStopSequences => {
                             let sequences =
@@ -169,7 +269,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             session.template_mut().thinking = budget.map(ThinkingConfig::enabled);
                             match budget {
                                 Some(tokens) => {
-                                    renderer.print_info(
+                                    terminal.print_info(
                                         &context,
                                         &format!(
                                             "Extended thinking enabled with {} token budget.",
@@ -178,41 +278,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     );
                                 }
                                 None => {
-                                    renderer.print_info(&context, "Extended thinking disabled.");
+                                    terminal.print_info(&context, "Extended thinking disabled.");
                                 }
                             }
                         }
                         ChatCommand::Budget(_tokens) => {
-                            renderer.print_error(&context, "budget not supported");
+                            terminal.print_error(&context, "budget not supported");
                         }
                         ChatCommand::ClearBudget => {
                             session.config_mut().session_budget = None;
-                            renderer.print_info(&context, "Session budget cleared.");
+                            terminal.print_info(&context, "Session budget cleared.");
                         }
                         ChatCommand::Caching(enabled) => {
                             session.config_mut().caching_enabled = enabled;
                             if enabled {
-                                renderer.print_info(&context, "Prompt caching enabled.");
+                                terminal.print_info(&context, "Prompt caching enabled.");
                             } else {
-                                renderer.print_info(&context, "Prompt caching disabled.");
+                                terminal.print_info(&context, "Prompt caching disabled.");
                             }
                         }
                         ChatCommand::TranscriptPath(path) => {
                             session.config_mut().transcript_path = Some(PathBuf::from(&path));
-                            renderer.print_info(
+                            terminal.print_info(
                                 &context,
                                 &format!("Transcript auto-save set to {}", path),
                             );
                         }
                         ChatCommand::ClearTranscriptPath => {
                             session.config_mut().transcript_path = None;
-                            renderer.print_info(&context, "Transcript auto-save disabled.");
+                            terminal.print_info(&context, "Transcript auto-save disabled.");
                         }
                         ChatCommand::SaveTranscript(path) => {
                             match session.save_transcript_to(&path) {
-                                Ok(_) => renderer
+                                Ok(_) => terminal
                                     .print_info(&context, &format!("Transcript saved to {}", path)),
-                                Err(err) => renderer.print_error(
+                                Err(err) => terminal.print_error(
                                     &context,
                                     &format!("Failed to save transcript: {}", err),
                                 ),
@@ -220,11 +320,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         ChatCommand::LoadTranscript(path) => {
                             match session.load_transcript_from(&path) {
-                                Ok(_) => renderer.print_info(
+                                Ok(_) => terminal.print_info(
                                     &context,
                                     &format!("Transcript loaded from {}", path),
                                 ),
-                                Err(err) => renderer.print_error(
+                                Err(err) => terminal.print_error(
                                     &context,
                                     &format!("Failed to load transcript: {}", err),
                                 ),
@@ -237,7 +337,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             print_config(&session);
                         }
                         ChatCommand::Invalid(message) => {
-                            renderer.print_error(&context, &message);
+                            terminal.print_error(&context, &message);
                         }
                     }
                     continue;
@@ -246,22 +346,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Regular message - send to API
                 println!("Claude:");
                 let message = claudius::MessageParam::user(line);
-                if let Err(e) = session.send_message(message, &mut renderer).await {
-                    renderer.print_error(&context, &e.to_string());
+                if let Err(e) = session.send_message(message, &mut terminal).await {
+                    terminal.print_error(&context, &e.to_string());
                 }
             }
-            Err(ReadlineError::Interrupted) => {
+            Ok(OperatorLine::Interrupted) => {
                 // Ctrl+C at prompt - soft interrupt
                 println!();
                 continue;
             }
-            Err(ReadlineError::Eof) => {
+            Ok(OperatorLine::Eof) => {
                 // Ctrl+D - exit
                 println!("\nGoodbye!");
                 break;
             }
             Err(err) => {
-                renderer.print_error(&context, &format!("Input error: {}", err));
+                terminal.print_error(&context, &format!("Input error: {}", err));
                 break;
             }
         }
