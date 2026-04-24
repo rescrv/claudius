@@ -1,7 +1,7 @@
-//! Server-Sent Events (SSE) processing for streaming responses.
+//! Server-Sent Events (SSE) framing and decoding for streaming responses.
 //!
-//! This module handles parsing and processing of SSE streams from the Anthropic API,
-//! converting raw byte streams into structured MessageStreamEvent objects.
+//! This module provides the hardened raw SSE parser used by Claudius and
+//! protocol-specific decoding helpers for Anthropic message streams.
 
 use bytes::Bytes;
 use futures::stream::{self, Stream, StreamExt};
@@ -24,20 +24,33 @@ const MAX_EVENT_SIZE: usize = 64 * 1024;
 /// Timeout for receiving data between chunks (30 seconds)
 const CHUNK_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// A raw server-sent event frame.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SseEvent {
+    /// The SSE event name from the `event:` field.
+    pub event: String,
+    /// The SSE payload assembled from all `data:` lines.
+    pub data: String,
+}
+
 /// State for SSE processing with production hardening
 struct SseState {
     buffer: String,
+    pending_utf8: Vec<u8>,
     last_activity: Instant,
     total_bytes_processed: usize,
     start: Instant,
     first_byte: Option<Instant>,
 }
 
-/// Process a stream of bytes into a stream of server-sent events with production hardening.
+/// Process a stream of bytes into a stream of raw server-sent events with production hardening.
+///
+/// This is the canonical SSE framing parser for Claudius and is intended for
+/// reuse by other crates that need hardened SSE buffering and extraction.
 ///
 /// This function takes a byte stream from an HTTP response and converts it into
-/// a stream of parsed MessageStreamEvent objects, handling SSE parsing,
-/// buffering, error conditions, DoS protection, and timeouts.
+/// a stream of parsed [`SseEvent`] objects, handling SSE parsing, buffering,
+/// error conditions, DoS protection, and timeouts.
 ///
 /// Production features:
 /// - Buffer size limits to prevent memory exhaustion
@@ -45,7 +58,7 @@ struct SseState {
 /// - Timeout handling for stalled connections
 /// - Graceful error recovery
 /// - UTF-8 validation with partial byte handling
-pub fn process_sse<S>(byte_stream: S) -> impl Stream<Item = Result<MessageStreamEvent>>
+pub fn process_sse<S>(byte_stream: S) -> impl Stream<Item = Result<SseEvent>>
 where
     S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Unpin + 'static,
 {
@@ -58,6 +71,7 @@ where
     // Initialize state with production hardening
     let state = SseState {
         buffer: String::new(),
+        pending_utf8: Vec::new(),
         last_activity: Instant::now(),
         total_bytes_processed: 0,
         start: Instant::now(),
@@ -119,25 +133,34 @@ where
                         STREAM_TTFB.add(now.duration_since(state.start).as_secs_f64());
                     }
 
-                    match String::from_utf8(bytes.to_vec()) {
+                    let mut utf8_bytes = std::mem::take(&mut state.pending_utf8);
+                    utf8_bytes.extend_from_slice(&bytes);
+
+                    match String::from_utf8(utf8_bytes) {
                         Ok(text) => {
                             state.buffer.push_str(&text);
                         }
                         Err(e) => {
-                            // Try to recover partial UTF-8 sequences
-                            let valid_up_to = e.utf8_error().valid_up_to();
-                            if valid_up_to > 0
-                                && let Ok(partial) =
-                                    String::from_utf8(bytes[..valid_up_to].to_vec())
-                            {
-                                state.buffer.push_str(&partial);
-                                // Log invalid bytes but continue processing
+                            // Preserve incomplete UTF-8 sequences across chunk boundaries.
+                            let utf8_error = e.utf8_error();
+                            let valid_up_to = utf8_error.valid_up_to();
+                            let bytes = e.into_bytes();
+
+                            if valid_up_to > 0 {
+                                let partial = std::str::from_utf8(&bytes[..valid_up_to])
+                                    .expect("utf8_error::valid_up_to returned invalid prefix");
+                                state.buffer.push_str(partial);
+                            }
+
+                            if utf8_error.error_len().is_none() {
+                                state.pending_utf8.extend_from_slice(&bytes[valid_up_to..]);
                                 continue;
                             }
+
                             return Some((
                                 Err(Error::encoding(
-                                    format!("Invalid UTF-8 in stream: {e}"),
-                                    Some(Box::new(e)),
+                                    format!("Invalid UTF-8 in stream: {utf8_error}"),
+                                    Some(Box::new(utf8_error)),
                                 )),
                                 (stream, state),
                             ));
@@ -159,6 +182,16 @@ where
                         }
                         return Some((event, (stream, state)));
                     }
+                    if !state.pending_utf8.is_empty() {
+                        STREAM_ERRORS.click();
+                        return Some((
+                            Err(Error::encoding(
+                                "Incomplete UTF-8 sequence at end of SSE stream".to_string(),
+                                None,
+                            )),
+                            (stream, state),
+                        ));
+                    }
                     STREAM_DURATION.add(state.start.elapsed().as_secs_f64());
                     return None;
                 }
@@ -167,13 +200,50 @@ where
     })
 }
 
+/// Decode a raw [`SseEvent`] into a Claudius [`MessageStreamEvent`].
+pub fn parse_message_stream_event(event: &SseEvent) -> Result<MessageStreamEvent> {
+    match event.event.as_str() {
+        "" if event.data.is_empty() => Ok(MessageStreamEvent::Ping),
+        "ping" => Ok(MessageStreamEvent::Ping),
+        "message_start" => serde_json::from_str::<MessageStartEvent>(&event.data)
+            .map(MessageStreamEvent::MessageStart)
+            .map_err(Into::into),
+        "message_delta" => serde_json::from_str::<MessageDeltaEvent>(&event.data)
+            .map(MessageStreamEvent::MessageDelta)
+            .map_err(Into::into),
+        "message_stop" => serde_json::from_str::<MessageStopEvent>(&event.data)
+            .map(MessageStreamEvent::MessageStop)
+            .map_err(Into::into),
+        "content_block_start" => serde_json::from_str::<ContentBlockStartEvent>(&event.data)
+            .map(MessageStreamEvent::ContentBlockStart)
+            .map_err(Into::into),
+        "content_block_delta" => serde_json::from_str::<ContentBlockDeltaEvent>(&event.data)
+            .map(MessageStreamEvent::ContentBlockDelta)
+            .map_err(Into::into),
+        "content_block_stop" => serde_json::from_str::<ContentBlockStopEvent>(&event.data)
+            .map(MessageStreamEvent::ContentBlockStop)
+            .map_err(Into::into),
+        "error" => Err(parse_stream_error(&event.data)),
+        _ => Err(Error::serialization(
+            format!("Unknown SSE event type: {}", event.event),
+            None,
+        )),
+    }
+}
+
+/// Process a stream of bytes into decoded Claudius [`MessageStreamEvent`] values.
+pub fn process_message_stream_sse<S>(
+    byte_stream: S,
+) -> impl Stream<Item = Result<MessageStreamEvent>>
+where
+    S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Unpin + 'static,
+{
+    process_sse(byte_stream)
+        .map(|result| result.and_then(|event| parse_message_stream_event(&event)))
+}
+
 /// Extract a complete SSE event from a buffer string with size validation.
-///
-/// Parses SSE format where events are delimited by double newlines and
-/// each event has an event type line followed by a data line.
-/// Includes production safety checks for event size limits.
-fn extract_event(buffer: &str) -> Result<Option<(Result<MessageStreamEvent>, String)>> {
-    // Find event boundary
+fn extract_event(buffer: &str) -> Result<Option<(Result<SseEvent>, String)>> {
     let Some(event_end) = buffer.find("\n\n") else {
         return Ok(None);
     };
@@ -181,7 +251,6 @@ fn extract_event(buffer: &str) -> Result<Option<(Result<MessageStreamEvent>, Str
     let event_text = &buffer[..event_end];
     let rest = buffer[event_end + 2..].to_string();
 
-    // Validate event size
     if event_text.len() > MAX_EVENT_SIZE {
         return Ok(Some((
             Err(Error::streaming(
@@ -196,29 +265,37 @@ fn extract_event(buffer: &str) -> Result<Option<(Result<MessageStreamEvent>, Str
         )));
     }
 
-    // Handle empty events (ping-like keepalives)
     if event_text.trim().is_empty() {
-        return Ok(Some((Ok(MessageStreamEvent::Ping), rest)));
+        return Ok(Some((
+            Ok(SseEvent {
+                event: String::new(),
+                data: String::new(),
+            }),
+            rest,
+        )));
     }
 
-    // Parse event type and data with better error handling
-    let Some((event_type, _event_data)) = event_text.split_once('\n') else {
+    let mut event_type = None;
+    let mut data_lines = Vec::new();
+
+    for raw_line in event_text.lines() {
+        let line = raw_line.strip_suffix('\r').unwrap_or(raw_line);
+        if let Some(value) = parse_field_value(line, "event:") {
+            event_type = Some(value.trim().to_string());
+        } else if let Some(value) = parse_field_value(line, "data:") {
+            data_lines.push(value.to_string());
+        }
+    }
+
+    let Some(event) = event_type else {
         return Ok(Some((
             Err(Error::serialization(
-                "Malformed SSE event: missing newline separator in event".to_string(),
+                "Malformed SSE event: missing event type line".to_string(),
                 None,
             )),
             rest,
         )));
     };
-
-    // Handle multiple data lines (SSE spec allows this)
-    let data_lines: Vec<&str> = event_text
-        .lines()
-        .skip(1)
-        .filter_map(|line| line.strip_prefix("data:"))
-        .map(str::trim)
-        .collect();
 
     if data_lines.is_empty() {
         return Ok(Some((
@@ -230,111 +307,50 @@ fn extract_event(buffer: &str) -> Result<Option<(Result<MessageStreamEvent>, Str
         )));
     }
 
-    let event_data = data_lines.join("\n");
-
-    // Parse specific event types
-    Ok(parse_event_type(event_type, &event_data, rest))
+    Ok(Some((
+        Ok(SseEvent {
+            event,
+            data: data_lines.join("\n"),
+        }),
+        rest,
+    )))
 }
 
-/// Parse a specific SSE event type and its data with enhanced error handling.
-fn parse_event_type(
-    event_type: &str,
-    event_data: &str,
-    rest: String,
-) -> Option<(Result<MessageStreamEvent>, String)> {
-    match event_type {
-        "event: ping" => Some((Ok(MessageStreamEvent::Ping), rest)),
+fn parse_field_value<'a>(line: &'a str, field: &str) -> Option<&'a str> {
+    line.strip_prefix(field)
+        .map(|value| value.strip_prefix(' ').unwrap_or(value))
+}
 
-        "event: message_start" => match serde_json::from_str::<MessageStartEvent>(event_data) {
-            Ok(event) => Some((Ok(MessageStreamEvent::MessageStart(event)), rest)),
-            Err(e) => Some((Err(e.into()), rest)),
-        },
+fn parse_stream_error(event_data: &str) -> Error {
+    match serde_json::from_str::<serde_json::Value>(event_data) {
+        Ok(error_json) => {
+            let error_object = error_json.get("error");
+            let error_type = error_object
+                .and_then(|error| error.get("type"))
+                .and_then(|value| value.as_str())
+                .map(String::from);
+            let message = error_object
+                .and_then(|error| error.get("message"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("Unknown stream error")
+                .to_string();
+            let status_code = error_object
+                .and_then(|error| error.get("status_code"))
+                .and_then(|value| value.as_u64())
+                .and_then(|value| u16::try_from(value).ok())
+                .unwrap_or(500);
+            let _retryable = error_object
+                .and_then(|error| error.get("retryable"))
+                .and_then(|value| value.as_bool());
 
-        "event: message_delta" => match serde_json::from_str::<MessageDeltaEvent>(event_data) {
-            Ok(event) => Some((Ok(MessageStreamEvent::MessageDelta(event)), rest)),
-            Err(e) => Some((Err(e.into()), rest)),
-        },
-
-        "event: message_stop" => match serde_json::from_str::<MessageStopEvent>(event_data) {
-            Ok(event) => Some((Ok(MessageStreamEvent::MessageStop(event)), rest)),
-            Err(e) => Some((Err(e.into()), rest)),
-        },
-
-        "event: content_block_start" => {
-            match serde_json::from_str::<ContentBlockStartEvent>(event_data) {
-                Ok(event) => Some((Ok(MessageStreamEvent::ContentBlockStart(event)), rest)),
-                Err(e) => Some((Err(e.into()), rest)),
-            }
+            Error::api(status_code, error_type, message, None)
         }
-
-        "event: content_block_delta" => {
-            match serde_json::from_str::<ContentBlockDeltaEvent>(event_data) {
-                Ok(event) => Some((Ok(MessageStreamEvent::ContentBlockDelta(event)), rest)),
-                Err(e) => Some((Err(e.into()), rest)),
-            }
-        }
-
-        "event: content_block_stop" => {
-            match serde_json::from_str::<ContentBlockStopEvent>(event_data) {
-                Ok(event) => Some((Ok(MessageStreamEvent::ContentBlockStop(event)), rest)),
-                Err(e) => Some((Err(e.into()), rest)),
-            }
-        }
-
-        "event: error" => {
-            // Parse error event - try to extract structured error data
-            match serde_json::from_str::<serde_json::Value>(event_data) {
-                Ok(error_json) => {
-                    let error_type = error_json
-                        .get("error")
-                        .and_then(|e| e.get("type"))
-                        .and_then(|t| t.as_str())
-                        .map(String::from);
-                    let message = error_json
-                        .get("error")
-                        .and_then(|e| e.get("message"))
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("Unknown stream error")
-                        .to_string();
-
-                    Some((Err(Error::api(500, error_type, message, None)), rest))
-                }
-                Err(_) => {
-                    // Fallback to raw error data
-                    Some((
-                        Err(Error::api(
-                            500,
-                            Some("stream_error".to_string()),
-                            event_data.to_string(),
-                            None,
-                        )),
-                        rest,
-                    ))
-                }
-            }
-        }
-
-        _ => {
-            // Handle unknown event types gracefully - log but don't fail the stream
-            if event_type.starts_with("event:") {
-                Some((
-                    Err(Error::serialization(
-                        format!("Unknown SSE event type: {}", event_type.trim()),
-                        None,
-                    )),
-                    rest,
-                ))
-            } else {
-                // Malformed event type format
-                Some((
-                    Err(Error::serialization(
-                        "Malformed SSE event: invalid event type format".to_string(),
-                        None,
-                    )),
-                    rest,
-                ))
-            }
-        }
+        Err(_) => Error::api(
+            500,
+            Some("stream_error".to_string()),
+            event_data.to_string(),
+            None,
+        ),
     }
 }
 
@@ -345,33 +361,54 @@ mod tests {
 
     #[tokio::test]
     async fn parse_ping_event() {
-        let data = b"event: ping\ndata: {}\n\n";
-        let stream = Box::pin(stream::once(async { Ok(Bytes::from(&data[..])) }));
+        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from_static(
+            b"event: ping\ndata: {}\n\n",
+        ))]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
-        let event = sse_stream.next().await.unwrap();
+        let event = sse_stream.next().await.unwrap().unwrap();
 
-        assert!(matches!(event, Ok(MessageStreamEvent::Ping)));
+        assert_eq!(
+            event,
+            SseEvent {
+                event: "ping".to_string(),
+                data: "{}".to_string(),
+            }
+        );
     }
 
     #[tokio::test]
     async fn parse_multiple_events() {
-        let data = b"event: ping\ndata: {}\n\nevent: ping\ndata: {}\n\n";
-        let stream = Box::pin(stream::once(async { Ok(Bytes::from(&data[..])) }));
+        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from_static(
+            b"event: ping\ndata: {}\n\nevent: ping\ndata: {}\n\n",
+        ))]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
 
-        let event1 = sse_stream.next().await.unwrap();
-        assert!(matches!(event1, Ok(MessageStreamEvent::Ping)));
+        let event1 = sse_stream.next().await.unwrap().unwrap();
+        assert_eq!(
+            event1,
+            SseEvent {
+                event: "ping".to_string(),
+                data: "{}".to_string(),
+            }
+        );
 
-        let event2 = sse_stream.next().await.unwrap();
-        assert!(matches!(event2, Ok(MessageStreamEvent::Ping)));
+        let event2 = sse_stream.next().await.unwrap().unwrap();
+        assert_eq!(
+            event2,
+            SseEvent {
+                event: "ping".to_string(),
+                data: "{}".to_string(),
+            }
+        );
     }
 
     #[tokio::test]
     async fn handle_malformed_event() {
-        let data = b"malformed data without proper format\n\n";
-        let stream = Box::pin(stream::once(async { Ok(Bytes::from(&data[..])) }));
+        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from_static(
+            b"malformed data without proper format\n\n",
+        ))]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
         let event = sse_stream.next().await.unwrap();
@@ -381,46 +418,62 @@ mod tests {
 
     #[tokio::test]
     async fn handle_split_event() {
-        // Simulate an event split across multiple chunks
-        let chunk1 = b"event: ping\n";
-        let chunk2 = b"data: {}\n\n";
-
-        let stream = Box::pin(stream::iter(vec![
-            Ok(Bytes::from(&chunk1[..])),
-            Ok(Bytes::from(&chunk2[..])),
-        ]));
+        let stream = stream::iter(vec![
+            Ok::<Bytes, reqwest::Error>(Bytes::from_static(b"event: ping\n")),
+            Ok::<Bytes, reqwest::Error>(Bytes::from_static(b"data: {}\n\n")),
+        ]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
-        let event = sse_stream.next().await.unwrap();
+        let event = sse_stream.next().await.unwrap().unwrap();
 
-        assert!(matches!(event, Ok(MessageStreamEvent::Ping)));
+        assert_eq!(
+            event,
+            SseEvent {
+                event: "ping".to_string(),
+                data: "{}".to_string(),
+            }
+        );
     }
 
     #[tokio::test]
-    async fn handle_unknown_event_type() {
-        let data = b"event: unknown_event\ndata: {}\n\n";
-        let stream = Box::pin(stream::once(async { Ok(Bytes::from(&data[..])) }));
+    async fn handle_unknown_event_type_in_raw_parser() {
+        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from_static(
+            b"event: unknown_event\ndata: {}\n\n",
+        ))]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
-        let event = sse_stream.next().await.unwrap();
+        let event = sse_stream.next().await.unwrap().unwrap();
 
-        assert!(event.is_err());
-        if let Err(e) = event {
-            assert!(e.to_string().contains("Unknown SSE event type"));
-        }
+        assert_eq!(
+            event,
+            SseEvent {
+                event: "unknown_event".to_string(),
+                data: "{}".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn decoder_rejects_unknown_event_type() {
+        let err = parse_message_stream_event(&SseEvent {
+            event: "unknown_event".to_string(),
+            data: "{}".to_string(),
+        })
+        .unwrap_err();
+
+        assert!(err.to_string().contains("Unknown SSE event type"));
     }
 
     #[tokio::test]
     async fn handle_buffer_size_limit() {
-        // Create multiple chunks that will exceed buffer limit when combined
         let chunk_size = MAX_BUFFER_SIZE / 2;
         let chunk1 = "a".repeat(chunk_size);
-        let chunk2 = "b".repeat(chunk_size + 1000); // This will push over the limit
+        let chunk2 = "b".repeat(chunk_size + 1000);
 
-        let stream = Box::pin(stream::iter(vec![
-            Ok(Bytes::from(chunk1)),
-            Ok(Bytes::from(chunk2)),
-        ]));
+        let stream = stream::iter(vec![
+            Ok::<Bytes, reqwest::Error>(Bytes::from(chunk1)),
+            Ok::<Bytes, reqwest::Error>(Bytes::from(chunk2)),
+        ]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
         let event = sse_stream.next().await.unwrap();
@@ -433,11 +486,9 @@ mod tests {
 
     #[tokio::test]
     async fn handle_event_size_limit() {
-        // Create an event that exceeds the single event size limit
         let large_event_data = "b".repeat(MAX_EVENT_SIZE + 100);
         let data = format!("event: ping\ndata: {large_event_data}\n\n");
-
-        let stream = Box::pin(stream::once(async move { Ok(Bytes::from(data)) }));
+        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from(data))]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
         let event = sse_stream.next().await.unwrap();
@@ -450,74 +501,194 @@ mod tests {
 
     #[tokio::test]
     async fn handle_empty_events() {
-        // Test empty events (common for keepalives)
-        let data = b"\n\n";
-        let stream = Box::pin(stream::once(async { Ok(Bytes::from(&data[..])) }));
+        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from_static(
+            b"\n\n",
+        ))]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
-        let event = sse_stream.next().await.unwrap();
+        let event = sse_stream.next().await.unwrap().unwrap();
 
-        assert!(matches!(event, Ok(MessageStreamEvent::Ping)));
+        assert_eq!(
+            event,
+            SseEvent {
+                event: String::new(),
+                data: String::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn decoder_treats_empty_event_as_ping() {
+        let event = parse_message_stream_event(&SseEvent {
+            event: String::new(),
+            data: String::new(),
+        })
+        .unwrap();
+
+        assert!(matches!(event, MessageStreamEvent::Ping));
     }
 
     #[tokio::test]
     async fn handle_multi_line_data() {
-        // Test multi-line data (valid SSE format)
-        let data = b"event: message_start\ndata: {\ndata: \"test\": true\ndata: }\n\n";
-        let stream = Box::pin(stream::once(async { Ok(Bytes::from(&data[..])) }));
+        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from_static(
+            b"event: message_start\ndata: {\ndata: \"test\": true\ndata: }\n\n",
+        ))]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
-        let event = sse_stream.next().await.unwrap();
+        let event = sse_stream.next().await.unwrap().unwrap();
 
-        // Should attempt to parse the multi-line JSON
-        match event {
-            Ok(_) | Err(_) => {} // Either parse success or JSON error is acceptable
-        }
+        assert_eq!(
+            event,
+            SseEvent {
+                event: "message_start".to_string(),
+                data: "{\n\"test\": true\n}".to_string(),
+            }
+        );
     }
 
     #[tokio::test]
     async fn handle_partial_utf8() {
-        // Test partial UTF-8 sequences (production hardening)
         let valid_part = "event: ping\ndata: test";
-        let invalid_bytes = vec![0xFF, 0xFE]; // Invalid UTF-8
+        let invalid_bytes = vec![0xFF, 0xFE];
 
         let mut data = valid_part.as_bytes().to_vec();
         data.extend_from_slice(&invalid_bytes);
         data.extend_from_slice(b"\n\n");
 
-        let stream = Box::pin(stream::once(async move { Ok(Bytes::from(data)) }));
-
+        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from(data))]);
         let mut sse_stream = Box::pin(process_sse(stream));
 
-        // The stream might not produce an event if UTF-8 is completely invalid
-        match sse_stream.next().await {
-            Some(event) => {
-                // Should handle partial UTF-8 gracefully or report UTF-8 error
-                match event {
-                    Ok(_) => {} // Successfully recovered partial UTF-8
-                    Err(e) => assert!(e.to_string().contains("UTF-8")),
-                }
-            }
-            None => {
-                // Stream ended without producing events due to UTF-8 issues - acceptable
-            }
+        if let Some(event) = sse_stream.next().await
+            && let Err(e) = event
+        {
+            assert!(e.to_string().contains("UTF-8"));
         }
     }
 
     #[tokio::test]
-    async fn handle_structured_error_events() {
-        // Test structured error event parsing
-        let error_json = r#"{"error": {"type": "rate_limit", "message": "Too many requests"}}"#;
-        let data = format!("event: error\ndata: {error_json}\n\n");
-
-        let stream = Box::pin(stream::once(async move { Ok(Bytes::from(data)) }));
+    async fn handle_split_utf8_across_chunks() {
+        let stream = stream::iter(vec![
+            Ok::<Bytes, reqwest::Error>(Bytes::from_static(b"event: ping\ndata: caf\xc3")),
+            Ok::<Bytes, reqwest::Error>(Bytes::from_static(b"\xa9\n\n")),
+        ]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
-        let event = sse_stream.next().await.unwrap();
+        let event = sse_stream.next().await.unwrap().unwrap();
 
-        assert!(event.is_err());
-        if let Err(e) = event {
-            assert!(e.to_string().contains("Too many requests"));
-        }
+        assert_eq!(
+            event,
+            SseEvent {
+                event: "ping".to_string(),
+                data: "caf\u{00e9}".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn decode_message_start_event() {
+        let data = r#"{"message":{"id":"msg_012345","content":[],"model":"claude-3-sonnet-20240229","role":"assistant","type":"message","usage":{"input_tokens":50,"output_tokens":100}}}"#;
+        let event = parse_message_stream_event(&SseEvent {
+            event: "message_start".to_string(),
+            data: data.to_string(),
+        })
+        .unwrap();
+
+        assert!(matches!(event, MessageStreamEvent::MessageStart(_)));
+    }
+
+    #[test]
+    fn decode_message_delta_event() {
+        let data = r#"{"delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":50,"output_tokens":100}}"#;
+        let event = parse_message_stream_event(&SseEvent {
+            event: "message_delta".to_string(),
+            data: data.to_string(),
+        })
+        .unwrap();
+
+        assert!(matches!(event, MessageStreamEvent::MessageDelta(_)));
+    }
+
+    #[test]
+    fn decode_content_block_start_event() {
+        let data = r#"{"content_block":{"text":"Hello, I'm Claude.","type":"text"},"index":0}"#;
+        let event = parse_message_stream_event(&SseEvent {
+            event: "content_block_start".to_string(),
+            data: data.to_string(),
+        })
+        .unwrap();
+
+        assert!(matches!(event, MessageStreamEvent::ContentBlockStart(_)));
+    }
+
+    #[test]
+    fn decode_content_block_delta_event() {
+        let data = r#"{"delta":{"text":"Hello, I'm Claude.","type":"text_delta"},"index":0}"#;
+        let event = parse_message_stream_event(&SseEvent {
+            event: "content_block_delta".to_string(),
+            data: data.to_string(),
+        })
+        .unwrap();
+
+        assert!(matches!(event, MessageStreamEvent::ContentBlockDelta(_)));
+    }
+
+    #[test]
+    fn decode_content_block_stop_event() {
+        let event = parse_message_stream_event(&SseEvent {
+            event: "content_block_stop".to_string(),
+            data: r#"{"index":0}"#.to_string(),
+        })
+        .unwrap();
+
+        assert!(matches!(event, MessageStreamEvent::ContentBlockStop(_)));
+    }
+
+    #[test]
+    fn decode_message_stop_event() {
+        let event = parse_message_stream_event(&SseEvent {
+            event: "message_stop".to_string(),
+            data: "{}".to_string(),
+        })
+        .unwrap();
+
+        assert!(matches!(event, MessageStreamEvent::MessageStop(_)));
+    }
+
+    #[tokio::test]
+    async fn process_message_stream_sse_decodes_ping() {
+        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from_static(
+            b"event: ping\ndata: {}\n\n",
+        ))]);
+
+        let mut sse_stream = Box::pin(process_message_stream_sse(stream));
+        let event = sse_stream.next().await.unwrap().unwrap();
+
+        assert!(matches!(event, MessageStreamEvent::Ping));
+    }
+
+    #[test]
+    fn handle_structured_error_events_with_status_code() {
+        let error_json = r#"{"error":{"type":"rate_limit","message":"Too many requests","status_code":429,"retryable":true}}"#;
+        let err = parse_message_stream_event(&SseEvent {
+            event: "error".to_string(),
+            data: error_json.to_string(),
+        })
+        .unwrap_err();
+
+        assert_eq!(err.status_code(), Some(429));
+        assert!(err.to_string().contains("Too many requests"));
+    }
+
+    #[test]
+    fn handle_structured_error_events_without_status_code() {
+        let error_json = r#"{"error":{"type":"not_found","message":"missing"}}"#;
+        let err = parse_message_stream_event(&SseEvent {
+            event: "error".to_string(),
+            data: error_json.to_string(),
+        })
+        .unwrap_err();
+
+        assert_eq!(err.status_code(), Some(500));
+        assert!(err.to_string().contains("missing"));
     }
 }
