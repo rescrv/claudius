@@ -52,11 +52,9 @@ async fn stream_message(client: &Anthropic, params: &MessageCreateParams) -> Res
     while let Some(event) = acc_stream.next().await {
         match event? {
             MessageStreamEvent::ContentBlockStart(start) => match start.content_block {
-                ContentBlock::Text(text) => {
-                    if !text.text.is_empty() {
-                        print!("{}", text.text);
-                        stdout.flush()?;
-                    }
+                ContentBlock::Text(text) if !text.text.is_empty() => {
+                    print!("{}", text.text);
+                    stdout.flush()?;
                 }
                 ContentBlock::ToolUse(tool_use) => {
                     active_tool_uses.insert(start.index);
@@ -71,18 +69,16 @@ async fn stream_message(client: &Anthropic, params: &MessageCreateParams) -> Res
                     print!("{}", text_delta.text);
                     stdout.flush()?;
                 }
-                ContentBlockDelta::InputJsonDelta(json_delta) => {
-                    if active_tool_uses.contains(&delta.index) {
-                        print!("{}", json_delta.partial_json);
-                        stdout.flush()?;
-                    }
+                ContentBlockDelta::InputJsonDelta(json_delta)
+                    if active_tool_uses.contains(&delta.index) =>
+                {
+                    print!("{}", json_delta.partial_json);
+                    stdout.flush()?;
                 }
                 _ => {}
             },
-            MessageStreamEvent::ContentBlockStop(stop) => {
-                if active_tool_uses.remove(&stop.index) {
-                    println!();
-                }
+            MessageStreamEvent::ContentBlockStop(stop) if active_tool_uses.remove(&stop.index) => {
+                println!();
             }
             _ => {}
         }

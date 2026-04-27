@@ -12,7 +12,7 @@ default = ["binaries", "native-tls"]
 
 binaries = []
 
-rustls-tls = ["reqwest/rustls-tls"]
+rustls-tls = ["reqwest/rustls"]
 native-tls = ["reqwest/native-tls"]
 
 [dependencies]

@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    CacheControlEphemeral, MessageParam, Metadata, Model, OutputConfig, OutputFormat,
-    SystemPrompt, TextBlock, ThinkingConfig, ToolChoice, ToolUnionParam,
+    CacheControlEphemeral, MessageParam, Metadata, Model, OutputConfig, OutputFormat, SystemPrompt,
+    TextBlock, ThinkingConfig, ToolChoice, ToolUnionParam,
 };
 
 /// Security limits for DoS prevention
@@ -868,14 +868,16 @@ mod tests {
     #[test]
     fn requires_structured_outputs_beta_with_output_config() {
         let params = MessageCreateParams::simple("Hello", KnownModel::Claude37SonnetLatest)
-            .with_output_config(OutputConfig::new().with_format(OutputFormat::json_schema(json!({
-                "type": "object",
-                "properties": {
-                    "name": { "type": "string" }
-                },
-                "required": ["name"],
-                "additionalProperties": false
-            }))));
+            .with_output_config(OutputConfig::new().with_format(OutputFormat::json_schema(
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": false
+                }),
+            )));
 
         assert!(
             params.requires_structured_outputs_beta(),
