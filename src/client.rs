@@ -616,7 +616,7 @@ impl Anthropic {
                     .client
                     .post(&url)
                     .headers(headers)
-                    .json(&params)
+                    .json(params)
                     .send()
                     .await
                     .map_err(|e| self.map_request_error(e))?;
