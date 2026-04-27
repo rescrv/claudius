@@ -2972,15 +2972,13 @@ async fn stream_message_with_renderer(
                                 render_tool_result_content(renderer, context, content);
                             }
                         }
-                        ContentBlock::Text(text_block) => {
-                            if !text_block.text.is_empty() {
-                                renderer.print_text(context, &text_block.text);
-                            }
+                        ContentBlock::Text(text_block) if !text_block.text.is_empty() => {
+                            renderer.print_text(context, &text_block.text);
                         }
-                        ContentBlock::Thinking(thinking_block) => {
-                            if show_thinking && !thinking_block.thinking.is_empty() {
-                                renderer.print_thinking(context, &thinking_block.thinking);
-                            }
+                        ContentBlock::Thinking(thinking_block)
+                            if show_thinking && !thinking_block.thinking.is_empty() =>
+                        {
+                            renderer.print_thinking(context, &thinking_block.thinking);
                         }
                         _ => {}
                     }
