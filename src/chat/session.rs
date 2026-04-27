@@ -12,13 +12,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, to_writer_pretty};
 
 use crate::Error;
-use crate::cache_control::apply_cache_control_to_messages;
 use crate::chat::config::ChatConfig;
 use crate::error::Result;
-use crate::types::{
-    CacheControlEphemeral, MessageCreateTemplate, MessageParam, Model, SystemPrompt, TextBlock,
-    Usage,
-};
+use crate::types::{MessageCreateTemplate, MessageParam, Model, SystemPrompt, Usage};
 use crate::{Agent, Anthropic, Budget, Renderer, ThinkingConfig, TurnOutcome};
 
 const BUDGET_BUFFER_MICRO_CENTS: u64 = 1;
@@ -64,22 +60,11 @@ impl Agent for ConfigAgent {
     }
 
     async fn system(&self) -> Option<SystemPrompt> {
-        let prompt = self.config.template.system.as_ref()?;
+        self.config.template.system.clone()
+    }
 
-        if self.config.caching_enabled {
-            let mut blocks = match prompt {
-                SystemPrompt::String(text) => vec![TextBlock::new(text.clone())],
-                SystemPrompt::Blocks(existing) => {
-                    existing.iter().map(|b| b.block.clone()).collect()
-                }
-            };
-            if let Some(last) = blocks.last_mut() {
-                last.cache_control = Some(CacheControlEphemeral::new());
-            }
-            Some(SystemPrompt::from_blocks(blocks))
-        } else {
-            Some(prompt.clone())
-        }
+    fn caching_enabled(&self) -> bool {
+        self.config.caching_enabled
     }
 
     async fn temperature(&self) -> Option<f32> {
@@ -203,29 +188,12 @@ impl<A: ChatAgent> ChatSession<A> {
         message: MessageParam,
         renderer: &mut dyn Renderer,
     ) -> Result<()> {
-        let context = ();
-        if let Some(budget) = self.agent.config().session_budget.as_ref()
-            && !budget_allows_next_turn(budget, self.last_turn_usage.as_ref())
-        {
-            renderer.print_error(
-                &context,
-                "Session budget exhausted. Use /budget to increase or clear the limit.",
-            );
-            return Err(Error::bad_request(
-                "session budget exhausted",
-                Some("budget".to_string()),
-            ));
-        }
+        self.ensure_session_budget_for_next_turn(renderer)?;
 
         let previous_len = self.messages.len();
 
         // Add user message to history
         self.messages.push(message);
-
-        // Apply cache_control markers to recent user messages if caching is enabled
-        if self.agent.config().caching_enabled {
-            apply_cache_control_to_messages(&mut self.messages);
-        }
 
         let outcome = self
             .agent
@@ -240,6 +208,47 @@ impl<A: ChatAgent> ChatSession<A> {
             }
             Err(err) => {
                 self.messages.truncate(previous_len);
+                Err(err)
+            }
+        }
+    }
+
+    /// Returns a snapshot of the current conversation history.
+    pub fn clone_messages(&self) -> Vec<MessageParam> {
+        self.messages.clone()
+    }
+
+    /// Replaces the current conversation history with `messages`.
+    pub fn replace_messages(&mut self, messages: Vec<MessageParam>) {
+        self.messages = messages;
+    }
+
+    /// Continues a turn against an arbitrary transcript without mutating the session transcript.
+    ///
+    /// The provided `messages` transcript is used for the request, while usage totals,
+    /// last-turn usage, request counts, and session-budget accounting are recorded on
+    /// the parent session on success. If the turn fails, `messages` is restored to its
+    /// original state.
+    pub async fn continue_turn_streaming_on(
+        &mut self,
+        messages: &mut Vec<MessageParam>,
+        renderer: &mut dyn Renderer,
+    ) -> Result<()> {
+        self.ensure_session_budget_for_next_turn(renderer)?;
+
+        let previous_messages = messages.clone();
+        let outcome = self
+            .agent
+            .take_turn_streaming_root(&self.client, messages, &self.budget, renderer)
+            .await;
+
+        match outcome {
+            Ok(outcome) => {
+                self.record_usage(outcome);
+                Ok(())
+            }
+            Err(err) => {
+                *messages = previous_messages;
                 Err(err)
             }
         }
@@ -361,6 +370,23 @@ impl<A: ChatAgent> ChatSession<A> {
             Ok(())
         }
     }
+
+    fn ensure_session_budget_for_next_turn(&self, renderer: &mut dyn Renderer) -> Result<()> {
+        let context = ();
+        if let Some(budget) = self.agent.config().session_budget.as_ref()
+            && !budget_allows_next_turn(budget, self.last_turn_usage.as_ref())
+        {
+            renderer.print_error(
+                &context,
+                "Session budget exhausted. Use /budget to increase or clear the limit.",
+            );
+            return Err(Error::bad_request(
+                "session budget exhausted",
+                Some("budget".to_string()),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -397,9 +423,86 @@ fn budget_allows_next_turn(budget: &Budget, last_turn_usage: Option<&Usage>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache_control::apply_cache_control_to_message;
-    use crate::types::{KnownModel, SystemPrompt};
-    use crate::{ContentBlock, MessageParamContent, MessageRole};
+    use crate::MessageParamContent;
+    use crate::types::{KnownModel, SystemPrompt, Usage};
+
+    struct TestRenderer;
+
+    impl Renderer for TestRenderer {
+        fn print_text(&mut self, _context: &dyn crate::StreamContext, _text: &str) {}
+
+        fn print_thinking(&mut self, _context: &dyn crate::StreamContext, _text: &str) {}
+
+        fn print_error(&mut self, _context: &dyn crate::StreamContext, _error: &str) {}
+
+        fn print_info(&mut self, _context: &dyn crate::StreamContext, _info: &str) {}
+
+        fn start_tool_use(&mut self, _context: &dyn crate::StreamContext, _name: &str, _id: &str) {}
+
+        fn print_tool_input(&mut self, _context: &dyn crate::StreamContext, _partial_json: &str) {}
+
+        fn finish_tool_use(&mut self, _context: &dyn crate::StreamContext) {}
+
+        fn start_tool_result(
+            &mut self,
+            _context: &dyn crate::StreamContext,
+            _tool_use_id: &str,
+            _is_error: bool,
+        ) {
+        }
+
+        fn print_tool_result_text(&mut self, _context: &dyn crate::StreamContext, _text: &str) {}
+
+        fn finish_tool_result(&mut self, _context: &dyn crate::StreamContext) {}
+
+        fn finish_response(&mut self, _context: &dyn crate::StreamContext) {}
+    }
+
+    struct StubAgent {
+        config: ChatConfig,
+        append: Option<MessageParam>,
+        outcome: Result<TurnOutcome>,
+    }
+
+    impl StubAgent {
+        fn new(
+            config: ChatConfig,
+            append: Option<MessageParam>,
+            outcome: Result<TurnOutcome>,
+        ) -> Self {
+            Self {
+                config,
+                append,
+                outcome,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Agent for StubAgent {
+        async fn take_turn_streaming_root(
+            &mut self,
+            _client: &Anthropic,
+            messages: &mut Vec<MessageParam>,
+            _budget: &Arc<Budget>,
+            _renderer: &mut dyn Renderer,
+        ) -> Result<TurnOutcome> {
+            if let Some(message) = self.append.clone() {
+                crate::push_or_merge_message(messages, message);
+            }
+            self.outcome.clone()
+        }
+    }
+
+    impl ChatAgent for StubAgent {
+        fn config(&self) -> &ChatConfig {
+            &self.config
+        }
+
+        fn config_mut(&mut self) -> &mut ChatConfig {
+            &mut self.config
+        }
+    }
 
     #[test]
     fn new_session_empty() {
@@ -415,9 +518,8 @@ mod tests {
         let config = ChatConfig::default();
         let mut session = ChatSession::new(client, config);
 
-        // Manually add a message for testing
         session.messages.push(MessageParam {
-            role: MessageRole::User,
+            role: crate::MessageRole::User,
             content: MessageParamContent::String("test".to_string()),
         });
         assert_eq!(session.message_count(), 1);
@@ -463,6 +565,106 @@ mod tests {
     }
 
     #[test]
+    fn clone_and_replace_messages_round_trip() {
+        let client = Anthropic::new(None).unwrap();
+        let config = ChatConfig::default();
+        let mut session = ChatSession::new(client, config);
+
+        let original = vec![
+            MessageParam::user("hello"),
+            MessageParam::assistant("world"),
+        ];
+        session.replace_messages(original.clone());
+        assert_eq!(session.clone_messages(), original);
+        assert_eq!(session.message_count(), 2);
+
+        let replacement = vec![MessageParam::user("replacement")];
+        session.replace_messages(replacement.clone());
+        assert_eq!(session.clone_messages(), replacement);
+        assert_eq!(session.message_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn continue_turn_streaming_on_updates_stats_without_mutating_session_messages() {
+        let client = Anthropic::new(None).unwrap();
+        let agent = StubAgent::new(
+            ChatConfig::default(),
+            Some(MessageParam::assistant("branched response")),
+            Ok(TurnOutcome {
+                stop_reason: crate::StopReason::EndTurn,
+                usage: Usage::new(12, 34),
+                request_count: 2,
+            }),
+        );
+        let mut session = ChatSession::with_agent(client, agent);
+        session.replace_messages(vec![MessageParam::user("live transcript")]);
+
+        let session_snapshot = session.clone_messages();
+        let mut branch = vec![MessageParam::user("resume transcript")];
+        let mut renderer = TestRenderer;
+
+        session
+            .continue_turn_streaming_on(&mut branch, &mut renderer)
+            .await
+            .unwrap();
+
+        assert_eq!(session.clone_messages(), session_snapshot);
+        assert_eq!(
+            branch,
+            vec![
+                MessageParam::user("resume transcript"),
+                MessageParam::assistant("branched response")
+            ]
+        );
+
+        let stats = session.stats();
+        assert_eq!(stats.message_count, 1);
+        assert_eq!(stats.total_input_tokens, 12);
+        assert_eq!(stats.total_output_tokens, 34);
+        assert_eq!(stats.total_requests, 2);
+        assert_eq!(stats.last_turn_input_tokens, Some(12));
+        assert_eq!(stats.last_turn_output_tokens, Some(34));
+    }
+
+    #[tokio::test]
+    async fn continue_turn_streaming_on_restores_branch_on_error() {
+        let client = Anthropic::new(None).unwrap();
+        let agent = StubAgent::new(
+            ChatConfig::default(),
+            Some(MessageParam::assistant(" merged")),
+            Err(Error::bad_request(
+                "synthetic failure",
+                Some("messages".to_string()),
+            )),
+        );
+        let mut session = ChatSession::with_agent(client, agent);
+        session.replace_messages(vec![MessageParam::user("live transcript")]);
+
+        let mut branch = vec![MessageParam::assistant("original")];
+        let original_branch = branch.clone();
+        let mut renderer = TestRenderer;
+
+        let err = session
+            .continue_turn_streaming_on(&mut branch, &mut renderer)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, Error::BadRequest { .. }));
+        assert_eq!(branch, original_branch);
+        assert_eq!(
+            session.clone_messages(),
+            vec![MessageParam::user("live transcript")]
+        );
+
+        let stats = session.stats();
+        assert_eq!(stats.total_input_tokens, 0);
+        assert_eq!(stats.total_output_tokens, 0);
+        assert_eq!(stats.total_requests, 0);
+        assert_eq!(stats.last_turn_input_tokens, None);
+        assert_eq!(stats.last_turn_output_tokens, None);
+    }
+
+    #[test]
     fn budget_allows_next_turn_without_usage() {
         let budget = Budget::new_with_rates(1000, 1, 1, 0, 0);
         assert!(budget_allows_next_turn(&budget, None));
@@ -480,225 +682,5 @@ mod tests {
         let budget = Budget::new_with_rates(100, 1, 1, 0, 0);
         let usage = Usage::new(100, 0);
         assert!(!budget_allows_next_turn(&budget, Some(&usage)));
-    }
-
-    #[test]
-    fn apply_cache_control_to_string_content() {
-        let mut message = MessageParam {
-            role: MessageRole::User,
-            content: MessageParamContent::String("hello".to_string()),
-        };
-
-        apply_cache_control_to_message(&mut message);
-
-        // Should have converted to array with cache_control
-        match &message.content {
-            MessageParamContent::Array(blocks) => {
-                assert_eq!(blocks.len(), 1);
-                if let ContentBlock::Text(text_block) = &blocks[0] {
-                    assert_eq!(text_block.text, "hello");
-                    assert!(text_block.cache_control.is_some());
-                } else {
-                    panic!("Expected Text block");
-                }
-            }
-            _ => panic!("Expected Array content"),
-        }
-    }
-
-    #[test]
-    fn apply_cache_control_to_array_content() {
-        let mut message = MessageParam {
-            role: MessageRole::User,
-            content: MessageParamContent::Array(vec![
-                ContentBlock::Text(TextBlock::new("first")),
-                ContentBlock::Text(TextBlock::new("second")),
-            ]),
-        };
-
-        apply_cache_control_to_message(&mut message);
-
-        // Should have cache_control only on the last block
-        match &message.content {
-            MessageParamContent::Array(blocks) => {
-                assert_eq!(blocks.len(), 2);
-                if let ContentBlock::Text(first) = &blocks[0] {
-                    assert!(first.cache_control.is_none());
-                }
-                if let ContentBlock::Text(second) = &blocks[1] {
-                    assert!(second.cache_control.is_some());
-                }
-            }
-            _ => panic!("Expected Array content"),
-        }
-    }
-
-    #[test]
-    fn apply_cache_control_to_messages_selects_user_messages() {
-        let mut messages = vec![
-            MessageParam {
-                role: MessageRole::User,
-                content: MessageParamContent::String("user1".to_string()),
-            },
-            MessageParam {
-                role: MessageRole::Assistant,
-                content: MessageParamContent::String("assistant1".to_string()),
-            },
-            MessageParam {
-                role: MessageRole::User,
-                content: MessageParamContent::String("user2".to_string()),
-            },
-            MessageParam {
-                role: MessageRole::Assistant,
-                content: MessageParamContent::String("assistant2".to_string()),
-            },
-            MessageParam {
-                role: MessageRole::User,
-                content: MessageParamContent::String("user3".to_string()),
-            },
-        ];
-
-        apply_cache_control_to_messages(&mut messages);
-
-        // Should apply cache_control to last 3 user messages (MAX_CACHE_BREAKPOINTS - 1)
-        // User messages are at indices 0, 2, 4
-        for (idx, msg) in messages.iter().enumerate() {
-            let has_cache = match &msg.content {
-                MessageParamContent::Array(blocks) => blocks.last().is_some_and(|b| {
-                    if let ContentBlock::Text(t) = b {
-                        t.cache_control.is_some()
-                    } else {
-                        false
-                    }
-                }),
-                MessageParamContent::String(_) => false,
-            };
-
-            let is_user = msg.role == MessageRole::User;
-            // All user messages should have cache_control (we have 3 users, limit is 3)
-            if is_user {
-                assert!(
-                    has_cache,
-                    "User message at index {idx} should have cache_control"
-                );
-            } else {
-                // Assistant messages should not be modified
-                assert!(
-                    !has_cache,
-                    "Assistant message at index {idx} should not have cache_control"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn apply_cache_control_respects_max_breakpoints() {
-        // Create 5 user messages - only last 3 should get cache_control
-        let mut messages: Vec<MessageParam> = (0..5)
-            .map(|i| MessageParam {
-                role: MessageRole::User,
-                content: MessageParamContent::String(format!("user{i}")),
-            })
-            .collect();
-
-        apply_cache_control_to_messages(&mut messages);
-
-        let cached_count = messages
-            .iter()
-            .filter(|msg| {
-                matches!(
-                    &msg.content,
-                    MessageParamContent::Array(blocks)
-                    if blocks.last().is_some_and(|b| {
-                        matches!(b, ContentBlock::Text(t) if t.cache_control.is_some())
-                    })
-                )
-            })
-            .count();
-
-        // MAX_CACHE_BREAKPOINTS - 1 = 3
-        assert_eq!(cached_count, 3);
-
-        // Verify it's the LAST 3 messages that got cache_control
-        for (idx, msg) in messages.iter().enumerate() {
-            let has_cache = matches!(
-                &msg.content,
-                MessageParamContent::Array(blocks)
-                if blocks.last().is_some_and(|b| {
-                    matches!(b, ContentBlock::Text(t) if t.cache_control.is_some())
-                })
-            );
-
-            if idx < 2 {
-                assert!(!has_cache, "Message {idx} should NOT have cache_control");
-            } else {
-                assert!(has_cache, "Message {idx} should have cache_control");
-            }
-        }
-    }
-
-    #[test]
-    fn apply_cache_control_clears_old_markers() {
-        // Simulate a conversation that grows over multiple turns.
-        // Initially we have 3 user messages with cache_control set on all of them.
-        let mut messages: Vec<MessageParam> = (0..3)
-            .map(|i| MessageParam {
-                role: MessageRole::User,
-                content: MessageParamContent::Array(vec![ContentBlock::Text(
-                    TextBlock::new(format!("user{i}"))
-                        .with_cache_control(CacheControlEphemeral::new()),
-                )]),
-            })
-            .collect();
-
-        // Add 2 more user messages (simulating additional turns)
-        for i in 3..5 {
-            messages.push(MessageParam {
-                role: MessageRole::User,
-                content: MessageParamContent::String(format!("user{i}")),
-            });
-        }
-
-        // At this point, messages 0, 1, 2 have cache_control from before.
-        // After apply_cache_control_to_messages, only the last 3 (2, 3, 4) should have it.
-        apply_cache_control_to_messages(&mut messages);
-
-        let cached_count = messages
-            .iter()
-            .filter(|msg| {
-                matches!(
-                    &msg.content,
-                    MessageParamContent::Array(blocks)
-                    if blocks.last().is_some_and(|b| {
-                        matches!(b, ContentBlock::Text(t) if t.cache_control.is_some())
-                    })
-                )
-            })
-            .count();
-
-        // Only 3 messages should have cache_control (MAX_CACHE_BREAKPOINTS - 1)
-        // DEBUG: Print cached count
-        println!("cached_count: {cached_count}");
-        assert_eq!(cached_count, 3, "Only 3 messages should have cache_control");
-
-        // Verify the FIRST 2 messages no longer have cache_control (they were cleared)
-        for (idx, msg) in messages.iter().enumerate() {
-            let has_cache = matches!(
-                &msg.content,
-                MessageParamContent::Array(blocks)
-                if blocks.last().is_some_and(|b| {
-                    matches!(b, ContentBlock::Text(t) if t.cache_control.is_some())
-                })
-            );
-
-            if idx < 2 {
-                assert!(
-                    !has_cache,
-                    "Message {idx} should have cache_control CLEARED"
-                );
-            } else {
-                assert!(has_cache, "Message {idx} should have cache_control");
-            }
-        }
     }
 }

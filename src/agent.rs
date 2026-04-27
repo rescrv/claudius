@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -8,9 +8,7 @@ use std::time::Instant;
 use futures::StreamExt;
 use utf8path::Path;
 
-use crate::cache_control::{
-    MAX_CACHE_BREAKPOINTS, count_system_cache_controls, prune_cache_controls_in_messages,
-};
+use crate::cache_control::apply_cache_controls;
 use crate::observability::{
     AGENT_TOOL_CALLS, AGENT_TOOL_DURATION, AGENT_TOOL_ERRORS, AGENT_TURN_DURATION,
     AGENT_TURN_REQUESTS,
@@ -965,6 +963,37 @@ impl Budget {
             .unwrap_or(u64::MAX)
     }
 
+    /// Calculates the cost in micro-cents for only input tokens in a usage record.
+    ///
+    /// This includes input tokens, cache creation tokens, and cache read tokens.
+    /// Output tokens are excluded.
+    ///
+    /// # Returns
+    ///
+    /// Input cost in micro-cents as a `u64`
+    pub fn calculate_input_cost(&self, usage: &crate::Usage) -> u64 {
+        let input_cost =
+            (usage.input_tokens.max(0) as u64).saturating_mul(self.input_token_rate_micro_cents);
+        let cache_creation_cost = (usage.cache_creation_input_tokens.unwrap_or(0).max(0) as u64)
+            .saturating_mul(self.cache_creation_token_rate_micro_cents);
+        let cache_read_cost = (usage.cache_read_input_tokens.unwrap_or(0).max(0) as u64)
+            .saturating_mul(self.cache_read_token_rate_micro_cents);
+
+        input_cost
+            .checked_add(cache_creation_cost)
+            .and_then(|sum| sum.checked_add(cache_read_cost))
+            .unwrap_or(u64::MAX)
+    }
+
+    /// Calculates the cost in micro-cents for only output tokens in a usage record.
+    ///
+    /// # Returns
+    ///
+    /// Output cost in micro-cents as a `u64`
+    pub fn calculate_output_cost(&self, usage: &crate::Usage) -> u64 {
+        (usage.output_tokens.max(0) as u64).saturating_mul(self.output_token_rate_micro_cents)
+    }
+
     /// Attempts to allocate cost for the expected maximum tokens from the budget.
     ///
     /// Returns `Some(BudgetAllocation)` if sufficient budget is available,
@@ -983,7 +1012,7 @@ impl Budget {
     /// }
     /// ```
     pub fn allocate(&self, max_tokens: u32) -> Option<BudgetAllocation<'_>> {
-        let max_cost = self.calculate_max_cost_for_tokens(max_tokens);
+        let max_cost = self.calculate_output_cost_for_tokens(max_tokens);
         loop {
             let witness = self.remaining_micro_cents.load(Ordering::Relaxed);
             if witness >= max_cost
@@ -1009,27 +1038,14 @@ impl Budget {
         }
     }
 
-    /// Calculates the maximum possible cost for the given number of tokens.
+    /// Calculates the output token cost for the given number of tokens.
     ///
-    /// This method uses the highest token rate among all configured rates to
-    /// provide a conservative (worst-case) cost estimate for allocation purposes.
-    ///
-    /// # Safety
-    ///
-    /// This method performs multiplication of `u32` and `u64` values. While overflow
-    /// is theoretically possible with extreme values, it would require:
-    /// - More than 4 billion tokens (u32::MAX)
-    /// - AND token rates exceeding u64::MAX / u32::MAX (≈4.3 billion micro-cents per token)
-    ///
-    /// Such values would represent costs far beyond reasonable API usage scenarios.
-    /// In practice, this method is safe for all realistic budget and token rate combinations.
-    fn calculate_max_cost_for_tokens(&self, tokens: u32) -> u64 {
-        (tokens as u64).saturating_mul(
-            self.output_token_rate_micro_cents
-                .max(self.input_token_rate_micro_cents)
-                .max(self.cache_creation_token_rate_micro_cents)
-                .max(self.cache_read_token_rate_micro_cents),
-        )
+    /// This is used to size budget allocations, which track output token budgets.
+    /// Input token costs are charged directly to the main budget rather than
+    /// the per-turn allocation, because input costs grow with conversation
+    /// history and are not under the agent's control.
+    fn calculate_output_cost_for_tokens(&self, tokens: u32) -> u64 {
+        (tokens as u64).saturating_mul(self.output_token_rate_micro_cents)
     }
 
     /// Returns the current remaining budget in micro-cents.
@@ -1116,7 +1132,7 @@ impl Budget {
         }
     }
 
-    fn consume_cost_micro_cents_saturating(&self, cost_micro_cents: u64) -> u64 {
+    pub(crate) fn consume_cost_micro_cents_saturating(&self, cost_micro_cents: u64) -> u64 {
         loop {
             let witness = self.remaining_micro_cents.load(Ordering::Relaxed);
             if witness == 0 {
@@ -1263,60 +1279,50 @@ impl<'a> BudgetAllocation<'a> {
         }
     }
 
-    /// Returns an approximation of remaining tokens based on the highest token rate.
+    /// Consumes budget for a complete API response, splitting costs appropriately.
     ///
-    /// This method provides a conservative estimate of how many more tokens could
-    /// be consumed from this allocation. It uses the highest token rate configured
-    /// in the original budget to ensure the estimate doesn't exceed what's actually
-    /// affordable.
+    /// Output token costs are charged to this allocation, which represents the
+    /// agent's generation budget for the current turn. Input token costs (input,
+    /// cache creation, cache read) are charged directly to the main budget because
+    /// they grow with conversation history and are not under the agent's control.
+    ///
+    /// This prevents input token costs from starving the output budget as
+    /// conversations grow longer over multiple tool-use steps.
     ///
     /// # Returns
     ///
-    /// Approximate number of tokens that can still be consumed, calculated as:
-    /// `remaining_micro_cents() / highest_token_rate`
+    /// - `true` if the output cost was within the remaining allocation
+    /// - `false` if the output cost exceeds the remaining allocation
     ///
-    /// # Example
+    /// Input costs are always deducted from the main budget (saturating at zero)
+    /// regardless of the return value, because the API call already happened.
+    #[must_use]
+    pub fn consume_response(&mut self, usage: &crate::Usage) -> bool {
+        let input_cost = self.budget.calculate_input_cost(usage);
+        let output_cost = self.budget.calculate_output_cost(usage);
+
+        // Charge input costs to main budget (sunk cost from the API call).
+        self.budget.consume_cost_micro_cents_saturating(input_cost);
+
+        // Charge output costs to allocation.
+        if output_cost <= self.allocated_micro_cents {
+            self.allocated_micro_cents -= output_cost;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Returns the number of output tokens that can still be generated from this allocation.
     ///
-    /// ```rust
-    /// use claudius::{Budget, Usage};
-    ///
-    /// let budget = Budget::new_with_rates(
-    ///     100_000, // 100k micro-cents
-    ///     300,     // Input: 300 micro-cents/token
-    ///     1500,    // Output: 1500 micro-cents/token (highest)
-    ///     150,     // Cache creation: 150 micro-cents/token
-    ///     75,      // Cache read: 75 micro-cents/token
-    /// );
-    ///
-    /// let mut allocation = budget.allocate(50).unwrap();
-    /// // Initially: 50 tokens * 1500 = 75,000 micro-cents allocated
-    /// assert_eq!(allocation.remaining_tokens(), 50); // 75,000 / 1500
-    ///
-    /// // Consume some budget with cheaper input tokens
-    /// let usage = Usage::new(20, 5); // Cost: (20*300) + (5*1500) = 13,500
-    /// allocation.consume_usage(&usage);
-    ///
-    /// // Remaining: 75,000 - 13,500 = 61,500 micro-cents
-    /// assert_eq!(allocation.remaining_tokens(), 41); // 61,500 / 1500
-    /// ```
-    ///
-    /// # Conservative Estimation
-    ///
-    /// This method intentionally provides a conservative (lower) estimate by
-    /// using the highest token rate. The actual number of tokens you can
-    /// consume may be higher if you use cheaper token types.
+    /// This method uses the output token rate because allocations track output
+    /// token budgets. Input token costs are charged directly to the main budget
+    /// and do not reduce this allocation.
     pub fn remaining_tokens(&self) -> u32 {
-        let highest_rate = self
-            .budget
-            .output_token_rate_micro_cents
-            .max(self.budget.input_token_rate_micro_cents)
-            .max(self.budget.cache_creation_token_rate_micro_cents)
-            .max(self.budget.cache_read_token_rate_micro_cents);
-        if highest_rate > 0 {
+        let rate = self.budget.output_token_rate_micro_cents;
+        if rate > 0 {
             std::cmp::min(
-                self.allocated_micro_cents
-                    .checked_div(highest_rate)
-                    .unwrap_or(0),
+                self.allocated_micro_cents.checked_div(rate).unwrap_or(0),
                 u32::MAX as u64,
             ) as u32
         } else {
@@ -1451,6 +1457,15 @@ pub trait FileSystem: Send + Sync {
     /// Searches for files matching the given query.
     async fn search(&self, search: &str) -> Result<String, std::io::Error>;
 
+    /// Lists directory entries, if `path` is a directory.
+    ///
+    /// Implementations return `Ok(None)` when they cannot distinguish directory
+    /// listings from other `view` results.
+    async fn list_directory(&self, path: &str) -> Result<Option<String>, std::io::Error> {
+        let _ = path;
+        Ok(None)
+    }
+
     /// Views the contents of a file, optionally within a specific line range.
     ///
     /// # Parameters
@@ -1577,6 +1592,11 @@ pub trait Agent: Send + Sync + Sized {
     /// Returns the system prompt for the agent.
     async fn system(&self) -> Option<SystemPrompt> {
         None
+    }
+
+    /// Returns whether prompt caching is enabled.
+    fn caching_enabled(&self) -> bool {
+        false
     }
 
     /// Returns the temperature for response generation.
@@ -1970,12 +1990,10 @@ pub trait Agent: Send + Sync + Sized {
         messages: Vec<MessageParam>,
         stream: bool,
     ) -> MessageCreateParams {
-        let system = self.system().await;
-        let mut messages = messages;
-        let system_cache_controls = count_system_cache_controls(&system);
-        let keep_latest = MAX_CACHE_BREAKPOINTS.saturating_sub(system_cache_controls);
-        prune_cache_controls_in_messages(&mut messages, keep_latest);
-
+        let mut system = self.system().await;
+        if self.caching_enabled() {
+            apply_cache_controls(&mut system);
+        }
         let tools = self
             .tools()
             .await
@@ -1987,6 +2005,11 @@ pub trait Agent: Send + Sync + Sized {
             max_tokens,
             model: self.model().await,
             messages,
+            cache_control: if self.caching_enabled() {
+                Some(CacheControlEphemeral::new())
+            } else {
+                None
+            },
             metadata: self.metadata().await,
             output_format: None,
             output_config: None,
@@ -2202,19 +2225,21 @@ impl FileSystem for Path<'_> {
         Ok(stdout.to_string() + "\n" + &stderr + &count)
     }
 
+    async fn list_directory(&self, path: &str) -> Result<Option<String>, std::io::Error> {
+        let path = sanitize_path(self.clone(), path)?;
+        if path.is_dir() {
+            Ok(Some(directory_listing(&path)?))
+        } else {
+            Ok(None)
+        }
+    }
+
     async fn view(
         &self,
         path: &str,
         view_range: Option<(u32, u32)>,
     ) -> Result<String, std::io::Error> {
-        if let Some((start, limit)) = view_range
-            && (start == 0 || limit == 0)
-        {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "view_range values must be >= 1",
-            ));
-        }
+        validate_view_range(view_range)?;
         let path = sanitize_path(self.clone(), path)?;
         if path.is_file() {
             let content = std::fs::read_to_string(path)?;
@@ -2232,16 +2257,7 @@ impl FileSystem for Path<'_> {
             ret.push('\n');
             Ok(ret)
         } else if path.is_dir() {
-            let mut listing = String::new();
-            for dirent in std::fs::read_dir(&path)? {
-                let dirent = dirent?;
-                let p = Path::try_from(dirent.path()).map_err(std::io::Error::other)?;
-                if let Some(p) = p.strip_prefix(path.clone()) {
-                    listing.push_str(p.as_str());
-                    listing.push('\n');
-                }
-            }
-            Ok(listing)
+            directory_listing(&path)
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
@@ -2364,6 +2380,16 @@ impl FileSystem for Mount {
         }
     }
 
+    async fn list_directory(&self, path: &str) -> Result<Option<String>, std::io::Error> {
+        match self.perm {
+            Permissions::WriteOnly => Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "view not allowed with WriteOnly permissions",
+            )),
+            Permissions::ReadOnly | Permissions::ReadWrite => self.fs.list_directory(path).await,
+        }
+    }
+
     async fn view(
         &self,
         path: &str,
@@ -2477,7 +2503,7 @@ impl MountHierarchy {
         Ok(())
     }
 
-    fn fs_for_path(&self, path: &str) -> Result<(&dyn FileSystem, Path<'static>), std::io::Error> {
+    fn mount_for_path(&self, path: &str) -> Result<(&Mount, Path<'static>), std::io::Error> {
         for mount in self.mounts.iter().rev() {
             if let Some(path) = Path::from(path).strip_prefix(mount.path.clone()) {
                 let path = path.into_owned();
@@ -2487,6 +2513,29 @@ impl MountHierarchy {
         Err(std::io::Error::other(
             "filesystem not initialized".to_string(),
         ))
+    }
+
+    fn fs_for_path(&self, path: &str) -> Result<(&dyn FileSystem, Path<'static>), std::io::Error> {
+        let (mount, path) = self.mount_for_path(path)?;
+        Ok((mount, path))
+    }
+
+    fn virtual_directory_entries(&self, path: &str) -> BTreeSet<String> {
+        let path = Path::from(path);
+        let mut seen_mount_paths = HashSet::new();
+        let mut entries = BTreeSet::new();
+        for mount in self.mounts.iter().rev() {
+            if !seen_mount_paths.insert(mount.path.as_str().to_string()) {
+                continue;
+            }
+            if !matches!(mount.perm, Permissions::ReadOnly | Permissions::ReadWrite) {
+                continue;
+            }
+            if let Some(entry) = immediate_child_component(&mount.path, &path) {
+                entries.insert(entry);
+            }
+        }
+        entries
     }
 }
 
@@ -2508,8 +2557,21 @@ impl FileSystem for MountHierarchy {
         path: &str,
         view_range: Option<(u32, u32)>,
     ) -> Result<String, std::io::Error> {
-        let (fs, path) = self.fs_for_path(path)?;
-        fs.view(path.as_str(), view_range).await
+        let (mount, mounted_path) = self.mount_for_path(path)?;
+        let virtual_entries = self.virtual_directory_entries(path);
+        if virtual_entries.is_empty() {
+            return mount.view(mounted_path.as_str(), view_range).await;
+        }
+        validate_view_range(view_range)?;
+        let mut entries = virtual_entries;
+        if let Some(listing) = mount.list_directory(mounted_path.as_str()).await? {
+            for entry in listing.lines() {
+                if !entry.is_empty() {
+                    entries.insert(entry.to_string());
+                }
+            }
+        }
+        Ok(format_directory_entries(entries))
     }
 
     async fn str_replace(
@@ -2539,6 +2601,76 @@ impl FileSystem for MountHierarchy {
 }
 
 /////////////////////////////////////////////// Misc ///////////////////////////////////////////////
+
+fn validate_view_range(view_range: Option<(u32, u32)>) -> Result<(), std::io::Error> {
+    if let Some((start, limit)) = view_range
+        && (start == 0 || limit == 0)
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "view_range values must be >= 1",
+        ));
+    }
+    Ok(())
+}
+
+fn directory_listing(path: &Path) -> Result<String, std::io::Error> {
+    let mut listing = String::new();
+    for dirent in std::fs::read_dir(path)? {
+        let dirent = dirent?;
+        let p = Path::try_from(dirent.path()).map_err(std::io::Error::other)?;
+        if let Some(p) = p.strip_prefix(path.clone()) {
+            listing.push_str(p.as_str());
+            listing.push('\n');
+        }
+    }
+    Ok(listing)
+}
+
+fn immediate_child_component(path: &Path, prefix: &Path) -> Option<String> {
+    if path.has_root() != prefix.has_root() || path.has_app_defined() != prefix.has_app_defined() {
+        return None;
+    }
+    let path_components = ordinary_components(path)?;
+    let prefix_components = ordinary_components(prefix)?;
+    if prefix_components.len() >= path_components.len() {
+        return None;
+    }
+    if path_components
+        .iter()
+        .zip(prefix_components.iter())
+        .all(|(path, prefix)| path == prefix)
+    {
+        Some(path_components[prefix_components.len()].clone())
+    } else {
+        None
+    }
+}
+
+fn ordinary_components(path: &Path) -> Option<Vec<String>> {
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            utf8path::Component::RootDir
+            | utf8path::Component::AppDefined
+            | utf8path::Component::CurDir => {}
+            utf8path::Component::ParentDir => return None,
+            utf8path::Component::Normal(component) => {
+                components.push(component.as_str().to_string())
+            }
+        }
+    }
+    Some(components)
+}
+
+fn format_directory_entries(entries: BTreeSet<String>) -> String {
+    let mut listing = String::new();
+    for entry in entries {
+        listing.push_str(&entry);
+        listing.push('\n');
+    }
+    listing
+}
 
 fn sanitize_path(base: Path, path: &str) -> Result<Path<'static>, std::io::Error> {
     let path = Path::from(path);
@@ -2616,56 +2748,16 @@ fn push_tool_result(
 ) {
     match result {
         Ok(block) => {
-            let mut block = block;
-            if block.cache_control.is_none() {
-                block.cache_control = Some(CacheControlEphemeral::new());
-            }
             if let Some((renderer, context)) = renderer {
                 render_tool_result_block(renderer, context, &block);
             }
             tool_results.push(block.into());
         }
         Err(block) => {
-            let mut block = block;
-            if block.cache_control.is_none() {
-                block.cache_control = Some(CacheControlEphemeral::new());
-            }
             if let Some((renderer, context)) = renderer {
                 render_tool_result_block(renderer, context, &block);
             }
             tool_results.push(block.with_error(true).into());
-        }
-    }
-    prune_tool_result_cache_controls(tool_results, 4);
-}
-
-fn prune_tool_result_cache_controls(tool_results: &mut [ContentBlock], keep_latest: usize) {
-    if keep_latest == 0 {
-        for block in tool_results.iter_mut() {
-            if let ContentBlock::ToolResult(tool_result) = block {
-                tool_result.cache_control = None;
-            }
-        }
-        return;
-    }
-
-    let mut cached_indices = Vec::new();
-    for (idx, block) in tool_results.iter().enumerate() {
-        if let ContentBlock::ToolResult(tool_result) = block
-            && tool_result.cache_control.is_some()
-        {
-            cached_indices.push(idx);
-        }
-    }
-
-    if cached_indices.len() <= keep_latest {
-        return;
-    }
-
-    let drop_count = cached_indices.len() - keep_latest;
-    for idx in cached_indices.into_iter().take(drop_count) {
-        if let ContentBlock::ToolResult(tool_result) = &mut tool_results[idx] {
-            tool_result.cache_control = None;
         }
     }
 }
@@ -2681,8 +2773,9 @@ async fn step_default_turn_impl<A: Agent>(
     let mut usage_total = Usage::new(0, 0);
     let mut request_count: u64 = 0;
     loop {
+        let max_tokens = std::cmp::min(agent.max_tokens().await, tokens_rem.remaining_tokens());
         let req = agent
-            .create_request(tokens_rem.remaining_tokens(), messages.clone(), stream)
+            .create_request(max_tokens, messages.clone(), stream)
             .await;
         if let Err(err) = agent.hook_message_create_params(&req).await {
             return ControlFlow::Break(Err(err));
@@ -2718,7 +2811,7 @@ async fn step_default_turn_impl<A: Agent>(
             content: MessageParamContent::Array(resp.content.clone()),
         };
         usage_total = usage_total + resp.usage;
-        if !tokens_rem.consume_usage(&resp.usage) {
+        if !tokens_rem.consume_response(&resp.usage) {
             return ControlFlow::Break(Ok(TurnOutcome {
                 stop_reason: StopReason::MaxTokens,
                 usage: usage_total,
@@ -3555,6 +3648,321 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mount_hierarchy_views_virtual_mount_parent_directory() {
+        let workspace = make_temp_dir("mount_parent_workspace");
+        let skill = make_temp_dir("mount_parent_skill");
+        std::fs::write(skill.join("SKILL.md"), "# Rust").unwrap();
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::ReadOnly,
+                Path::try_from(skill.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let content = hierarchy.view("/skills/rust/SKILL.md", None).await.unwrap();
+        assert_eq!(content, "# Rust\n");
+
+        let listing = hierarchy.view("/skills", None).await.unwrap();
+        assert_eq!(listing, "rust\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(skill).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_directory_lists_only_immediate_children() {
+        let workspace = make_temp_dir("mount_immediate_workspace");
+        let rustfmt = make_temp_dir("mount_immediate_rustfmt");
+        let lint = make_temp_dir("mount_immediate_lint");
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust/rustfmt".into(),
+                Permissions::ReadOnly,
+                Path::try_from(rustfmt.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/python/lint".into(),
+                Permissions::ReadOnly,
+                Path::try_from(lint.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let listing = hierarchy.view("/skills", None).await.unwrap();
+        assert_eq!(listing, "python\nrust\n");
+
+        let listing = hierarchy.view("/skills/python", None).await.unwrap();
+        assert_eq!(listing, "lint\n");
+
+        let listing = hierarchy.view("/skills/rust", None).await.unwrap();
+        assert_eq!(listing, "rustfmt\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(rustfmt).ok();
+        std::fs::remove_dir_all(lint).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_directory_merges_physical_directory_entries() {
+        let workspace = make_temp_dir("mount_merge_workspace");
+        let skill = make_temp_dir("mount_merge_skill");
+        std::fs::create_dir_all(workspace.join("skills")).unwrap();
+        std::fs::write(workspace.join("skills/local.txt"), "local\n").unwrap();
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::ReadOnly,
+                Path::try_from(skill.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let listing = hierarchy.view("/skills", None).await.unwrap();
+        assert_eq!(listing, "local.txt\nrust\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(skill).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_directory_overrides_physical_file() {
+        let workspace = make_temp_dir("mount_file_workspace");
+        let skill = make_temp_dir("mount_file_skill");
+        std::fs::write(workspace.join("skills"), "not a directory\n").unwrap();
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::ReadOnly,
+                Path::try_from(skill.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let listing = hierarchy.view("/skills", None).await.unwrap();
+        assert_eq!(listing, "rust\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(skill).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_entries_are_merged_at_exact_mounts() {
+        let workspace = make_temp_dir("mount_exact_workspace");
+        let skills = make_temp_dir("mount_exact_skills");
+        let rust = make_temp_dir("mount_exact_rust");
+        std::fs::write(skills.join("local.txt"), "local\n").unwrap();
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills".into(),
+                Permissions::ReadOnly,
+                Path::try_from(skills.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::ReadOnly,
+                Path::try_from(rust.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let listing = hierarchy.view("/skills", None).await.unwrap();
+        assert_eq!(listing, "local.txt\nrust\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(skills).ok();
+        std::fs::remove_dir_all(rust).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_entries_are_merged_at_root() {
+        let workspace = make_temp_dir("mount_root_workspace");
+        let skill = make_temp_dir("mount_root_skill");
+        std::fs::write(workspace.join("README.md"), "workspace\n").unwrap();
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::ReadOnly,
+                Path::try_from(skill.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let listing = hierarchy.view("/", None).await.unwrap();
+        assert_eq!(listing, "README.md\nskills\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(skill).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_directory_omits_write_only_children() {
+        let workspace = make_temp_dir("mount_perms_workspace");
+        let read = make_temp_dir("mount_perms_read");
+        let write = make_temp_dir("mount_perms_write");
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/read".into(),
+                Permissions::ReadOnly,
+                Path::try_from(read.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/write".into(),
+                Permissions::WriteOnly,
+                Path::try_from(write.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let listing = hierarchy.view("/skills", None).await.unwrap();
+        assert_eq!(listing, "read\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(read).ok();
+        std::fs::remove_dir_all(write).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_directory_respects_overlay_permissions() {
+        let workspace = make_temp_dir("mount_overlay_workspace");
+        let readable = make_temp_dir("mount_overlay_readable");
+        let hidden = make_temp_dir("mount_overlay_hidden");
+        let python = make_temp_dir("mount_overlay_python");
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::ReadOnly,
+                Path::try_from(readable.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::WriteOnly,
+                Path::try_from(hidden.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/python".into(),
+                Permissions::ReadOnly,
+                Path::try_from(python.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let listing = hierarchy.view("/skills", None).await.unwrap();
+        assert_eq!(listing, "python\n");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(readable).ok();
+        std::fs::remove_dir_all(hidden).ok();
+        std::fs::remove_dir_all(python).ok();
+    }
+
+    #[tokio::test]
+    async fn mount_hierarchy_virtual_directory_rejects_invalid_view_range() {
+        let workspace = make_temp_dir("mount_range_workspace");
+        let skill = make_temp_dir("mount_range_skill");
+
+        let mut hierarchy = MountHierarchy::default();
+        hierarchy
+            .mount(
+                "/".into(),
+                Permissions::ReadWrite,
+                Path::try_from(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        hierarchy
+            .mount(
+                "/skills/rust".into(),
+                Permissions::ReadOnly,
+                Path::try_from(skill.clone()).unwrap(),
+            )
+            .unwrap();
+
+        let result = hierarchy.view("/skills", Some((0, 1))).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(err.to_string(), "view_range values must be >= 1");
+
+        std::fs::remove_dir_all(workspace).ok();
+        std::fs::remove_dir_all(skill).ok();
+    }
+
+    #[tokio::test]
     async fn mount_hierarchy_str_replace_uses_correct_filesystem() {
         let mut hierarchy = MountHierarchy { mounts: vec![] };
 
@@ -4270,14 +4678,22 @@ mod tests {
 
     #[test]
     fn budget_allocate_maximum_tokens_calculation() {
-        // Test that allocation uses the highest token rate for max cost calculation
-        let budget = Budget::new_with_rates(10000, 5, 15, 25, 10); // max rate is 25
+        // Allocation uses the output token rate because allocations track output budgets.
+        let budget = Budget::new_with_rates(10000, 5, 15, 25, 10); // output rate is 15
 
         let allocation = budget.allocate(200);
         assert!(allocation.is_some());
 
-        // Should reserve 200 * 25 = 5000 micro-cents
-        assert_eq!(budget.remaining_micro_cents(), 5000);
+        // Should reserve 200 * 15 = 3000 micro-cents (output rate)
+        assert_eq!(budget.remaining_micro_cents(), 7000);
+
+        drop(allocation);
+
+        // A flat-rate budget should allocate at the flat rate.
+        let budget2 = Budget::new_flat_rate(10000, 25);
+        let allocation2 = budget2.allocate(200);
+        assert!(allocation2.is_some());
+        assert_eq!(budget2.remaining_micro_cents(), 5000);
     }
 
     // Budget Consumption Tests
@@ -4359,6 +4775,138 @@ mod tests {
 
         // Allocation should remain unchanged
         assert_eq!(allocation.remaining_micro_cents(), 500);
+    }
+
+    #[test]
+    fn calculate_input_cost_sums_non_output_tokens() {
+        let budget = Budget::new_with_rates(1_000_000, 300, 1500, 375, 30);
+        let usage = Usage::new(100, 50)
+            .with_cache_creation_input_tokens(20)
+            .with_cache_read_input_tokens(10);
+
+        let input_cost = budget.calculate_input_cost(&usage);
+        // 100*300 + 20*375 + 10*30 = 30000 + 7500 + 300 = 37800
+        assert_eq!(input_cost, 37800);
+    }
+
+    #[test]
+    fn calculate_output_cost_only_counts_output_tokens() {
+        let budget = Budget::new_with_rates(1_000_000, 300, 1500, 375, 30);
+        let usage = Usage::new(100, 50)
+            .with_cache_creation_input_tokens(20)
+            .with_cache_read_input_tokens(10);
+
+        let output_cost = budget.calculate_output_cost(&usage);
+        // 50*1500 = 75000
+        assert_eq!(output_cost, 75000);
+    }
+
+    #[test]
+    fn input_plus_output_cost_equals_total_cost() {
+        let budget = Budget::new_with_rates(1_000_000, 300, 1500, 375, 30);
+        let usage = Usage::new(100, 50)
+            .with_cache_creation_input_tokens(20)
+            .with_cache_read_input_tokens(10);
+
+        let total = budget.calculate_cost(&usage);
+        let split = budget.calculate_input_cost(&usage) + budget.calculate_output_cost(&usage);
+        assert_eq!(total, split);
+    }
+
+    #[test]
+    fn consume_response_charges_output_to_allocation_input_to_budget() {
+        // Rates: input=300, output=1500, cache_creation=375, cache_read=30
+        let budget = Budget::new_with_rates(500_000_000, 300, 1500, 375, 30);
+        let initial_budget = budget.remaining_micro_cents();
+
+        // Allocate for 100 output tokens: 100 * 1500 = 150_000
+        let mut allocation = budget.allocate(100).unwrap();
+        assert_eq!(budget.remaining_micro_cents(), initial_budget - 150_000);
+        assert_eq!(allocation.remaining_tokens(), 100);
+
+        // Simulate an API response with 2000 input + 30 output tokens
+        let usage = Usage::new(2000, 30).with_cache_read_input_tokens(500);
+
+        let input_cost = budget.calculate_input_cost(&usage);
+        // 2000*300 + 500*30 = 600_000 + 15_000 = 615_000
+
+        assert!(allocation.consume_response(&usage));
+
+        // Allocation should only lose output cost: 30 * 1500 = 45_000
+        // Remaining in allocation: 150_000 - 45_000 = 105_000 = 70 tokens
+        assert_eq!(allocation.remaining_tokens(), 70);
+
+        // Main budget should have been charged the input cost
+        assert_eq!(
+            budget.remaining_micro_cents(),
+            initial_budget - 150_000 - input_cost
+        );
+    }
+
+    #[test]
+    fn consume_response_input_does_not_starve_output_budget() {
+        // This test demonstrates the fix: large input costs don't drain the output budget.
+        let budget = Budget::new_with_rates(500_000_000, 300, 1500, 375, 30);
+
+        let mut allocation = budget.allocate(4096).unwrap();
+        // Output allocation: 4096 * 1500 = 6_144_000
+
+        // Step 1: 2000 input, 500 output
+        let usage1 = Usage::new(2000, 500);
+        assert!(allocation.consume_response(&usage1));
+        // Allocation loses 500 * 1500 = 750_000. Remaining output: 3596 tokens.
+        assert_eq!(allocation.remaining_tokens(), 3596);
+
+        // Step 2: 5000 input (conversation grew), 400 output
+        let usage2 = Usage::new(5000, 400);
+        assert!(allocation.consume_response(&usage2));
+        // Allocation loses 400 * 1500 = 600_000. Remaining output: 3196 tokens.
+        assert_eq!(allocation.remaining_tokens(), 3196);
+
+        // Step 3: 10000 input (big tool results), 300 output
+        let usage3 = Usage::new(10000, 300);
+        assert!(allocation.consume_response(&usage3));
+        // Allocation loses 300 * 1500 = 450_000. Remaining output: 2896 tokens.
+        assert_eq!(allocation.remaining_tokens(), 2896);
+
+        // With consume_usage (old behavior), the allocation would have been exhausted
+        // by step 2 or 3 due to input costs draining it.
+        // With consume_response, the agent still has 2896 output tokens available.
+    }
+
+    #[test]
+    fn consume_response_returns_false_when_output_exceeds_allocation() {
+        let budget = Budget::new_with_rates(500_000_000, 300, 1500, 375, 30);
+        let mut allocation = budget.allocate(50).unwrap();
+        // Output allocation: 50 * 1500 = 75_000
+
+        // Response with 100 output tokens (cost 150_000 > allocation 75_000)
+        let usage = Usage::new(10, 100);
+        assert!(!allocation.consume_response(&usage));
+    }
+
+    #[test]
+    fn remaining_tokens_uses_output_rate() {
+        // When output rate differs from highest rate, remaining_tokens should
+        // use the output rate since allocation tracks output budgets.
+        let budget = Budget::new_with_rates(100_000, 300, 1500, 3750, 30);
+        // cache_creation (3750) is the highest rate, output is 1500
+
+        let allocation = budget.allocate(50).unwrap();
+        // Allocated: 50 * 1500 = 75_000 (output rate)
+        // remaining_tokens = 75_000 / 1500 = 50
+        assert_eq!(allocation.remaining_tokens(), 50);
+    }
+
+    #[test]
+    fn allocate_uses_output_rate_not_highest_rate() {
+        let budget = Budget::new_with_rates(100_000, 300, 1500, 3750, 30);
+        // Highest rate is 3750 (cache_creation), output rate is 1500
+
+        let allocation = budget.allocate(50).unwrap();
+        // Allocated at output rate: 50 * 1500 = 75_000
+        assert_eq!(budget.remaining_micro_cents(), 25_000);
+        assert_eq!(allocation.remaining_tokens(), 50);
     }
 
     // Budget State Management Tests

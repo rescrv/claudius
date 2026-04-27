@@ -19,7 +19,7 @@ use crate::observability::{
     CLIENT_REQUEST_DURATION, CLIENT_REQUEST_ERRORS, CLIENT_REQUEST_RETRIES, CLIENT_REQUESTS,
     CLIENT_RETRY_BACKOFF,
 };
-use crate::sse::process_sse;
+use crate::sse::process_message_stream_sse;
 use crate::types::{
     Message, MessageCountTokensParams, MessageCreateParams, MessageStreamEvent, MessageTokensCount,
     ModelInfo, ModelListParams, ModelListResponse,
@@ -642,7 +642,7 @@ impl Anthropic {
         let stream = response.bytes_stream();
 
         // Create an SSE processor
-        Ok(process_sse(stream))
+        Ok(process_message_stream_sse(stream))
     }
 
     /// Send a message to the API with logging and get a streaming response.

@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    MessageParam, Metadata, Model, OutputConfig, OutputFormat, SystemPrompt, TextBlock,
-    ThinkingConfig, ToolChoice, ToolUnionParam,
+    CacheControlEphemeral, MessageParam, Metadata, Model, OutputConfig, OutputFormat,
+    SystemPrompt, TextBlock, ThinkingConfig, ToolChoice, ToolUnionParam,
 };
 
 /// Security limits for DoS prevention
@@ -39,6 +39,19 @@ pub struct MessageCreateParams {
     /// See [models](https://docs.anthropic.com/en/docs/models-overview) for additional
     /// details and options.
     pub model: Model,
+
+    /// Top-level cache control for automatic prompt caching.
+    ///
+    /// When set, the system automatically applies the cache breakpoint to the last
+    /// cacheable block in the request. This is the simplest way to enable prompt caching
+    /// for multi-turn conversations where the growing message history should be cached
+    /// automatically.
+    ///
+    /// See
+    /// [automatic caching](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching#automatic-caching)
+    /// for details.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<CacheControlEphemeral>,
 
     /// An object describing metadata about the request.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -182,6 +195,7 @@ impl MessageCreateParams {
             max_tokens,
             messages,
             model,
+            cache_control: None,
             metadata: None,
             output_format: None,
             output_config: None,
@@ -203,6 +217,7 @@ impl MessageCreateParams {
             max_tokens,
             messages,
             model,
+            cache_control: None,
             metadata: None,
             output_format: None,
             output_config: None,
@@ -216,6 +231,14 @@ impl MessageCreateParams {
             top_p: None,
             stream: true,
         }
+    }
+
+    /// Enable automatic prompt caching.
+    ///
+    /// Applies the cache breakpoint to the last cacheable block automatically.
+    pub fn with_cache_control(mut self, cache_control: CacheControlEphemeral) -> Self {
+        self.cache_control = Some(cache_control);
+        self
     }
 
     /// Add metadata to the parameters.
@@ -596,6 +619,7 @@ impl Default for MessageCreateParams {
             max_tokens: 1024,
             messages: vec![],
             model: Model::Known(KnownModel::Claude37SonnetLatest),
+            cache_control: None,
             metadata: None,
             output_format: None,
             output_config: None,
