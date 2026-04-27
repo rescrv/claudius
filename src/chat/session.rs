@@ -188,19 +188,7 @@ impl<A: ChatAgent> ChatSession<A> {
         message: MessageParam,
         renderer: &mut dyn Renderer,
     ) -> Result<()> {
-        let context = ();
-        if let Some(budget) = self.agent.config().session_budget.as_ref()
-            && !budget_allows_next_turn(budget, self.last_turn_usage.as_ref())
-        {
-            renderer.print_error(
-                &context,
-                "Session budget exhausted. Use /budget to increase or clear the limit.",
-            );
-            return Err(Error::bad_request(
-                "session budget exhausted",
-                Some("budget".to_string()),
-            ));
-        }
+        self.ensure_session_budget_for_next_turn(renderer)?;
 
         let previous_len = self.messages.len();
 
@@ -220,6 +208,47 @@ impl<A: ChatAgent> ChatSession<A> {
             }
             Err(err) => {
                 self.messages.truncate(previous_len);
+                Err(err)
+            }
+        }
+    }
+
+    /// Returns a snapshot of the current conversation history.
+    pub fn clone_messages(&self) -> Vec<MessageParam> {
+        self.messages.clone()
+    }
+
+    /// Replaces the current conversation history with `messages`.
+    pub fn replace_messages(&mut self, messages: Vec<MessageParam>) {
+        self.messages = messages;
+    }
+
+    /// Continues a turn against an arbitrary transcript without mutating the session transcript.
+    ///
+    /// The provided `messages` transcript is used for the request, while usage totals,
+    /// last-turn usage, request counts, and session-budget accounting are recorded on
+    /// the parent session on success. If the turn fails, `messages` is restored to its
+    /// original state.
+    pub async fn continue_turn_streaming_on(
+        &mut self,
+        messages: &mut Vec<MessageParam>,
+        renderer: &mut dyn Renderer,
+    ) -> Result<()> {
+        self.ensure_session_budget_for_next_turn(renderer)?;
+
+        let previous_messages = messages.clone();
+        let outcome = self
+            .agent
+            .take_turn_streaming_root(&self.client, messages, &self.budget, renderer)
+            .await;
+
+        match outcome {
+            Ok(outcome) => {
+                self.record_usage(outcome);
+                Ok(())
+            }
+            Err(err) => {
+                *messages = previous_messages;
                 Err(err)
             }
         }
@@ -341,6 +370,23 @@ impl<A: ChatAgent> ChatSession<A> {
             Ok(())
         }
     }
+
+    fn ensure_session_budget_for_next_turn(&self, renderer: &mut dyn Renderer) -> Result<()> {
+        let context = ();
+        if let Some(budget) = self.agent.config().session_budget.as_ref()
+            && !budget_allows_next_turn(budget, self.last_turn_usage.as_ref())
+        {
+            renderer.print_error(
+                &context,
+                "Session budget exhausted. Use /budget to increase or clear the limit.",
+            );
+            return Err(Error::bad_request(
+                "session budget exhausted",
+                Some("budget".to_string()),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -378,7 +424,85 @@ fn budget_allows_next_turn(budget: &Budget, last_turn_usage: Option<&Usage>) -> 
 mod tests {
     use super::*;
     use crate::MessageParamContent;
-    use crate::types::{KnownModel, SystemPrompt};
+    use crate::types::{KnownModel, SystemPrompt, Usage};
+
+    struct TestRenderer;
+
+    impl Renderer for TestRenderer {
+        fn print_text(&mut self, _context: &dyn crate::StreamContext, _text: &str) {}
+
+        fn print_thinking(&mut self, _context: &dyn crate::StreamContext, _text: &str) {}
+
+        fn print_error(&mut self, _context: &dyn crate::StreamContext, _error: &str) {}
+
+        fn print_info(&mut self, _context: &dyn crate::StreamContext, _info: &str) {}
+
+        fn start_tool_use(&mut self, _context: &dyn crate::StreamContext, _name: &str, _id: &str) {}
+
+        fn print_tool_input(&mut self, _context: &dyn crate::StreamContext, _partial_json: &str) {}
+
+        fn finish_tool_use(&mut self, _context: &dyn crate::StreamContext) {}
+
+        fn start_tool_result(
+            &mut self,
+            _context: &dyn crate::StreamContext,
+            _tool_use_id: &str,
+            _is_error: bool,
+        ) {
+        }
+
+        fn print_tool_result_text(&mut self, _context: &dyn crate::StreamContext, _text: &str) {}
+
+        fn finish_tool_result(&mut self, _context: &dyn crate::StreamContext) {}
+
+        fn finish_response(&mut self, _context: &dyn crate::StreamContext) {}
+    }
+
+    struct StubAgent {
+        config: ChatConfig,
+        append: Option<MessageParam>,
+        outcome: Result<TurnOutcome>,
+    }
+
+    impl StubAgent {
+        fn new(
+            config: ChatConfig,
+            append: Option<MessageParam>,
+            outcome: Result<TurnOutcome>,
+        ) -> Self {
+            Self {
+                config,
+                append,
+                outcome,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Agent for StubAgent {
+        async fn take_turn_streaming_root(
+            &mut self,
+            _client: &Anthropic,
+            messages: &mut Vec<MessageParam>,
+            _budget: &Arc<Budget>,
+            _renderer: &mut dyn Renderer,
+        ) -> Result<TurnOutcome> {
+            if let Some(message) = self.append.clone() {
+                crate::push_or_merge_message(messages, message);
+            }
+            self.outcome.clone()
+        }
+    }
+
+    impl ChatAgent for StubAgent {
+        fn config(&self) -> &ChatConfig {
+            &self.config
+        }
+
+        fn config_mut(&mut self) -> &mut ChatConfig {
+            &mut self.config
+        }
+    }
 
     #[test]
     fn new_session_empty() {
@@ -438,6 +562,106 @@ mod tests {
 
         session.template_mut().system = None;
         assert!(session.template().system.is_none());
+    }
+
+    #[test]
+    fn clone_and_replace_messages_round_trip() {
+        let client = Anthropic::new(None).unwrap();
+        let config = ChatConfig::default();
+        let mut session = ChatSession::new(client, config);
+
+        let original = vec![
+            MessageParam::user("hello"),
+            MessageParam::assistant("world"),
+        ];
+        session.replace_messages(original.clone());
+        assert_eq!(session.clone_messages(), original);
+        assert_eq!(session.message_count(), 2);
+
+        let replacement = vec![MessageParam::user("replacement")];
+        session.replace_messages(replacement.clone());
+        assert_eq!(session.clone_messages(), replacement);
+        assert_eq!(session.message_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn continue_turn_streaming_on_updates_stats_without_mutating_session_messages() {
+        let client = Anthropic::new(None).unwrap();
+        let agent = StubAgent::new(
+            ChatConfig::default(),
+            Some(MessageParam::assistant("branched response")),
+            Ok(TurnOutcome {
+                stop_reason: crate::StopReason::EndTurn,
+                usage: Usage::new(12, 34),
+                request_count: 2,
+            }),
+        );
+        let mut session = ChatSession::with_agent(client, agent);
+        session.replace_messages(vec![MessageParam::user("live transcript")]);
+
+        let session_snapshot = session.clone_messages();
+        let mut branch = vec![MessageParam::user("resume transcript")];
+        let mut renderer = TestRenderer;
+
+        session
+            .continue_turn_streaming_on(&mut branch, &mut renderer)
+            .await
+            .unwrap();
+
+        assert_eq!(session.clone_messages(), session_snapshot);
+        assert_eq!(
+            branch,
+            vec![
+                MessageParam::user("resume transcript"),
+                MessageParam::assistant("branched response")
+            ]
+        );
+
+        let stats = session.stats();
+        assert_eq!(stats.message_count, 1);
+        assert_eq!(stats.total_input_tokens, 12);
+        assert_eq!(stats.total_output_tokens, 34);
+        assert_eq!(stats.total_requests, 2);
+        assert_eq!(stats.last_turn_input_tokens, Some(12));
+        assert_eq!(stats.last_turn_output_tokens, Some(34));
+    }
+
+    #[tokio::test]
+    async fn continue_turn_streaming_on_restores_branch_on_error() {
+        let client = Anthropic::new(None).unwrap();
+        let agent = StubAgent::new(
+            ChatConfig::default(),
+            Some(MessageParam::assistant(" merged")),
+            Err(Error::bad_request(
+                "synthetic failure",
+                Some("messages".to_string()),
+            )),
+        );
+        let mut session = ChatSession::with_agent(client, agent);
+        session.replace_messages(vec![MessageParam::user("live transcript")]);
+
+        let mut branch = vec![MessageParam::assistant("original")];
+        let original_branch = branch.clone();
+        let mut renderer = TestRenderer;
+
+        let err = session
+            .continue_turn_streaming_on(&mut branch, &mut renderer)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, Error::BadRequest { .. }));
+        assert_eq!(branch, original_branch);
+        assert_eq!(
+            session.clone_messages(),
+            vec![MessageParam::user("live transcript")]
+        );
+
+        let stats = session.stats();
+        assert_eq!(stats.total_input_tokens, 0);
+        assert_eq!(stats.total_output_tokens, 0);
+        assert_eq!(stats.total_requests, 0);
+        assert_eq!(stats.last_turn_input_tokens, None);
+        assert_eq!(stats.last_turn_output_tokens, None);
     }
 
     #[test]
