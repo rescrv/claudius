@@ -77,6 +77,10 @@ async fn main() {
             | TurnOutcome {
                 stop_reason: StopReason::EndTurn,
                 ..
+            }
+            | TurnOutcome {
+                stop_reason: StopReason::ModelContextWindowExceeded,
+                ..
             } => {
                 break;
             }

@@ -37,6 +37,7 @@ Output the corrected/unified document and only the corrected/unified document.
         cache_control: None,
         metadata: None,
         output_format: None,
+        output_config: None,
         stop_sequences: None,
         thinking: Some(ThinkingConfig::enabled(1024)),
         tools: None,

@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    CacheControlEphemeral, MessageParam, Metadata, Model, OutputFormat, SystemPrompt, TextBlock,
-    ThinkingConfig, ToolChoice, ToolUnionParam,
+    CacheControlEphemeral, MessageParam, Metadata, Model, OutputConfig, OutputFormat,
+    SystemPrompt, TextBlock, ThinkingConfig, ToolChoice, ToolUnionParam,
 };
 
 /// Security limits for DoS prevention
@@ -69,6 +69,15 @@ pub struct MessageCreateParams {
     /// for details.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_format: Option<OutputFormat>,
+
+    /// Output configuration for structured outputs and effort control.
+    ///
+    /// This is the newer configuration format. When set, it takes precedence
+    /// over the deprecated `output_format` field for structured outputs.
+    /// Also supports the `effort` parameter for controlling thinking depth
+    /// with adaptive thinking.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_config: Option<OutputConfig>,
 
     /// Custom text sequences that will cause the model to stop generating.
     ///
@@ -189,6 +198,7 @@ impl MessageCreateParams {
             cache_control: None,
             metadata: None,
             output_format: None,
+            output_config: None,
             stop_sequences: None,
             system: None,
             temperature: None,
@@ -210,6 +220,7 @@ impl MessageCreateParams {
             cache_control: None,
             metadata: None,
             output_format: None,
+            output_config: None,
             stop_sequences: None,
             system: None,
             temperature: None,
@@ -261,6 +272,15 @@ impl MessageCreateParams {
     /// ```
     pub fn with_output_format(mut self, output_format: OutputFormat) -> Self {
         self.output_format = Some(output_format);
+        self
+    }
+
+    /// Add output configuration.
+    ///
+    /// This is the newer configuration format that supports both structured
+    /// output format and the effort parameter for adaptive thinking.
+    pub fn with_output_config(mut self, output_config: OutputConfig) -> Self {
+        self.output_config = Some(output_config);
         self
     }
 
@@ -511,6 +531,9 @@ impl MessageCreateParams {
                 ThinkingConfig::Disabled => {
                     // No validation needed for disabled state
                 }
+                ThinkingConfig::Adaptive => {
+                    // No validation needed for adaptive thinking
+                }
             }
         }
 
@@ -555,8 +578,9 @@ impl MessageCreateParams {
 
     /// Check if this request requires the structured outputs beta header.
     ///
-    /// Returns `true` if either:
+    /// Returns `true` if any of:
     /// - `output_format` is set (for JSON outputs)
+    /// - `output_config.format` is set (for JSON outputs via new config)
     /// - Any tool has `strict: true` (for strict tool use)
     ///
     /// When this returns `true`, the client should include the
@@ -564,6 +588,13 @@ impl MessageCreateParams {
     pub fn requires_structured_outputs_beta(&self) -> bool {
         // Check if output_format is set
         if self.output_format.is_some() {
+            return true;
+        }
+
+        // Check if output_config has a format set
+        if let Some(ref config) = self.output_config
+            && config.format.is_some()
+        {
             return true;
         }
 
@@ -591,6 +622,7 @@ impl Default for MessageCreateParams {
             cache_control: None,
             metadata: None,
             output_format: None,
+            output_config: None,
             stop_sequences: None,
             system: None,
             temperature: None,
@@ -607,7 +639,7 @@ impl Default for MessageCreateParams {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{KnownModel, MessageRole};
+    use crate::types::{Effort, KnownModel, MessageRole, OutputConfig};
     use serde_json::{json, to_value};
 
     #[test]
@@ -831,5 +863,42 @@ mod tests {
             !params.requires_structured_outputs_beta(),
             "params without output_format or strict tools should not require structured outputs beta"
         );
+    }
+
+    #[test]
+    fn requires_structured_outputs_beta_with_output_config() {
+        let params = MessageCreateParams::simple("Hello", KnownModel::Claude37SonnetLatest)
+            .with_output_config(OutputConfig::new().with_format(OutputFormat::json_schema(json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string" }
+                },
+                "required": ["name"],
+                "additionalProperties": false
+            }))));
+
+        assert!(
+            params.requires_structured_outputs_beta(),
+            "params with output_config.format should require structured outputs beta"
+        );
+    }
+
+    #[test]
+    fn requires_structured_outputs_beta_with_output_config_effort_only() {
+        let params = MessageCreateParams::simple("Hello", KnownModel::Claude37SonnetLatest)
+            .with_output_config(OutputConfig::new().with_effort(Effort::High));
+
+        assert!(
+            !params.requires_structured_outputs_beta(),
+            "params with output_config effort only should not require structured outputs beta"
+        );
+    }
+
+    #[test]
+    fn with_output_config_builder() {
+        let params = MessageCreateParams::simple("Hello", KnownModel::Claude37SonnetLatest)
+            .with_output_config(OutputConfig::new().with_effort(Effort::High));
+
+        assert!(params.output_config.is_some());
     }
 }
