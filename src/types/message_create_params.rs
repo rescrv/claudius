@@ -639,7 +639,9 @@ impl Default for MessageCreateParams {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Effort, KnownModel, MessageRole, OutputConfig};
+    use crate::types::{
+        ContentBlock, Effort, KnownModel, MessageRole, OutputConfig, ToolResultBlock,
+    };
     use serde_json::{json, to_value};
 
     #[test]
@@ -902,5 +904,43 @@ mod tests {
             .with_output_config(OutputConfig::new().with_effort(Effort::High));
 
         assert!(params.output_config.is_some());
+    }
+
+    #[test]
+    fn message_create_params_serializes_tool_result_messages_without_duplicate_type() {
+        let message = MessageParam::new_with_blocks(
+            vec![ContentBlock::ToolResult(
+                ToolResultBlock::new("toolu_123".to_string()).with_string_content("ok".to_string()),
+            )],
+            MessageRole::User,
+        );
+
+        let params = MessageCreateParams::new(
+            1000,
+            vec![message],
+            Model::Known(KnownModel::Claude37Sonnet20250219),
+        );
+
+        let json = to_value(&params).unwrap();
+        assert_eq!(
+            json,
+            json!({
+                "max_tokens": 1000,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "toolu_123",
+                                "content": "ok"
+                            }
+                        ]
+                    }
+                ],
+                "model": "claude-3-7-sonnet-20250219",
+                "stream": false
+            })
+        );
     }
 }

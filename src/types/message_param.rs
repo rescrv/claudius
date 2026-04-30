@@ -88,7 +88,10 @@ impl<T: AsRef<str>> From<T> for MessageParamContent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ImageBlock, KnownModel, Message, Model, TextBlock, Usage};
+    use crate::types::{
+        ImageBlock, KnownModel, Message, Model, TextBlock, ToolResultBlock, Usage,
+        WebSearchResultBlock, WebSearchToolResultBlock, WebSearchToolResultBlockContent,
+    };
     use serde_json::{json, to_value};
 
     #[test]
@@ -267,5 +270,92 @@ mod tests {
             }
             _ => panic!("Expected Array variant"),
         }
+    }
+
+    #[test]
+    fn message_param_deserializes_tool_result_transcript_blocks() {
+        let transcript = json!([
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_123",
+                        "content": "ok"
+                    },
+                    {
+                        "type": "web_search_tool_result",
+                        "tool_use_id": "toolu_456",
+                        "content": [
+                            {
+                                "type": "web_search_result",
+                                "encrypted_content": "encrypted-data-1",
+                                "title": "Example Page 1",
+                                "url": "https://example.com/page1"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]);
+
+        let messages: Vec<MessageParam> = serde_json::from_value(transcript).unwrap();
+        assert_eq!(messages.len(), 1);
+
+        let MessageParamContent::Array(blocks) = &messages[0].content else {
+            panic!("Expected array content");
+        };
+        assert!(matches!(&blocks[0], ContentBlock::ToolResult(_)));
+        assert!(matches!(&blocks[1], ContentBlock::WebSearchToolResult(_)));
+    }
+
+    #[test]
+    fn message_param_serializes_tool_result_transcript_blocks_without_duplicate_type() {
+        let tool_result =
+            ToolResultBlock::new("toolu_123".to_string()).with_string_content("ok".to_string());
+        let search_result = WebSearchResultBlock::new(
+            "encrypted-data-1",
+            "Example Page 1",
+            "https://example.com/page1",
+        );
+        let web_search_tool_result = WebSearchToolResultBlock::new(
+            WebSearchToolResultBlockContent::with_results(vec![search_result]),
+            "toolu_456",
+        );
+
+        let message = MessageParam::new_with_blocks(
+            vec![
+                ContentBlock::ToolResult(tool_result),
+                ContentBlock::WebSearchToolResult(web_search_tool_result),
+            ],
+            MessageRole::User,
+        );
+
+        let json = to_value(&message).unwrap();
+        assert_eq!(
+            json,
+            json!({
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_123",
+                        "content": "ok"
+                    },
+                    {
+                        "type": "web_search_tool_result",
+                        "tool_use_id": "toolu_456",
+                        "content": [
+                            {
+                                "type": "web_search_result",
+                                "encrypted_content": "encrypted-data-1",
+                                "title": "Example Page 1",
+                                "url": "https://example.com/page1"
+                            }
+                        ]
+                    }
+                ]
+            })
+        );
     }
 }

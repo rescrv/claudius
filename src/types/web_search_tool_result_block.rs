@@ -6,8 +6,6 @@ use crate::types::{CacheControlEphemeral, WebSearchToolResultBlockContent};
 ///
 /// WebSearchToolResultBlock contains either a list of search results or an error.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type")]
-#[serde(rename = "web_search_tool_result")]
 pub struct WebSearchToolResultBlock {
     /// The content of the web search tool result.
     pub content: WebSearchToolResultBlockContent,
@@ -77,7 +75,9 @@ impl WebSearchToolResultBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{WebSearchErrorCode, WebSearchResultBlock, WebSearchToolResultError};
+    use crate::types::{
+        ContentBlock, WebSearchErrorCode, WebSearchResultBlock, WebSearchToolResultError,
+    };
     use serde_json::Value;
 
     #[test]
@@ -93,8 +93,9 @@ mod tests {
 
         let content = WebSearchToolResultBlockContent::with_results(results);
         let block = WebSearchToolResultBlock::new(content, "tool-123");
+        let content_block = ContentBlock::WebSearchToolResult(block);
 
-        let json = serde_json::to_string(&block).unwrap();
+        let json = serde_json::to_string(&content_block).unwrap();
 
         // Parse both the actual and expected JSON to Values for comparison
         // This avoids issues with key ordering
@@ -114,8 +115,9 @@ mod tests {
 
         let content = WebSearchToolResultBlockContent::with_error(error);
         let block = WebSearchToolResultBlock::new(content, "tool-123");
+        let content_block = ContentBlock::WebSearchToolResult(block);
 
-        let json = serde_json::to_string(&block).unwrap();
+        let json = serde_json::to_string(&content_block).unwrap();
 
         // Parse both the actual and expected JSON to Values for comparison
         let actual: Value = serde_json::from_str(&json).unwrap();
@@ -129,7 +131,10 @@ mod tests {
     #[test]
     fn deserialization() {
         let json = r#"{"content":[{"type":"web_search_result","encrypted_content":"encrypted-data-1","page_age":"2 days ago","title":"Example Page 1","url":"https://example.com/page1"}],"tool_use_id":"tool-123","type":"web_search_tool_result"}"#;
-        let block: WebSearchToolResultBlock = serde_json::from_str(json).unwrap();
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        let ContentBlock::WebSearchToolResult(block) = block else {
+            panic!("Expected WebSearchToolResult variant");
+        };
 
         assert_eq!(block.tool_use_id, "tool-123");
         assert!(block.has_results());
