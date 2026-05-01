@@ -8,8 +8,6 @@ use crate::types::{CacheControlEphemeral, Content};
 /// requested via a ToolUseBlock. It contains the tool's response, which can be
 /// either successful output or an error indication.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type")]
-#[serde(rename = "tool_result")]
 pub struct ToolResultBlock {
     /// The ID of the tool use that this result is for.
     ///
@@ -118,19 +116,21 @@ impl ToolResultBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::ContentBlock;
     use serde_json::{json, to_value};
 
     #[test]
     fn tool_result_block_with_string_content() {
         let block = ToolResultBlock::new("tool_1".to_string())
             .with_string_content("Result of tool execution".to_string());
+        let content_block = ContentBlock::ToolResult(block);
 
-        let json = to_value(&block).unwrap();
+        let json = to_value(&content_block).unwrap();
         assert_eq!(
             json,
             json!({
-                "tool_use_id": "tool_1",
                 "type": "tool_result",
+                "tool_use_id": "tool_1",
                 "content": "Result of tool execution"
             })
         );
@@ -142,13 +142,14 @@ mod tests {
         let content = vec![Content::Text(text_param)];
 
         let block = ToolResultBlock::new("tool_1".to_string()).with_array_content(content);
+        let content_block = ContentBlock::ToolResult(block);
 
-        let json = to_value(&block).unwrap();
+        let json = to_value(&content_block).unwrap();
         assert_eq!(
             json,
             json!({
-                "tool_use_id": "tool_1",
                 "type": "tool_result",
+                "tool_use_id": "tool_1",
                 "content": [
                     {
                         "text": "Sample text content",
@@ -164,13 +165,14 @@ mod tests {
         let block = ToolResultBlock::new("tool_1".to_string())
             .with_string_content("Error executing tool".to_string())
             .with_error(true);
+        let content_block = ContentBlock::ToolResult(block);
 
-        let json = to_value(&block).unwrap();
+        let json = to_value(&content_block).unwrap();
         assert_eq!(
             json,
             json!({
-                "tool_use_id": "tool_1",
                 "type": "tool_result",
+                "tool_use_id": "tool_1",
                 "content": "Error executing tool",
                 "is_error": true
             })
@@ -180,13 +182,16 @@ mod tests {
     #[test]
     fn tool_result_block_deserialization() {
         let json = json!({
-            "tool_use_id": "tool_1",
             "type": "tool_result",
+            "tool_use_id": "tool_1",
             "content": "Result of tool execution",
             "is_error": false
         });
 
-        let block: ToolResultBlock = serde_json::from_value(json).unwrap();
+        let block: ContentBlock = serde_json::from_value(json).unwrap();
+        let ContentBlock::ToolResult(block) = block else {
+            panic!("Expected ToolResult variant");
+        };
         assert_eq!(block.tool_use_id, "tool_1");
 
         match &block.content {
