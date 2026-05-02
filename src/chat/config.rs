@@ -8,7 +8,20 @@ use std::path::PathBuf;
 use arrrg_derive::CommandLine;
 
 use crate::Budget;
-use crate::types::{KnownModel, MessageCreateTemplate, Model, SystemPrompt, ThinkingConfig};
+use crate::types::{
+    Effort, KnownModel, MessageCreateTemplate, Model, OutputConfig, SystemPrompt, ThinkingConfig,
+};
+
+/// The resolved thinking mode for a chat session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThinkingMode {
+    /// Thinking is disabled.
+    Disabled,
+    /// Adaptive thinking with an effort level.
+    Adaptive(Effort),
+    /// Extended thinking with a fixed token budget.
+    Budgeted(u32),
+}
 
 /// Default maximum tokens per response.
 const DEFAULT_MAX_TOKENS: u32 = 4096;
@@ -48,6 +61,10 @@ pub struct ChatArgs {
     )]
     pub thinking: Option<u32>,
 
+    /// Effort level for adaptive thinking (low, medium, high).
+    #[arrrg(optional, "Effort level for adaptive thinking (low, medium, high)", "LEVEL")]
+    pub effort: Option<String>,
+
     /// Disable ANSI colors and styles.
     #[arrrg(flag, "Disable ANSI colors/styles")]
     pub no_color: bool,
@@ -74,6 +91,20 @@ fn parse_f32_arg(value: &str, name: &str) -> Result<f32, ChatArgsError> {
             name, value
         ),
     })
+}
+
+fn parse_effort(s: &str) -> Result<Effort, ChatArgsError> {
+    match s.to_lowercase().as_str() {
+        "low" => Ok(Effort::Low),
+        "medium" | "med" => Ok(Effort::Medium),
+        "high" => Ok(Effort::High),
+        _ => Err(ChatArgsError {
+            message: format!(
+                "invalid value for --effort: '{}' (expected low, medium, or high)",
+                s
+            ),
+        }),
+    }
 }
 
 impl TryFrom<ChatArgs> for MessageCreateTemplate {
@@ -105,6 +136,12 @@ impl TryFrom<ChatArgs> for MessageCreateTemplate {
 
         template.top_k = args.top_k;
 
+        if let Some(ref effort_str) = args.effort {
+            let effort = parse_effort(effort_str)?;
+            template.thinking = Some(ThinkingConfig::Adaptive);
+            template.output_config = Some(OutputConfig::new().with_effort(effort));
+        }
+
         if let Some(thinking) = args.thinking {
             template.thinking = Some(ThinkingConfig::enabled(thinking));
         }
@@ -129,6 +166,8 @@ pub struct ChatConfig {
     pub transcript_path: Option<PathBuf>,
     /// Whether prompt caching is enabled for this session.
     pub caching_enabled: bool,
+    /// Optional effort level for adaptive thinking.
+    pub effort: Option<Effort>,
 }
 
 impl ChatConfig {
@@ -147,6 +186,7 @@ impl ChatConfig {
             session_budget: None,
             transcript_path: None,
             caching_enabled: true,
+            effort: None,
         }
     }
 
@@ -200,8 +240,26 @@ impl ChatConfig {
 
     /// Sets the thinking budget.
     /// `None` disables thinking, `Some(budget)` enables with the given token budget.
+    /// Clears any adaptive effort setting to avoid conflicting modes.
     pub fn with_thinking_budget(mut self, budget: Option<u32>) -> Self {
         self.template.thinking = budget.map(ThinkingConfig::enabled);
+        self.template.output_config = None;
+        self.effort = None;
+        self
+    }
+
+    /// Sets adaptive thinking with an optional effort level.
+    pub fn with_thinking_adaptive(mut self, effort: Option<Effort>) -> Self {
+        self.template.thinking = Some(ThinkingConfig::Adaptive);
+        self.template.output_config = effort.map(|e| OutputConfig::new().with_effort(e));
+        self.effort = effort;
+        self
+    }
+
+    /// Sets the effort level for adaptive thinking.
+    pub fn with_effort(mut self, effort: Option<Effort>) -> Self {
+        self.template.output_config = effort.map(|e| OutputConfig::new().with_effort(e));
+        self.effort = effort;
         self
     }
 
@@ -257,6 +315,38 @@ impl ChatConfig {
         }
     }
 
+    /// Returns the full thinking configuration, if any.
+    ///
+    /// Use this to distinguish `Adaptive` from `Enabled { budget_tokens }`
+    /// from `None`/`Disabled`.
+    pub fn thinking_config(&self) -> Option<ThinkingConfig> {
+        self.template.thinking
+    }
+
+    /// Returns the resolved thinking mode.
+    pub fn thinking_mode(&self) -> ThinkingMode {
+        match self.template.thinking {
+            Some(ThinkingConfig::Adaptive) => {
+                ThinkingMode::Adaptive(self.effort.unwrap_or(Effort::Medium))
+            }
+            Some(ThinkingConfig::Enabled { budget_tokens }) => {
+                ThinkingMode::Budgeted(budget_tokens)
+            }
+            Some(ThinkingConfig::Disabled) | None => ThinkingMode::Disabled,
+        }
+    }
+
+    /// Returns the configured effort level, if any.
+    pub fn effort(&self) -> Option<Effort> {
+        self.effort
+    }
+
+    /// Builds the `OutputConfig` for this session, if effort is set.
+    pub fn output_config(&self) -> Option<OutputConfig> {
+        self.effort
+            .map(|effort| OutputConfig::new().with_effort(effort))
+    }
+
     /// Sets the model.
     pub fn set_model(&mut self, model: Model) {
         self.template.model = Some(model);
@@ -288,8 +378,24 @@ impl ChatConfig {
     }
 
     /// Sets the thinking budget.
+    /// Clears any adaptive effort setting to avoid conflicting modes.
     pub fn set_thinking_budget(&mut self, budget: Option<u32>) {
         self.template.thinking = budget.map(ThinkingConfig::enabled);
+        self.template.output_config = None;
+        self.effort = None;
+    }
+
+    /// Sets adaptive thinking with an optional effort level.
+    pub fn set_thinking_adaptive(&mut self, effort: Option<Effort>) {
+        self.template.thinking = Some(ThinkingConfig::Adaptive);
+        self.template.output_config = effort.map(|e| OutputConfig::new().with_effort(e));
+        self.effort = effort;
+    }
+
+    /// Sets the effort level for adaptive thinking.
+    pub fn set_effort(&mut self, effort: Option<Effort>) {
+        self.template.output_config = effort.map(|e| OutputConfig::new().with_effort(e));
+        self.effort = effort;
     }
 
     /// Sets the session token budget.
@@ -313,6 +419,10 @@ impl TryFrom<ChatArgs> for ChatConfig {
 
     fn try_from(args: ChatArgs) -> Result<Self, Self::Error> {
         let use_color = !args.no_color;
+        let effort = match args.effort.as_deref() {
+            Some(s) => Some(parse_effort(s)?),
+            None => None,
+        };
         let template = default_template().merge(MessageCreateTemplate::try_from(args)?);
 
         Ok(ChatConfig {
@@ -321,6 +431,7 @@ impl TryFrom<ChatArgs> for ChatConfig {
             session_budget: None,
             transcript_path: None,
             caching_enabled: true,
+            effort,
         })
     }
 }
@@ -348,6 +459,9 @@ mod tests {
         assert!(config.template.top_k.is_none());
         assert!(config.stop_sequences().is_empty());
         assert!(config.thinking_budget().is_none());
+        assert!(config.thinking_config().is_none());
+        assert!(config.effort().is_none());
+        assert!(config.output_config().is_none());
         assert!(config.session_budget.is_none());
         assert!(config.transcript_path.is_none());
         assert!(config.caching_enabled);
@@ -373,6 +487,7 @@ mod tests {
             top_p: Some("0.9".to_string()),
             top_k: Some(40),
             thinking: Some(2048),
+            effort: None,
             no_color: true,
         };
         let config = ChatConfig::try_from(args).unwrap();
@@ -437,6 +552,13 @@ mod tests {
         assert_eq!(config.stop_sequences(), vec!["END".to_string()]);
         assert_eq!(config.thinking_budget(), Some(2048));
         assert_eq!(
+            config.thinking_config(),
+            Some(ThinkingConfig::Enabled {
+                budget_tokens: 2048
+            })
+        );
+        assert_eq!(config.effort(), None);
+        assert_eq!(
             config
                 .session_budget
                 .as_ref()
@@ -448,5 +570,50 @@ mod tests {
             Some(PathBuf::from("transcript.json"))
         );
         assert!(!config.caching_enabled);
+    }
+
+    #[test]
+    fn config_adaptive_thinking() {
+        let config = ChatConfig::new().with_thinking_adaptive(Some(Effort::High));
+
+        assert_eq!(config.thinking_config(), Some(ThinkingConfig::Adaptive));
+        assert_eq!(config.effort(), Some(Effort::High));
+        assert_eq!(config.thinking_budget(), None);
+        assert!(config.output_config().is_some());
+        assert_eq!(
+            config.output_config().unwrap().effort,
+            Some(Effort::High)
+        );
+    }
+
+    #[test]
+    fn set_thinking_budget_clears_effort() {
+        let mut config = ChatConfig::new().with_thinking_adaptive(Some(Effort::Medium));
+        assert_eq!(config.effort(), Some(Effort::Medium));
+
+        config.set_thinking_budget(Some(4096));
+        assert_eq!(config.thinking_budget(), Some(4096));
+        assert_eq!(config.effort(), None);
+    }
+
+    #[test]
+    fn set_thinking_adaptive_mutator() {
+        let mut config = ChatConfig::new().with_thinking_budget(Some(4096));
+        assert_eq!(config.thinking_budget(), Some(4096));
+
+        config.set_thinking_adaptive(Some(Effort::Low));
+        assert_eq!(config.thinking_config(), Some(ThinkingConfig::Adaptive));
+        assert_eq!(config.effort(), Some(Effort::Low));
+        assert_eq!(config.thinking_budget(), None);
+    }
+
+    #[test]
+    fn with_thinking_budget_clears_effort() {
+        let config = ChatConfig::new()
+            .with_thinking_adaptive(Some(Effort::High))
+            .with_thinking_budget(Some(2048));
+
+        assert_eq!(config.thinking_budget(), Some(2048));
+        assert_eq!(config.effort(), None);
     }
 }
