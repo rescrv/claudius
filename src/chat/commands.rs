@@ -53,6 +53,15 @@ pub enum ChatCommand {
     /// `None` disables thinking, `Some(budget)` enables with the given token budget.
     Thinking(Option<u32>),
 
+    /// Enable adaptive thinking (with default or current effort level).
+    ThinkingAdaptive,
+
+    /// Set the effort level for adaptive thinking.
+    Effort(crate::types::Effort),
+
+    /// Clear the effort level.
+    ClearEffort,
+
     /// Set a per-session token budget.
     Budget(u64),
 
@@ -152,6 +161,7 @@ pub fn parse_command(input: &str) -> Option<ChatCommand> {
         },
         "stop" => parse_stop_command(argument),
         "thinking" => parse_thinking_command(argument),
+        "effort" => parse_effort_command(argument),
         "budget" => match argument {
             Some(arg) if arg.eq_ignore_ascii_case("clear") => ChatCommand::ClearBudget,
             Some(arg) => match arg.parse::<u64>() {
@@ -236,7 +246,7 @@ const DEFAULT_THINKING_BUDGET: u32 = 1024;
 fn parse_thinking_command(argument: Option<&str>) -> ChatCommand {
     let Some(arg) = argument else {
         return ChatCommand::Invalid(
-            "/thinking expects 'on', 'off', or a token budget (e.g., 2048)".to_string(),
+            "/thinking expects 'on', 'off', 'adaptive', or a token budget (e.g., 2048)".to_string(),
         );
     };
 
@@ -244,12 +254,33 @@ fn parse_thinking_command(argument: Option<&str>) -> ChatCommand {
     match lower.as_str() {
         "off" | "false" | "no" => ChatCommand::Thinking(None),
         "on" | "true" | "yes" => ChatCommand::Thinking(Some(DEFAULT_THINKING_BUDGET)),
+        "adaptive" => ChatCommand::ThinkingAdaptive,
         _ => match arg.parse::<u32>() {
             Ok(budget) => ChatCommand::Thinking(Some(budget)),
             Err(_) => ChatCommand::Invalid(
-                "/thinking expects 'on', 'off', or a token budget (e.g., 2048)".to_string(),
+                "/thinking expects 'on', 'off', 'adaptive', or a token budget (e.g., 2048)"
+                    .to_string(),
             ),
         },
+    }
+}
+
+fn parse_effort_command(argument: Option<&str>) -> ChatCommand {
+    let Some(arg) = argument else {
+        return ChatCommand::Invalid(
+            "/effort expects 'low', 'medium', 'high', or 'clear'".to_string(),
+        );
+    };
+
+    let lower = arg.to_lowercase();
+    match lower.as_str() {
+        "low" => ChatCommand::Effort(crate::types::Effort::Low),
+        "medium" | "med" => ChatCommand::Effort(crate::types::Effort::Medium),
+        "high" => ChatCommand::Effort(crate::types::Effort::High),
+        "clear" | "off" | "none" => ChatCommand::ClearEffort,
+        _ => ChatCommand::Invalid(
+            "/effort expects 'low', 'medium', 'high', or 'clear'".to_string(),
+        ),
     }
 }
 
@@ -279,7 +310,8 @@ pub fn help_text() -> &'static str {
   /stop add <seq>        Add a stop sequence
   /stop clear            Clear all stop sequences
   /stop list             List current stop sequences
-  /thinking on|off|<n>   Enable/disable extended thinking (or set budget)
+  /thinking on|off|adaptive|<n>  Enable/disable extended thinking (or set budget)
+  /effort low|medium|high|clear  Set effort level for adaptive thinking
   /cache on|off          Enable/disable prompt caching
   /budget <tokens>       Set total session budget (or 'clear')
   /transcript <file>     Enable auto-saving transcripts (or 'clear')
@@ -384,8 +416,48 @@ mod tests {
             parse_command("/thinking 2048"),
             Some(ChatCommand::Thinking(Some(2048)))
         );
+        assert_eq!(
+            parse_command("/thinking adaptive"),
+            Some(ChatCommand::ThinkingAdaptive)
+        );
         assert!(matches!(
             parse_command("/thinking maybe"),
+            Some(ChatCommand::Invalid(msg)) if msg.contains("expects")
+        ));
+    }
+
+    #[test]
+    fn parse_effort_levels() {
+        assert_eq!(
+            parse_command("/effort low"),
+            Some(ChatCommand::Effort(crate::types::Effort::Low))
+        );
+        assert_eq!(
+            parse_command("/effort medium"),
+            Some(ChatCommand::Effort(crate::types::Effort::Medium))
+        );
+        assert_eq!(
+            parse_command("/effort med"),
+            Some(ChatCommand::Effort(crate::types::Effort::Medium))
+        );
+        assert_eq!(
+            parse_command("/effort high"),
+            Some(ChatCommand::Effort(crate::types::Effort::High))
+        );
+        assert_eq!(
+            parse_command("/effort clear"),
+            Some(ChatCommand::ClearEffort)
+        );
+        assert_eq!(
+            parse_command("/effort off"),
+            Some(ChatCommand::ClearEffort)
+        );
+        assert!(matches!(
+            parse_command("/effort"),
+            Some(ChatCommand::Invalid(msg)) if msg.contains("expects")
+        ));
+        assert!(matches!(
+            parse_command("/effort whatever"),
             Some(ChatCommand::Invalid(msg)) if msg.contains("expects")
         ));
     }

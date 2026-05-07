@@ -14,8 +14,8 @@ use serde_json::{from_reader, to_writer_pretty};
 use crate::Error;
 use crate::chat::config::ChatConfig;
 use crate::error::Result;
-use crate::types::{MessageCreateTemplate, MessageParam, Model, SystemPrompt, Usage};
-use crate::{Agent, Anthropic, Budget, Renderer, ThinkingConfig, TurnOutcome};
+use crate::types::{Effort, MessageCreateTemplate, MessageParam, Model, SystemPrompt, Usage};
+use crate::{Agent, Anthropic, Budget, OutputConfig, Renderer, ThinkingConfig, TurnOutcome};
 
 const BUDGET_BUFFER_MICRO_CENTS: u64 = 1;
 
@@ -82,6 +82,10 @@ impl Agent for ConfigAgent {
     async fn top_p(&self) -> Option<f32> {
         self.config.template.top_p
     }
+
+    async fn output_config(&self) -> Option<OutputConfig> {
+        self.config.output_config()
+    }
 }
 
 impl ChatAgent for ConfigAgent {
@@ -129,6 +133,12 @@ pub struct SessionStats {
     pub stop_sequences: Vec<String>,
     /// Extended thinking budget (None = disabled, Some(n) = enabled with n tokens).
     pub thinking_budget: Option<u32>,
+    /// The full thinking configuration (Adaptive, Enabled, Disabled, or None).
+    pub thinking_config: Option<ThinkingConfig>,
+    /// Whether adaptive thinking is enabled.
+    pub thinking_adaptive: bool,
+    /// The configured effort level for adaptive thinking, if any.
+    pub effort: Option<Effort>,
     /// The session token budget limit, if set.
     pub session_budget_tokens: Option<u64>,
     /// Total tokens spent against the budget.
@@ -328,6 +338,9 @@ impl<A: ChatAgent> ChatSession<A> {
             top_k: config.template.top_k,
             stop_sequences: config.template.stop_sequences.clone().unwrap_or_default(),
             thinking_budget: config.thinking_budget(),
+            thinking_config: config.thinking_config(),
+            thinking_adaptive: matches!(config.thinking_mode(), crate::chat::config::ThinkingMode::Adaptive(_)),
+            effort: config.effort(),
             session_budget_tokens,
             budget_spent_tokens,
             transcript_path: config.transcript_path.clone(),

@@ -16,9 +16,9 @@ use crate::observability::{
 use crate::{
     AccumulatingStream, AgentStreamContext, Anthropic, CacheControlEphemeral, ContentBlock,
     ContentBlockDelta, Error, KnownModel, Message, MessageCreateParams, MessageParam,
-    MessageParamContent, MessageRole, MessageStreamEvent, Metadata, Model, Renderer, StopReason,
-    StreamContext, SystemPrompt, ThinkingConfig, ToolBash20241022, ToolBash20250124, ToolChoice,
-    ToolParam, ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124,
+    MessageParamContent, MessageRole, MessageStreamEvent, Metadata, Model, OutputConfig, Renderer,
+    StopReason, StreamContext, SystemPrompt, ThinkingConfig, ToolBash20241022, ToolBash20250124,
+    ToolChoice, ToolParam, ToolResultBlock, ToolResultBlockContent, ToolTextEditor20250124,
     ToolTextEditor20250429, ToolTextEditor20250728, ToolUnionParam, ToolUseBlock, Usage,
     WebSearchTool20250305, push_or_merge_message,
 };
@@ -1629,6 +1629,13 @@ pub trait Agent: Send + Sync + Sized {
         None
     }
 
+    /// Returns the output configuration for requests.
+    ///
+    /// This is used to pass effort levels for adaptive thinking via `OutputConfig`.
+    async fn output_config(&self) -> Option<OutputConfig> {
+        None
+    }
+
     /// Returns the filesystem implementation for this agent.
     async fn filesystem(&self) -> Option<&dyn FileSystem> {
         None
@@ -2012,7 +2019,7 @@ pub trait Agent: Send + Sync + Sized {
             },
             metadata: self.metadata().await,
             output_format: None,
-            output_config: None,
+            output_config: self.output_config().await,
             stop_sequences: self.stop_sequences().await,
             system,
             thinking: self.thinking().await,
