@@ -164,8 +164,8 @@ pub struct ChatConfig {
     pub template: MessageCreateTemplate,
     /// Whether to use ANSI colors and styles in output.
     pub use_color: bool,
-    /// Optional per-session token budget (input + output).
-    pub session_budget: Option<Budget>,
+    /// Optional per-session spend limit.
+    pub session_spend: Option<Budget>,
     /// Path to persist transcripts automatically after each assistant turn.
     pub transcript_path: Option<PathBuf>,
     /// Whether prompt caching is enabled for this session.
@@ -187,7 +187,7 @@ impl ChatConfig {
         Self {
             template: default_template(),
             use_color: true,
-            session_budget: None,
+            session_spend: None,
             transcript_path: None,
             caching_enabled: true,
             effort: None,
@@ -267,9 +267,9 @@ impl ChatConfig {
         self
     }
 
-    /// Sets the session token budget.
-    pub fn with_session_budget(mut self, budget: Option<u64>) -> Self {
-        self.session_budget = budget.map(Self::token_budget);
+    /// Sets the session spend limit in dollars, using the configured model's token rates.
+    pub fn with_session_spend(mut self, dollars: Option<f64>) -> Self {
+        self.session_spend = dollars.map(|d| self.dollar_budget(d));
         self
     }
 
@@ -402,13 +402,19 @@ impl ChatConfig {
         self.effort = effort;
     }
 
-    /// Sets the session token budget.
-    pub fn set_session_budget(&mut self, budget: Option<u64>) {
-        self.session_budget = budget.map(Self::token_budget);
+    /// Sets the session spend limit in dollars, using the configured model's token rates.
+    pub fn set_session_spend(&mut self, dollars: Option<f64>) {
+        self.session_spend = dollars.map(|d| self.dollar_budget(d));
     }
 
-    fn token_budget(limit_tokens: u64) -> Budget {
-        Budget::new_with_rates(limit_tokens, 1, 1, 1, 1)
+    fn dollar_budget(&self, dollars: f64) -> Budget {
+        match self.model() {
+            Model::Known(km) => Budget::from_dollars_with_model(dollars, km),
+            Model::Custom(_) => {
+                // Fall back to Sonnet 4.5 rates for custom/unknown models.
+                Budget::from_dollars_with_model(dollars, KnownModel::ClaudeSonnet45)
+            }
+        }
     }
 }
 
@@ -432,7 +438,7 @@ impl TryFrom<ChatArgs> for ChatConfig {
         Ok(ChatConfig {
             template,
             use_color,
-            session_budget: None,
+            session_spend: None,
             transcript_path: None,
             caching_enabled: true,
             effort,
@@ -466,7 +472,7 @@ mod tests {
         assert!(config.thinking_config().is_none());
         assert!(config.effort().is_none());
         assert!(config.output_config().is_none());
-        assert!(config.session_budget.is_none());
+        assert!(config.session_spend.is_none());
         assert!(config.transcript_path.is_none());
         assert!(config.caching_enabled);
     }
@@ -542,7 +548,7 @@ mod tests {
             .with_top_k(Some(64))
             .with_stop_sequences(vec!["END".to_string()])
             .with_thinking_budget(Some(2048))
-            .with_session_budget(Some(10_000))
+            .with_session_spend(Some(1.25))
             .with_transcript_path(Some(PathBuf::from("transcript.json")))
             .with_caching(false);
 
@@ -563,11 +569,8 @@ mod tests {
         );
         assert_eq!(config.effort(), None);
         assert_eq!(
-            config
-                .session_budget
-                .as_ref()
-                .map(Budget::total_micro_cents),
-            Some(10_000)
+            config.session_spend.as_ref().map(Budget::total_micro_cents),
+            Some(125_000_000)
         );
         assert_eq!(
             config.transcript_path,

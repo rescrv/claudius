@@ -17,7 +17,7 @@ use crate::error::Result;
 use crate::types::{Effort, MessageCreateTemplate, MessageParam, Model, SystemPrompt, Usage};
 use crate::{Agent, Anthropic, Budget, OutputConfig, Renderer, ThinkingConfig, TurnOutcome};
 
-const BUDGET_BUFFER_MICRO_CENTS: u64 = 1;
+const SPEND_BUFFER_MICRO_CENTS: u64 = 1;
 
 /// Agent behavior expected by the chat session.
 pub trait ChatAgent: Agent {
@@ -139,10 +139,10 @@ pub struct SessionStats {
     pub thinking_adaptive: bool,
     /// The configured effort level for adaptive thinking, if any.
     pub effort: Option<Effort>,
-    /// The session token budget limit, if set.
-    pub session_budget_tokens: Option<u64>,
-    /// Total tokens spent against the budget.
-    pub budget_spent_tokens: u64,
+    /// The session spend limit, in micro-cents, if set.
+    pub session_spend_micro_cents: Option<u64>,
+    /// Total spend used against the session limit, in micro-cents.
+    pub spend_used_micro_cents: u64,
     /// The auto-save transcript path, if set.
     pub transcript_path: Option<PathBuf>,
     /// Total input tokens across all requests.
@@ -198,7 +198,7 @@ impl<A: ChatAgent> ChatSession<A> {
         message: MessageParam,
         renderer: &mut dyn Renderer,
     ) -> Result<()> {
-        self.ensure_session_budget_for_next_turn(renderer)?;
+        self.ensure_session_spend_for_next_turn(renderer)?;
 
         let previous_len = self.messages.len();
 
@@ -236,7 +236,7 @@ impl<A: ChatAgent> ChatSession<A> {
     /// Continues a turn against an arbitrary transcript without mutating the session transcript.
     ///
     /// The provided `messages` transcript is used for the request, while usage totals,
-    /// last-turn usage, request counts, and session-budget accounting are recorded on
+    /// last-turn usage, request counts, and session-spend accounting are recorded on
     /// the parent session on success. If the turn fails, `messages` is restored to its
     /// original state.
     pub async fn continue_turn_streaming_on(
@@ -244,7 +244,7 @@ impl<A: ChatAgent> ChatSession<A> {
         messages: &mut Vec<MessageParam>,
         renderer: &mut dyn Renderer,
     ) -> Result<()> {
-        self.ensure_session_budget_for_next_turn(renderer)?;
+        self.ensure_session_spend_for_next_turn(renderer)?;
 
         let previous_messages = messages.clone();
         let outcome = self
@@ -320,14 +320,15 @@ impl<A: ChatAgent> ChatSession<A> {
     /// Returns the current session statistics snapshot.
     pub fn stats(&self) -> SessionStats {
         let config = self.agent.config();
-        let (session_budget_tokens, budget_spent_tokens) = match config.session_budget.as_ref() {
-            Some(budget) => {
-                let total = budget.total_micro_cents();
-                let remaining = budget.remaining_micro_cents();
-                (Some(total), total.saturating_sub(remaining))
-            }
-            None => (None, 0),
-        };
+        let (session_spend_micro_cents, spend_used_micro_cents) =
+            match config.session_spend.as_ref() {
+                Some(spend) => {
+                    let total = spend.total_micro_cents();
+                    let remaining = spend.remaining_micro_cents();
+                    (Some(total), total.saturating_sub(remaining))
+                }
+                None => (None, 0),
+            };
         SessionStats {
             model: config.model(),
             message_count: self.message_count(),
@@ -344,8 +345,8 @@ impl<A: ChatAgent> ChatSession<A> {
                 crate::chat::config::ThinkingMode::Adaptive(_)
             ),
             effort: config.effort(),
-            session_budget_tokens,
-            budget_spent_tokens,
+            session_spend_micro_cents,
+            spend_used_micro_cents,
             transcript_path: config.transcript_path.clone(),
             total_input_tokens: tokens_to_u64(self.usage_totals.input_tokens),
             total_output_tokens: tokens_to_u64(self.usage_totals.output_tokens),
@@ -374,8 +375,8 @@ impl<A: ChatAgent> ChatSession<A> {
         self.last_turn_usage = Some(outcome.usage);
         self.usage_totals = self.usage_totals + outcome.usage;
         self.request_count = self.request_count.saturating_add(outcome.request_count);
-        if let Some(budget) = self.agent.config().session_budget.as_ref() {
-            budget.consume_usage_saturating(&outcome.usage);
+        if let Some(spend) = self.agent.config().session_spend.as_ref() {
+            spend.consume_usage_saturating(&outcome.usage);
         }
     }
 
@@ -387,18 +388,18 @@ impl<A: ChatAgent> ChatSession<A> {
         }
     }
 
-    fn ensure_session_budget_for_next_turn(&self, renderer: &mut dyn Renderer) -> Result<()> {
+    fn ensure_session_spend_for_next_turn(&self, renderer: &mut dyn Renderer) -> Result<()> {
         let context = ();
-        if let Some(budget) = self.agent.config().session_budget.as_ref()
-            && !budget_allows_next_turn(budget, self.last_turn_usage.as_ref())
+        if let Some(spend) = self.agent.config().session_spend.as_ref()
+            && !spend_allows_next_turn(spend, self.last_turn_usage.as_ref())
         {
             renderer.print_error(
                 &context,
-                "Session budget exhausted. Use /budget to increase or clear the limit.",
+                "Session spend limit exhausted. Use /spend to increase or /spend clear to remove the limit.",
             );
             return Err(Error::bad_request(
-                "session budget exhausted",
-                Some("budget".to_string()),
+                "session spend exhausted",
+                Some("spend".to_string()),
             ));
         }
         Ok(())
@@ -424,16 +425,16 @@ fn tokens_to_u64(value: i32) -> u64 {
     value.max(0) as u64
 }
 
-fn budget_allows_next_turn(budget: &Budget, last_turn_usage: Option<&Usage>) -> bool {
-    let remaining = budget.remaining_micro_cents();
+fn spend_allows_next_turn(spend: &Budget, last_turn_usage: Option<&Usage>) -> bool {
+    let remaining = spend.remaining_micro_cents();
     if remaining == 0 {
         return false;
     }
     let Some(usage) = last_turn_usage else {
         return true;
     };
-    let cost = budget.calculate_cost(usage);
-    cost.saturating_add(BUDGET_BUFFER_MICRO_CENTS) < remaining
+    let cost = spend.calculate_cost(usage);
+    cost.saturating_add(SPEND_BUFFER_MICRO_CENTS) < remaining
 }
 
 #[cfg(test)]
@@ -681,22 +682,22 @@ mod tests {
     }
 
     #[test]
-    fn budget_allows_next_turn_without_usage() {
+    fn spend_allows_next_turn_without_usage() {
         let budget = Budget::new_with_rates(1000, 1, 1, 0, 0);
-        assert!(budget_allows_next_turn(&budget, None));
+        assert!(spend_allows_next_turn(&budget, None));
     }
 
     #[test]
-    fn budget_allows_next_turn_with_usage() {
+    fn spend_allows_next_turn_with_usage() {
         let budget = Budget::new_with_rates(1000, 1, 1, 0, 0);
         let usage = Usage::new(400, 0);
-        assert!(budget_allows_next_turn(&budget, Some(&usage)));
+        assert!(spend_allows_next_turn(&budget, Some(&usage)));
     }
 
     #[test]
-    fn budget_blocks_next_turn_when_over_grace() {
+    fn spend_blocks_next_turn_when_over_grace() {
         let budget = Budget::new_with_rates(100, 1, 1, 0, 0);
         let usage = Usage::new(100, 0);
-        assert!(!budget_allows_next_turn(&budget, Some(&usage)));
+        assert!(!spend_allows_next_turn(&budget, Some(&usage)));
     }
 }

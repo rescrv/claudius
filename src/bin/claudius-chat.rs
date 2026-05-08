@@ -300,12 +300,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             session.config_mut().set_effort(None);
                             terminal.print_info(&context, "Effort level cleared.");
                         }
-                        ChatCommand::Budget(_tokens) => {
-                            terminal.print_error(&context, "budget not supported");
+                        ChatCommand::Spend(dollars) => {
+                            session.config_mut().set_session_spend(Some(dollars));
+                            terminal.print_info(
+                                &context,
+                                &format!("Session spend limit set to ${dollars:.2}."),
+                            );
                         }
-                        ChatCommand::ClearBudget => {
-                            session.config_mut().session_budget = None;
-                            terminal.print_info(&context, "Session budget cleared.");
+                        ChatCommand::ClearSpend => {
+                            session.config_mut().session_spend = None;
+                            terminal.print_info(&context, "Session spend limit cleared.");
                         }
                         ChatCommand::Caching(enabled) => {
                             session.config_mut().caching_enabled = enabled;
@@ -418,14 +422,13 @@ fn print_stats<A: ChatAgent>(session: &ChatSession<A>) {
         let output = stats.last_turn_output_tokens.unwrap_or(0);
         println!("      Last turn tokens: {input} in / {output} out");
     }
-    if let Some(limit) = stats.session_budget_tokens {
-        let remaining = limit.saturating_sub(stats.budget_spent_tokens);
-        println!(
-            "      Budget: {}/{} tokens ({} remaining)",
-            stats.budget_spent_tokens, limit, remaining
-        );
+    if let Some(limit) = stats.session_spend_micro_cents {
+        let spent = stats.spend_used_micro_cents as f64 / 100_000_000.0;
+        let total = limit as f64 / 100_000_000.0;
+        let remaining = limit.saturating_sub(stats.spend_used_micro_cents) as f64 / 100_000_000.0;
+        println!("      Spend limit: ${spent:.4}/${total:.2} (${remaining:.4} remaining)");
     } else {
-        println!("      Budget: (not set)");
+        println!("      Spend limit: (not set)");
     }
     match stats.transcript_path {
         Some(ref path) => println!("      Transcript file: {}", path.display()),

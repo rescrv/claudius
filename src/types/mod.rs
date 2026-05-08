@@ -99,7 +99,7 @@ pub use message_stop_event::MessageStopEvent;
 pub use message_stream_event::MessageStreamEvent;
 pub use message_tokens_count::MessageTokensCount;
 pub use metadata::Metadata;
-pub use model::{KnownModel, Model};
+pub use model::{KnownModel, Model, TokenRates};
 pub use model_info::{ModelInfo, ModelType};
 pub use model_list_params::ModelListParams;
 pub use model_list_response::ModelListResponse;
