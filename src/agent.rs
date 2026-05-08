@@ -891,6 +891,68 @@ impl Budget {
         Self::new_flat_rate(budget_micro_cents, token_rate_micro_cents)
     }
 
+    /// Creates a budget from a dollar amount using the published token rates
+    /// for a known Anthropic model.
+    ///
+    /// This is the recommended way to create a budget when you know which model
+    /// you will be calling, because it automatically uses the correct per-token
+    /// rates for input, output, cache-creation, and cache-read tokens.
+    ///
+    /// # Arguments
+    ///
+    /// * `budget_dollars` - Total budget in US dollars
+    /// * `model` - The Anthropic model whose published rates should be used
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use claudius::{Budget, KnownModel};
+    ///
+    /// // Create a $5.00 budget priced for Claude Sonnet 4.5
+    /// let budget = Budget::from_dollars_with_model(5.0, KnownModel::ClaudeSonnet45);
+    ///
+    /// assert_eq!(budget.total_micro_cents(), 500_000_000); // $5.00
+    /// ```
+    pub fn from_dollars_with_model(budget_dollars: f64, model: crate::KnownModel) -> Self {
+        let rates = model.token_rates();
+        Self::from_dollars_with_rates(
+            budget_dollars,
+            rates.input,
+            rates.output,
+            rates.cache_creation,
+            rates.cache_read,
+        )
+    }
+
+    /// Creates a budget with the given micro-cent amount using the published token rates
+    /// for a known Anthropic model.
+    ///
+    /// # Arguments
+    ///
+    /// * `budget_micro_cents` - Total budget in micro-cents (1/1,000,000 of a cent)
+    /// * `model` - The Anthropic model whose published rates should be used
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use claudius::{Budget, KnownModel};
+    ///
+    /// // Create a 500M micro-cent ($5.00) budget priced for Claude Opus 4.5
+    /// let budget = Budget::from_model(500_000_000, KnownModel::ClaudeOpus45);
+    ///
+    /// assert_eq!(budget.total_micro_cents(), 500_000_000);
+    /// ```
+    pub fn from_model(budget_micro_cents: u64, model: crate::KnownModel) -> Self {
+        let rates = model.token_rates();
+        Self::new_with_rates(
+            budget_micro_cents,
+            rates.input,
+            rates.output,
+            rates.cache_creation,
+            rates.cache_read,
+        )
+    }
+
     /// Legacy constructor for backward compatibility - creates a token-based budget.
     /// This converts tokens to micro-cents using a default rate.
     #[deprecated(note = "Use new_with_rates or new_flat_rate instead")]
@@ -5284,6 +5346,58 @@ mod tests {
         // Test legacy consume method
         assert!(allocation.consume(25)); // Legacy method
         assert_eq!(allocation.remaining_tokens(), 25);
+    }
+
+    #[test]
+    fn budget_from_dollars_with_model_uses_correct_rates() {
+        use crate::KnownModel;
+
+        let budget = Budget::from_dollars_with_model(1.0, KnownModel::ClaudeSonnet45);
+        assert_eq!(budget.total_micro_cents(), 100_000_000); // $1.00
+
+        // Verify the rates are applied correctly by checking cost calculations
+        let usage = crate::Usage::new(1_000_000, 0); // 1M input tokens
+        let cost = budget.calculate_cost(&usage);
+        // 1M tokens × 300 micro-cents/token = 300M micro-cents = $3.00
+        assert_eq!(cost, 300_000_000);
+
+        let usage = crate::Usage::new(0, 1_000_000); // 1M output tokens
+        let cost = budget.calculate_cost(&usage);
+        // 1M tokens × 1500 micro-cents/token = 1.5B micro-cents = $15.00
+        assert_eq!(cost, 1_500_000_000);
+    }
+
+    #[test]
+    fn budget_from_model_uses_correct_rates() {
+        use crate::KnownModel;
+
+        let budget = Budget::from_model(500_000_000, KnownModel::ClaudeOpus45);
+        assert_eq!(budget.total_micro_cents(), 500_000_000);
+
+        // Opus 4.5 rates: input=500, output=2500
+        let usage = crate::Usage::new(1_000_000, 0);
+        let cost = budget.calculate_cost(&usage);
+        assert_eq!(cost, 500_000_000); // $5/MTok
+
+        let usage = crate::Usage::new(0, 1_000_000);
+        let cost = budget.calculate_cost(&usage);
+        assert_eq!(cost, 2_500_000_000); // $25/MTok
+    }
+
+    #[test]
+    fn budget_from_dollars_with_model_haiku() {
+        use crate::KnownModel;
+
+        let budget = Budget::from_dollars_with_model(10.0, KnownModel::ClaudeHaiku45);
+        assert_eq!(budget.total_micro_cents(), 1_000_000_000); // $10.00
+
+        // Haiku 4.5 rates: input=100, output=500, cache_creation=125, cache_read=10
+        let usage = crate::Usage::new(1000, 500)
+            .with_cache_creation_input_tokens(200)
+            .with_cache_read_input_tokens(100);
+        let cost = budget.calculate_cost(&usage);
+        // (1000 × 100) + (500 × 500) + (200 × 125) + (100 × 10) = 100000 + 250000 + 25000 + 1000
+        assert_eq!(cost, 376_000);
     }
 
     #[tokio::test]
