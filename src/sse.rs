@@ -5,6 +5,7 @@
 
 use bytes::Bytes;
 use futures::stream::{self, Stream, StreamExt};
+use std::error::Error as StdError;
 use std::time::{Duration, Instant};
 
 use crate::observability::{
@@ -63,10 +64,7 @@ where
     S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Unpin + 'static,
 {
     // Convert reqwest errors to our error type
-    let stream = byte_stream.map(|result| {
-        result
-            .map_err(|e| Error::streaming(format!("Error in HTTP stream: {e}"), Some(Box::new(e))))
-    });
+    let stream = byte_stream.map(|result| result.map_err(map_http_stream_error));
 
     // Initialize state with production hardening
     let state = SseState {
@@ -198,6 +196,36 @@ where
             }
         }
     })
+}
+
+fn map_http_stream_error(err: reqwest::Error) -> Error {
+    let details = format_reqwest_error(&err);
+    if err.is_timeout() {
+        Error::timeout(format!("HTTP stream timed out: {details}"), None)
+    } else if err.is_connect() {
+        Error::connection(
+            format!("HTTP stream connection error: {details}"),
+            Some(Box::new(err)),
+        )
+    } else {
+        Error::streaming(
+            format!("Error in HTTP stream: {details}"),
+            Some(Box::new(err)),
+        )
+    }
+}
+
+fn format_reqwest_error(err: &reqwest::Error) -> String {
+    let mut parts = vec![err.to_string()];
+    let mut source = StdError::source(err);
+    while let Some(inner) = source {
+        let detail = inner.to_string();
+        if !parts.iter().any(|part| part == &detail) {
+            parts.push(detail);
+        }
+        source = inner.source();
+    }
+    parts.join(": ")
 }
 
 /// Decode a raw [`SseEvent`] into a Claudius [`MessageStreamEvent`].

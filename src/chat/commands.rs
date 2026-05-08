@@ -278,9 +278,9 @@ fn parse_effort_command(argument: Option<&str>) -> ChatCommand {
         "medium" | "med" => ChatCommand::Effort(crate::types::Effort::Medium),
         "high" => ChatCommand::Effort(crate::types::Effort::High),
         "clear" | "off" | "none" => ChatCommand::ClearEffort,
-        _ => ChatCommand::Invalid(
-            "/effort expects 'low', 'medium', 'high', or 'clear'".to_string(),
-        ),
+        _ => {
+            ChatCommand::Invalid("/effort expects 'low', 'medium', 'high', or 'clear'".to_string())
+        }
     }
 }
 
@@ -448,10 +448,7 @@ mod tests {
             parse_command("/effort clear"),
             Some(ChatCommand::ClearEffort)
         );
-        assert_eq!(
-            parse_command("/effort off"),
-            Some(ChatCommand::ClearEffort)
-        );
+        assert_eq!(parse_command("/effort off"), Some(ChatCommand::ClearEffort));
         assert!(matches!(
             parse_command("/effort"),
             Some(ChatCommand::Invalid(msg)) if msg.contains("expects")
