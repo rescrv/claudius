@@ -339,7 +339,10 @@ impl<A: ChatAgent> ChatSession<A> {
             stop_sequences: config.template.stop_sequences.clone().unwrap_or_default(),
             thinking_budget: config.thinking_budget(),
             thinking_config: config.thinking_config(),
-            thinking_adaptive: matches!(config.thinking_mode(), crate::chat::config::ThinkingMode::Adaptive(_)),
+            thinking_adaptive: matches!(
+                config.thinking_mode(),
+                crate::chat::config::ThinkingMode::Adaptive(_)
+            ),
             effort: config.effort(),
             session_budget_tokens,
             budget_spent_tokens,

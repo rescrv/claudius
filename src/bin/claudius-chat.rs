@@ -294,10 +294,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 Effort::Medium => "medium",
                                 Effort::High => "high",
                             };
-                            terminal.print_info(
-                                &context,
-                                &format!("Effort level set to {label}."),
-                            );
+                            terminal.print_info(&context, &format!("Effort level set to {label}."));
                         }
                         ChatCommand::ClearEffort => {
                             session.config_mut().set_effort(None);

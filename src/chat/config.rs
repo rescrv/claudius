@@ -62,7 +62,11 @@ pub struct ChatArgs {
     pub thinking: Option<u32>,
 
     /// Effort level for adaptive thinking (low, medium, high).
-    #[arrrg(optional, "Effort level for adaptive thinking (low, medium, high)", "LEVEL")]
+    #[arrrg(
+        optional,
+        "Effort level for adaptive thinking (low, medium, high)",
+        "LEVEL"
+    )]
     pub effort: Option<String>,
 
     /// Disable ANSI colors and styles.
@@ -580,10 +584,7 @@ mod tests {
         assert_eq!(config.effort(), Some(Effort::High));
         assert_eq!(config.thinking_budget(), None);
         assert!(config.output_config().is_some());
-        assert_eq!(
-            config.output_config().unwrap().effort,
-            Some(Effort::High)
-        );
+        assert_eq!(config.output_config().unwrap().effort, Some(Effort::High));
     }
 
     #[test]
