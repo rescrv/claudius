@@ -25,7 +25,7 @@ pub struct BashPtyConfig {
     /// Path to the shell binary (default: `/bin/bash`).
     pub shell: PathBuf,
     /// When set, the spawned process is `wrapper[0]` with argv
-    /// `[wrapper[0..], shell, --noprofile, --norc, -i]`.
+    /// `[wrapper[0..], shell, --noprofile, --norc, --noediting, -i]`.
     /// Use this to run the shell inside a sandbox or other wrapper.
     pub shell_wrapper: Option<Vec<String>>,
     /// Terminal row count.
@@ -102,15 +102,37 @@ fn open_pty(rows: u16, cols: u16) -> std::io::Result<(OwnedFd, OwnedFd)> {
     Ok(unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) })
 }
 
-/// Disables ECHO on the terminal via `tcsetattr` so that writes to the PTY
-/// master are not reflected back in the read stream.
-fn disable_echo(fd: &OwnedFd) -> std::io::Result<()> {
+/// Puts the PTY into a deterministic transport mode for programmatic input.
+///
+/// Bash/readline and child processes can mutate terminal modes.  Reasserting
+/// raw, no-echo behavior before command injection prevents the kernel line
+/// discipline from editing command bytes and prevents those bytes from being
+/// reflected into the output transcript.
+fn configure_command_terminal<T: AsRawFd>(fd: &T) -> std::io::Result<()> {
     let raw = fd_raw(fd);
     let mut termios: libc::termios = unsafe { std::mem::zeroed() };
     if unsafe { libc::tcgetattr(raw, &mut termios) } != 0 {
         return Err(std::io::Error::last_os_error());
     }
-    termios.c_lflag &= !(libc::ECHO | libc::ECHOE | libc::ECHOK | libc::ECHONL);
+    termios.c_iflag &= !(libc::IGNBRK
+        | libc::BRKINT
+        | libc::PARMRK
+        | libc::ISTRIP
+        | libc::INLCR
+        | libc::IGNCR
+        | libc::ICRNL
+        | libc::IXON);
+    termios.c_oflag &= !libc::OPOST;
+    termios.c_cflag |= libc::CS8;
+    termios.c_lflag &= !(libc::ECHO
+        | libc::ECHOE
+        | libc::ECHOK
+        | libc::ECHONL
+        | libc::ICANON
+        | libc::IEXTEN
+        | libc::ISIG);
+    termios.c_cc[libc::VMIN] = 1;
+    termios.c_cc[libc::VTIME] = 0;
     if unsafe { libc::tcsetattr(raw, libc::TCSANOW, &termios) } != 0 {
         return Err(std::io::Error::last_os_error());
     }
@@ -379,6 +401,7 @@ impl BashPtySession {
         }
 
         if let Some(ref inner) = self.inner {
+            configure_command_terminal(&inner.master_fd)?;
             drain_available(&inner.master_fd)?;
         }
 
@@ -496,11 +519,13 @@ impl BashPtySession {
         let cwd_c = cstring_from_path(&cwd, "working directory")?;
         let arg_noprofile = CString::new("--noprofile").unwrap();
         let arg_norc = CString::new("--norc").unwrap();
+        let arg_noediting = CString::new("--noediting").unwrap();
         let arg_i = CString::new("-i").unwrap();
         let envp_storage = shell_environment(&env)?;
 
         // If a wrapper is configured, the spawned binary is wrapper[0] and
-        // the full argv is [wrapper[0], wrapper[1..], shell, --noprofile, --norc, -i].
+        // the full argv is
+        // [wrapper[0], wrapper[1..], shell, --noprofile, --norc, --noediting, -i].
         let (spawn_path, extra_args_storage);
         if let Some(ref wrapper) = self.config.shell_wrapper {
             assert!(!wrapper.is_empty(), "shell_wrapper must not be empty");
@@ -524,6 +549,7 @@ impl BashPtySession {
         }
         argv_storage.push(arg_noprofile.clone());
         argv_storage.push(arg_norc.clone());
+        argv_storage.push(arg_noediting.clone());
         argv_storage.push(arg_i.clone());
 
         let mut argv: Vec<*mut libc::c_char> = argv_storage
@@ -581,9 +607,7 @@ impl BashPtySession {
             ps1 = bash_ansi_c_quote(&prompt),
         );
         let master_fd = match (|| -> std::io::Result<AsyncFd<OwnedFd>> {
-            // Disable echo before sending setup commands so the transport writes
-            // never appear in the transcript.
-            disable_echo(&master)?;
+            configure_command_terminal(&master)?;
             blocking_write(&master, setup.as_bytes())?;
             set_nonblock(fd_raw(&master))?;
             AsyncFd::new(master)
@@ -1401,10 +1425,20 @@ mod tests {
     }
 
     #[test]
-    fn disable_echo_clears_echo_flags() {
+    fn configure_command_terminal_sets_raw_no_echo_mode() {
         let (master, _slave) = open_pty(24, 80).expect("open pty");
         let mut termios = get_termios(&master);
-        termios.c_lflag |= libc::ECHO | libc::ECHOE | libc::ECHOK | libc::ECHONL;
+        termios.c_iflag |= libc::ICRNL | libc::IXON;
+        termios.c_oflag |= libc::OPOST;
+        termios.c_lflag |= libc::ECHO
+            | libc::ECHOE
+            | libc::ECHOK
+            | libc::ECHONL
+            | libc::ICANON
+            | libc::IEXTEN
+            | libc::ISIG;
+        termios.c_cc[libc::VMIN] = 7;
+        termios.c_cc[libc::VTIME] = 9;
         let ret = unsafe { libc::tcsetattr(fd_raw(&master), libc::TCSANOW, &termios) };
         assert_eq!(
             ret,
@@ -1413,19 +1447,30 @@ mod tests {
             std::io::Error::last_os_error()
         );
 
-        disable_echo(&master).expect("disable echo");
+        configure_command_terminal(&master).expect("configure command terminal");
 
         let termios = get_termios(&master);
+        assert_eq!(termios.c_iflag & (libc::ICRNL | libc::IXON), 0);
+        assert_eq!(termios.c_oflag & libc::OPOST, 0);
         assert_eq!(
-            termios.c_lflag & (libc::ECHO | libc::ECHOE | libc::ECHOK | libc::ECHONL),
+            termios.c_lflag
+                & (libc::ECHO
+                    | libc::ECHOE
+                    | libc::ECHOK
+                    | libc::ECHONL
+                    | libc::ICANON
+                    | libc::IEXTEN
+                    | libc::ISIG),
             0
         );
+        assert_eq!(termios.c_cc[libc::VMIN], 1);
+        assert_eq!(termios.c_cc[libc::VTIME], 0);
     }
 
     #[test]
-    fn disable_echo_rejects_non_tty_fd() {
+    fn configure_command_terminal_rejects_non_tty_fd() {
         let (read_fd, _write_fd) = make_pipe();
-        let err = disable_echo(&read_fd).expect_err("pipes are not tty devices");
+        let err = configure_command_terminal(&read_fd).expect_err("pipes are not tty devices");
         assert_raw_os_error(&err, libc::ENOTTY);
     }
 
@@ -1952,6 +1997,37 @@ HEREDOC"#;
             &r,
             BashPtyResult {
                 output: "clean".to_string(),
+                status: exit_status_from_code(0),
+            },
+        );
+    }
+
+    #[tokio::test]
+    async fn terminal_mode_is_reasserted_between_commands() {
+        let mut session = make_session().await;
+        session.run("stty sane", false).await.expect("stty sane");
+
+        let r = session.run("printf clean", false).await.expect("clean");
+        assert_bash_pty_result_eq(
+            &r,
+            BashPtyResult {
+                output: "clean".to_string(),
+                status: exit_status_from_code(0),
+            },
+        );
+    }
+
+    #[tokio::test]
+    async fn command_input_bypasses_terminal_line_editing() {
+        let mut session = make_session().await;
+        let r = session
+            .run("cat <<'EOF'\nbefore\u{15}after\nEOF", false)
+            .await
+            .expect("literal line editing character");
+        assert_bash_pty_result_eq(
+            &r,
+            BashPtyResult {
+                output: "before\u{15}after".to_string(),
                 status: exit_status_from_code(0),
             },
         );
