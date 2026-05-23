@@ -273,6 +273,15 @@ impl ChatConfig {
         self
     }
 
+    /// Sets the session spend budget object directly.
+    ///
+    /// Cloning a [`Budget`] preserves its remaining-spend state, so this can be
+    /// used to carry spend accounting across rebuilt chat sessions.
+    pub fn with_session_spend_budget(mut self, budget: Option<Budget>) -> Self {
+        self.session_spend = budget;
+        self
+    }
+
     /// Sets the transcript auto-save path.
     pub fn with_transcript_path(mut self, path: Option<PathBuf>) -> Self {
         self.transcript_path = path;
@@ -405,6 +414,14 @@ impl ChatConfig {
     /// Sets the session spend limit in dollars, using the configured model's token rates.
     pub fn set_session_spend(&mut self, dollars: Option<f64>) {
         self.session_spend = dollars.map(|d| self.dollar_budget(d));
+    }
+
+    /// Sets the session spend budget object directly.
+    ///
+    /// Cloning a [`Budget`] preserves its remaining-spend state, so this can be
+    /// used to carry spend accounting across rebuilt chat sessions.
+    pub fn set_session_spend_budget(&mut self, budget: Option<Budget>) {
+        self.session_spend = budget;
     }
 
     fn dollar_budget(&self, dollars: f64) -> Budget {

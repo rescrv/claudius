@@ -464,18 +464,9 @@ mod tests {
 
     #[test]
     fn parse_spend() {
-        assert_eq!(
-            parse_command("/spend 5.0"),
-            Some(ChatCommand::Spend(5.0))
-        );
-        assert_eq!(
-            parse_command("/spend 0.50"),
-            Some(ChatCommand::Spend(0.50))
-        );
-        assert_eq!(
-            parse_command("/spend clear"),
-            Some(ChatCommand::ClearSpend)
-        );
+        assert_eq!(parse_command("/spend 5.0"), Some(ChatCommand::Spend(5.0)));
+        assert_eq!(parse_command("/spend 0.50"), Some(ChatCommand::Spend(0.50)));
+        assert_eq!(parse_command("/spend clear"), Some(ChatCommand::ClearSpend));
         assert!(matches!(
             parse_command("/spend -1.0"),
             Some(ChatCommand::Invalid(_))

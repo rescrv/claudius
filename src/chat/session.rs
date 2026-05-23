@@ -17,8 +17,6 @@ use crate::error::Result;
 use crate::types::{Effort, MessageCreateTemplate, MessageParam, Model, SystemPrompt, Usage};
 use crate::{Agent, Anthropic, Budget, OutputConfig, Renderer, ThinkingConfig, TurnOutcome};
 
-const SPEND_BUFFER_MICRO_CENTS: u64 = 1;
-
 /// Agent behavior expected by the chat session.
 pub trait ChatAgent: Agent {
     /// Returns the active chat configuration.
@@ -110,6 +108,7 @@ pub struct ChatSession<A: ChatAgent> {
     last_turn_usage: Option<Usage>,
     request_count: u64,
     budget: Arc<Budget>,
+    session_spend: Option<Arc<Budget>>,
 }
 
 /// Aggregated stats for a chat session.
@@ -174,6 +173,7 @@ impl<A: ChatAgent> ChatSession<A> {
     /// Creates a new chat session with a custom agent.
     pub fn with_agent(client: Anthropic, agent: A) -> Self {
         let budget = Arc::new(Budget::new_flat_rate(u64::MAX, 1));
+        let session_spend = agent.config().session_spend.clone().map(Arc::new);
         Self {
             client,
             agent,
@@ -182,6 +182,7 @@ impl<A: ChatAgent> ChatSession<A> {
             last_turn_usage: None,
             request_count: 0,
             budget,
+            session_spend,
         }
     }
 
@@ -198,6 +199,7 @@ impl<A: ChatAgent> ChatSession<A> {
         message: MessageParam,
         renderer: &mut dyn Renderer,
     ) -> Result<()> {
+        self.sync_session_spend_from_config();
         self.ensure_session_spend_for_next_turn(renderer)?;
 
         let previous_len = self.messages.len();
@@ -205,9 +207,10 @@ impl<A: ChatAgent> ChatSession<A> {
         // Add user message to history
         self.messages.push(message);
 
+        let budget = self.turn_budget();
         let outcome = self
             .agent
-            .take_turn_streaming_root(&self.client, &mut self.messages, &self.budget, renderer)
+            .take_turn_streaming_root(&self.client, &mut self.messages, &budget, renderer)
             .await;
 
         match outcome {
@@ -244,12 +247,14 @@ impl<A: ChatAgent> ChatSession<A> {
         messages: &mut Vec<MessageParam>,
         renderer: &mut dyn Renderer,
     ) -> Result<()> {
+        self.sync_session_spend_from_config();
         self.ensure_session_spend_for_next_turn(renderer)?;
 
         let previous_messages = messages.clone();
+        let budget = self.turn_budget();
         let outcome = self
             .agent
-            .take_turn_streaming_root(&self.client, messages, &self.budget, renderer)
+            .take_turn_streaming_root(&self.client, messages, &budget, renderer)
             .await;
 
         match outcome {
@@ -282,6 +287,36 @@ impl<A: ChatAgent> ChatSession<A> {
     /// Returns the chat configuration for mutation.
     pub fn config_mut(&mut self) -> &mut ChatConfig {
         self.agent.config_mut()
+    }
+
+    /// Sets or clears the session spend limit in dollars.
+    ///
+    /// This updates both the visible configuration and the active session
+    /// budget used to cap model requests.
+    pub fn set_session_spend(&mut self, dollars: Option<f64>) {
+        self.agent.config_mut().set_session_spend(dollars);
+        self.session_spend = self.agent.config().session_spend.clone().map(Arc::new);
+    }
+
+    /// Sets or clears the active session spend budget.
+    ///
+    /// Passing a cloned [`Budget`] preserves its remaining-spend state, which is
+    /// useful when rebuilding or switching [`ChatSession`] instances.
+    pub fn set_session_spend_budget(&mut self, budget: Option<Budget>) {
+        self.agent
+            .config_mut()
+            .set_session_spend_budget(budget.clone());
+        self.session_spend = budget.map(Arc::new);
+    }
+
+    /// Returns a clone of the active session spend budget.
+    ///
+    /// The returned [`Budget`] shares the same remaining-spend state as this
+    /// session. Pass it to [`ChatConfig::with_session_spend_budget`] or
+    /// [`ChatSession::set_session_spend_budget`] to preserve spend accounting
+    /// across rebuilt sessions.
+    pub fn session_spend_budget(&self) -> Option<Budget> {
+        self.session_spend.as_deref().cloned()
     }
 
     /// Returns the message template used for requests.
@@ -320,15 +355,15 @@ impl<A: ChatAgent> ChatSession<A> {
     /// Returns the current session statistics snapshot.
     pub fn stats(&self) -> SessionStats {
         let config = self.agent.config();
-        let (session_spend_micro_cents, spend_used_micro_cents) =
-            match config.session_spend.as_ref() {
-                Some(spend) => {
-                    let total = spend.total_micro_cents();
-                    let remaining = spend.remaining_micro_cents();
-                    (Some(total), total.saturating_sub(remaining))
-                }
-                None => (None, 0),
-            };
+        let (session_spend_micro_cents, spend_used_micro_cents) = match self.session_spend.as_ref()
+        {
+            Some(spend) => {
+                let total = spend.total_micro_cents();
+                let remaining = spend.remaining_micro_cents();
+                (Some(total), total.saturating_sub(remaining))
+            }
+            None => (None, 0),
+        };
         SessionStats {
             model: config.model(),
             message_count: self.message_count(),
@@ -375,9 +410,6 @@ impl<A: ChatAgent> ChatSession<A> {
         self.last_turn_usage = Some(outcome.usage);
         self.usage_totals = self.usage_totals + outcome.usage;
         self.request_count = self.request_count.saturating_add(outcome.request_count);
-        if let Some(spend) = self.agent.config().session_spend.as_ref() {
-            spend.consume_usage_saturating(&outcome.usage);
-        }
     }
 
     fn auto_save_transcript(&self) -> Result<()> {
@@ -388,10 +420,26 @@ impl<A: ChatAgent> ChatSession<A> {
         }
     }
 
+    fn turn_budget(&self) -> Arc<Budget> {
+        self.session_spend
+            .as_ref()
+            .map(Arc::clone)
+            .unwrap_or_else(|| Arc::clone(&self.budget))
+    }
+
+    fn sync_session_spend_from_config(&mut self) {
+        if !same_budget_state(
+            self.session_spend.as_deref(),
+            self.agent.config().session_spend.as_ref(),
+        ) {
+            self.session_spend = self.agent.config().session_spend.clone().map(Arc::new);
+        }
+    }
+
     fn ensure_session_spend_for_next_turn(&self, renderer: &mut dyn Renderer) -> Result<()> {
         let context = ();
-        if let Some(spend) = self.agent.config().session_spend.as_ref()
-            && !spend_allows_next_turn(spend, self.last_turn_usage.as_ref())
+        if let Some(spend) = self.session_spend.as_ref()
+            && spend.remaining_output_tokens() == 0
         {
             renderer.print_error(
                 &context,
@@ -425,16 +473,21 @@ fn tokens_to_u64(value: i32) -> u64 {
     value.max(0) as u64
 }
 
-fn spend_allows_next_turn(spend: &Budget, last_turn_usage: Option<&Usage>) -> bool {
-    let remaining = spend.remaining_micro_cents();
-    if remaining == 0 {
-        return false;
+fn same_budget_state(left: Option<&Budget>, right: Option<&Budget>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => {
+            left.total_micro_cents() == right.total_micro_cents()
+                && left.remaining_micro_cents() == right.remaining_micro_cents()
+                && left.calculate_cost(&Usage::new(1, 0)) == right.calculate_cost(&Usage::new(1, 0))
+                && left.calculate_cost(&Usage::new(0, 1)) == right.calculate_cost(&Usage::new(0, 1))
+                && left.calculate_cost(&Usage::new(0, 0).with_cache_creation_input_tokens(1))
+                    == right.calculate_cost(&Usage::new(0, 0).with_cache_creation_input_tokens(1))
+                && left.calculate_cost(&Usage::new(0, 0).with_cache_read_input_tokens(1))
+                    == right.calculate_cost(&Usage::new(0, 0).with_cache_read_input_tokens(1))
+        }
+        (None, None) => true,
+        _ => false,
     }
-    let Some(usage) = last_turn_usage else {
-        return true;
-    };
-    let cost = spend.calculate_cost(usage);
-    cost.saturating_add(SPEND_BUFFER_MICRO_CENTS) < remaining
 }
 
 #[cfg(test)]
@@ -479,6 +532,7 @@ mod tests {
         config: ChatConfig,
         append: Option<MessageParam>,
         outcome: Result<TurnOutcome>,
+        budget_usage: Option<Usage>,
     }
 
     impl StubAgent {
@@ -491,7 +545,13 @@ mod tests {
                 config,
                 append,
                 outcome,
+                budget_usage: None,
             }
+        }
+
+        fn with_budget_usage(mut self, usage: Usage) -> Self {
+            self.budget_usage = Some(usage);
+            self
         }
     }
 
@@ -501,9 +561,13 @@ mod tests {
             &mut self,
             _client: &Anthropic,
             messages: &mut Vec<MessageParam>,
-            _budget: &Arc<Budget>,
+            budget: &Arc<Budget>,
             _renderer: &mut dyn Renderer,
         ) -> Result<TurnOutcome> {
+            if let Some(usage) = self.budget_usage {
+                let mut allocation = budget.allocate_available(self.config.max_tokens()).unwrap();
+                assert!(allocation.consume_response(&usage));
+            }
             if let Some(message) = self.append.clone() {
                 crate::push_or_merge_message(messages, message);
             }
@@ -682,22 +746,61 @@ mod tests {
     }
 
     #[test]
-    fn spend_allows_next_turn_without_usage() {
-        let budget = Budget::new_with_rates(1000, 1, 1, 0, 0);
-        assert!(spend_allows_next_turn(&budget, None));
+    fn same_budget_state_matches_shared_budget_clones() {
+        let budget = Budget::new_with_rates(1000, 1, 2, 3, 4);
+        let cloned = budget.clone();
+        budget.consume_usage_saturating(&Usage::new(10, 20));
+
+        assert!(same_budget_state(Some(&budget), Some(&cloned)));
     }
 
     #[test]
-    fn spend_allows_next_turn_with_usage() {
-        let budget = Budget::new_with_rates(1000, 1, 1, 0, 0);
-        let usage = Usage::new(400, 0);
-        assert!(spend_allows_next_turn(&budget, Some(&usage)));
+    fn same_budget_state_detects_different_rates() {
+        let left = Budget::new_with_rates(1000, 1, 2, 3, 4);
+        let right = Budget::new_with_rates(1000, 1, 5, 3, 4);
+
+        assert!(!same_budget_state(Some(&left), Some(&right)));
     }
 
-    #[test]
-    fn spend_blocks_next_turn_when_over_grace() {
-        let budget = Budget::new_with_rates(100, 1, 1, 0, 0);
-        let usage = Usage::new(100, 0);
-        assert!(!spend_allows_next_turn(&budget, Some(&usage)));
+    #[tokio::test]
+    async fn session_spend_budget_survives_rebuild() {
+        let spend = Budget::new_flat_rate(1000, 10);
+        let usage = Usage::new(0, 40);
+        let client = Anthropic::new(None).unwrap();
+        let agent = StubAgent::new(
+            ChatConfig::default().with_session_spend_budget(Some(spend)),
+            Some(MessageParam::assistant("charged response")),
+            Ok(TurnOutcome {
+                stop_reason: crate::StopReason::EndTurn,
+                usage,
+                request_count: 1,
+            }),
+        )
+        .with_budget_usage(usage);
+        let mut session = ChatSession::with_agent(client, agent);
+        let mut renderer = TestRenderer;
+
+        session
+            .send_message(MessageParam::user("charge spend"), &mut renderer)
+            .await
+            .unwrap();
+
+        let stats = session.stats();
+        assert_eq!(stats.spend_used_micro_cents, 400);
+
+        let preserved_spend = session.session_spend_budget().unwrap();
+        let rebuilt_client = Anthropic::new(None).unwrap();
+        let rebuilt_agent = StubAgent::new(
+            ChatConfig::default().with_session_spend_budget(Some(preserved_spend)),
+            None,
+            Ok(TurnOutcome {
+                stop_reason: crate::StopReason::EndTurn,
+                usage: Usage::new(0, 0),
+                request_count: 0,
+            }),
+        );
+        let rebuilt = ChatSession::with_agent(rebuilt_client, rebuilt_agent);
+
+        assert_eq!(rebuilt.stats().spend_used_micro_cents, 400);
     }
 }

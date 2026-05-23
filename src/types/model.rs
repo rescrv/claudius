@@ -474,7 +474,10 @@ mod tests {
 
     #[test]
     fn token_rates_sonnet_45() {
-        for model in [KnownModel::ClaudeSonnet45, KnownModel::ClaudeSonnet4520250929] {
+        for model in [
+            KnownModel::ClaudeSonnet45,
+            KnownModel::ClaudeSonnet4520250929,
+        ] {
             let rates = model.token_rates();
             assert_eq!(rates.input, 300);
             assert_eq!(rates.output, 1500);
