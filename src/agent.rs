@@ -1075,6 +1075,60 @@ impl Budget {
     /// ```
     pub fn allocate(&self, max_tokens: u32) -> Option<BudgetAllocation<'_>> {
         let max_cost = self.calculate_output_cost_for_tokens(max_tokens);
+        self.allocate_micro_cents(max_cost)
+    }
+
+    /// Attempts to allocate as many output tokens as the budget can currently fund.
+    ///
+    /// Unlike [`allocate`], this method does not fail just because the full
+    /// `max_tokens` amount is unavailable. It reserves the smaller of
+    /// `max_tokens` and the remaining output-token capacity. This is useful when
+    /// a request should be capped by remaining spend instead of rejected outright.
+    ///
+    /// Returns `None` when no output token can be funded. A zero-token request
+    /// preserves [`allocate`]'s behavior and returns an empty allocation.
+    ///
+    /// [`allocate`]: Budget::allocate
+    pub fn allocate_available(&self, max_tokens: u32) -> Option<BudgetAllocation<'_>> {
+        if max_tokens == 0 {
+            return self.allocate(0);
+        }
+
+        let rate = self.output_token_rate_micro_cents;
+        if rate == 0 {
+            return self.allocate(max_tokens);
+        }
+
+        let max_cost = self.calculate_output_cost_for_tokens(max_tokens);
+        loop {
+            let witness = self.remaining_micro_cents.load(Ordering::Relaxed);
+            let cost = std::cmp::min(witness, max_cost);
+            let funded_tokens = cost / rate;
+            if funded_tokens == 0 {
+                return None;
+            }
+            let capped_cost = funded_tokens.saturating_mul(rate);
+            if self
+                .remaining_micro_cents
+                .compare_exchange(
+                    witness,
+                    witness.saturating_sub(capped_cost),
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                )
+                .is_ok()
+            {
+                let remaining_micro_cents = Arc::clone(&self.remaining_micro_cents);
+                return Some(BudgetAllocation {
+                    remaining_micro_cents,
+                    allocated_micro_cents: capped_cost,
+                    budget: self,
+                });
+            }
+        }
+    }
+
+    fn allocate_micro_cents(&self, max_cost: u64) -> Option<BudgetAllocation<'_>> {
         loop {
             let witness = self.remaining_micro_cents.load(Ordering::Relaxed);
             if witness >= max_cost
@@ -1139,6 +1193,19 @@ impl Budget {
     /// represents a consistent point-in-time snapshot of the budget state.
     pub fn remaining_micro_cents(&self) -> u64 {
         self.remaining_micro_cents.load(Ordering::Relaxed)
+    }
+
+    /// Returns how many output tokens the current remaining budget can fund.
+    pub fn remaining_output_tokens(&self) -> u32 {
+        if self.output_token_rate_micro_cents == 0 {
+            return u32::MAX;
+        }
+        std::cmp::min(
+            self.remaining_micro_cents()
+                .checked_div(self.output_token_rate_micro_cents)
+                .unwrap_or(0),
+            u32::MAX as u64,
+        ) as u32
     }
 
     /// Returns the total micro-cents allocated to this budget.
@@ -1345,32 +1412,40 @@ impl<'a> BudgetAllocation<'a> {
     ///
     /// Output token costs are charged to this allocation, which represents the
     /// agent's generation budget for the current turn. Input token costs (input,
-    /// cache creation, cache read) are charged directly to the main budget because
-    /// they grow with conversation history and are not under the agent's control.
+    /// cache creation, cache read) are charged directly to the main budget first
+    /// because they grow with conversation history and are not under the agent's
+    /// control. If the main budget cannot cover all input costs, the deficit is
+    /// charged to this allocation so total budget accounting still saturates at
+    /// zero after the request.
     ///
     /// This prevents input token costs from starving the output budget as
     /// conversations grow longer over multiple tool-use steps.
     ///
     /// # Returns
     ///
-    /// - `true` if the output cost was within the remaining allocation
-    /// - `false` if the output cost exceeds the remaining allocation
+    /// - `true` if the output cost plus any input deficit was within the remaining allocation
+    /// - `false` if that cost exceeds the remaining allocation
     ///
-    /// Input costs are always deducted from the main budget (saturating at zero)
-    /// regardless of the return value, because the API call already happened.
+    /// Costs are deducted regardless of the return value, because the API call
+    /// already happened.
     #[must_use]
     pub fn consume_response(&mut self, usage: &crate::Usage) -> bool {
         let input_cost = self.budget.calculate_input_cost(usage);
         let output_cost = self.budget.calculate_output_cost(usage);
 
         // Charge input costs to main budget (sunk cost from the API call).
-        self.budget.consume_cost_micro_cents_saturating(input_cost);
+        let input_consumed = self.budget.consume_cost_micro_cents_saturating(input_cost);
+        let input_deficit = input_cost.saturating_sub(input_consumed);
 
-        // Charge output costs to allocation.
-        if output_cost <= self.allocated_micro_cents {
-            self.allocated_micro_cents -= output_cost;
+        // Charge output costs to allocation. If the main budget could not cover
+        // all input costs, charge that deficit to the reserved output budget so
+        // total spend still saturates at zero after the request.
+        let allocation_cost = output_cost.saturating_add(input_deficit);
+        if allocation_cost <= self.allocated_micro_cents {
+            self.allocated_micro_cents -= allocation_cost;
             true
         } else {
+            self.allocated_micro_cents = 0;
             false
         }
     }
@@ -1781,7 +1856,7 @@ pub trait Agent: Send + Sync + Sized {
         budget: &Arc<Budget>,
     ) -> Result<TurnOutcome, Error> {
         let turn_start = Instant::now();
-        let Some(mut tokens_rem) = budget.allocate(self.max_tokens().await) else {
+        let Some(mut tokens_rem) = budget.allocate_available(self.max_tokens().await) else {
             AGENT_TURN_DURATION.add(turn_start.elapsed().as_secs_f64());
             let stop_reason = self.handle_max_tokens().await?;
             return Ok(TurnOutcome {
@@ -1831,7 +1906,7 @@ pub trait Agent: Send + Sync + Sized {
     ) -> Result<TurnOutcome, Error> {
         let turn_start = Instant::now();
         renderer.start_agent(&context);
-        let Some(mut tokens_rem) = budget.allocate(self.max_tokens().await) else {
+        let Some(mut tokens_rem) = budget.allocate_available(self.max_tokens().await) else {
             AGENT_TURN_DURATION.add(turn_start.elapsed().as_secs_f64());
             let stop_reason = self.handle_max_tokens().await?;
             renderer.finish_agent(&context, Some(&stop_reason));
@@ -2871,23 +2946,25 @@ async fn step_default_turn_impl<A: Agent>(
             }
         };
 
-        if let Err(err) = agent.hook_message(&resp).await {
-            return ControlFlow::Break(Err(err));
-        }
-
         let assistant_message = MessageParam {
             role: MessageRole::Assistant,
             content: MessageParamContent::Array(resp.content.clone()),
         };
         usage_total = usage_total + resp.usage;
-        if !tokens_rem.consume_response(&resp.usage) {
+        request_count = request_count.saturating_add(1);
+        let response_within_budget = tokens_rem.consume_response(&resp.usage);
+
+        if let Err(err) = agent.hook_message(&resp).await {
+            return ControlFlow::Break(Err(err));
+        }
+
+        if !response_within_budget {
             return ControlFlow::Break(Ok(TurnOutcome {
                 stop_reason: StopReason::MaxTokens,
                 usage: usage_total,
                 request_count,
             }));
         }
-        request_count = request_count.saturating_add(1);
         push_or_merge_message(messages, assistant_message);
 
         let tool_results = match resp.stop_reason {
@@ -3185,6 +3262,23 @@ mod tests {
         let allocation = budget.allocate(100);
         assert!(allocation.is_none());
         assert_eq!(budget.remaining_micro_cents(), 500);
+    }
+
+    #[test]
+    fn budget_allocate_available_caps_to_remaining_output_tokens() {
+        let budget = Budget::new_flat_rate(255, 10);
+        let allocation = budget.allocate_available(100).unwrap();
+
+        assert_eq!(allocation.remaining_tokens(), 25);
+        assert_eq!(budget.remaining_micro_cents(), 5);
+    }
+
+    #[test]
+    fn budget_allocate_available_fails_when_no_output_token_fits() {
+        let budget = Budget::new_flat_rate(9, 10);
+
+        assert!(budget.allocate_available(100).is_none());
+        assert_eq!(budget.remaining_micro_cents(), 9);
     }
 
     #[test]
@@ -4911,6 +5005,21 @@ mod tests {
     }
 
     #[test]
+    fn consume_response_charges_input_deficit_to_allocation() {
+        let budget = Budget::new_flat_rate(1000, 10);
+        let initial_budget = budget.remaining_micro_cents();
+
+        let mut allocation = budget.allocate_available(100).unwrap();
+        assert_eq!(budget.remaining_micro_cents(), 0);
+
+        let usage = Usage::new(20, 30);
+        assert!(allocation.consume_response(&usage));
+
+        drop(allocation);
+        assert_eq!(budget.remaining_micro_cents(), initial_budget - 500);
+    }
+
+    #[test]
     fn consume_response_input_does_not_starve_output_budget() {
         // This test demonstrates the fix: large input costs don't drain the output budget.
         let budget = Budget::new_with_rates(500_000_000, 300, 1500, 375, 30);
@@ -4974,6 +5083,44 @@ mod tests {
         // Allocated at output rate: 50 * 1500 = 75_000
         assert_eq!(budget.remaining_micro_cents(), 25_000);
         assert_eq!(allocation.remaining_tokens(), 50);
+    }
+
+    struct RequestCapAgent {
+        seen_max_tokens: Arc<std::sync::Mutex<Option<u32>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Agent for RequestCapAgent {
+        async fn max_tokens(&self) -> u32 {
+            100
+        }
+
+        async fn hook_message_create_params(&self, req: &MessageCreateParams) -> Result<(), Error> {
+            *self.seen_max_tokens.lock().unwrap() = Some(req.max_tokens);
+            Err(Error::bad_request(
+                "stop before network",
+                Some("max_tokens".to_string()),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn default_turn_caps_request_max_tokens_to_available_budget() {
+        let seen_max_tokens = Arc::new(std::sync::Mutex::new(None));
+        let mut agent = RequestCapAgent {
+            seen_max_tokens: Arc::clone(&seen_max_tokens),
+        };
+        let client = Anthropic::new(None).unwrap();
+        let budget = Arc::new(Budget::new_flat_rate(255, 10));
+        let mut messages = vec![MessageParam::user("hello")];
+
+        let err = agent
+            .take_turn(&client, &mut messages, &budget)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, Error::BadRequest { .. }));
+        assert_eq!(*seen_max_tokens.lock().unwrap(), Some(25));
     }
 
     // Budget State Management Tests

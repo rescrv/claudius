@@ -301,14 +301,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             terminal.print_info(&context, "Effort level cleared.");
                         }
                         ChatCommand::Spend(dollars) => {
-                            session.config_mut().set_session_spend(Some(dollars));
+                            session.set_session_spend(Some(dollars));
                             terminal.print_info(
                                 &context,
                                 &format!("Session spend limit set to ${dollars:.2}."),
                             );
                         }
                         ChatCommand::ClearSpend => {
-                            session.config_mut().session_spend = None;
+                            session.set_session_spend(None);
                             terminal.print_info(&context, "Session spend limit cleared.");
                         }
                         ChatCommand::Caching(enabled) => {
