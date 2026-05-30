@@ -28,6 +28,7 @@ pub use agent::{
     Agent, Budget, FileSystem, IntermediateToolResult, Mount, MountHierarchy, Permissions,
     TokenKind, Tool, ToolCallback, ToolResult, ToolSearchFileSystem, TurnOutcome, TurnStep,
 };
+pub use chat::ThinkingMode;
 pub use client::{Anthropic, LoggingStream};
 pub use client_logger::ClientLogger;
 pub use error::{Error, Result};

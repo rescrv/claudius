@@ -119,7 +119,10 @@ mod tests {
         let expected = serde_json::json!({
             "limit": 50,
         });
-        assert_eq!(json, expected, "betas should not appear in serialized JSON (they are sent as HTTP headers)");
+        assert_eq!(
+            json, expected,
+            "betas should not appear in serialized JSON (they are sent as HTTP headers)"
+        );
     }
 
     #[test]

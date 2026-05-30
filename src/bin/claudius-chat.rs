@@ -42,7 +42,7 @@ use claudius::chat::{
     ChatAgent, ChatArgs, ChatCommand, ChatConfig, ChatSession, PlainTextRenderer, help_text,
     parse_command,
 };
-use claudius::{Anthropic, Model, StopReason, SystemPrompt, ThinkingConfig};
+use claudius::{Anthropic, Effort, Model, StopReason, SystemPrompt, ThinkingConfig};
 use claudius::{OperatorLine, Renderer, StreamContext};
 
 struct ChatTerminal {
@@ -266,7 +266,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             print_stop_sequences(sequences);
                         }
                         ChatCommand::Thinking(budget) => {
-                            session.template_mut().thinking = budget.map(ThinkingConfig::enabled);
+                            session.config_mut().set_thinking_budget(budget);
                             match budget {
                                 Some(tokens) => {
                                     terminal.print_info(
@@ -282,12 +282,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                         }
-                        ChatCommand::Budget(_tokens) => {
-                            terminal.print_error(&context, "budget not supported");
+                        ChatCommand::ThinkingAdaptive => {
+                            let effort = session.config().effort();
+                            session.config_mut().set_thinking_adaptive(effort);
+                            terminal.print_info(&context, "Adaptive thinking enabled.");
                         }
-                        ChatCommand::ClearBudget => {
-                            session.config_mut().session_budget = None;
-                            terminal.print_info(&context, "Session budget cleared.");
+                        ChatCommand::Effort(effort) => {
+                            session.config_mut().set_effort(Some(effort));
+                            let label = match effort {
+                                Effort::Low => "low",
+                                Effort::Medium => "medium",
+                                Effort::High => "high",
+                            };
+                            terminal.print_info(&context, &format!("Effort level set to {label}."));
+                        }
+                        ChatCommand::ClearEffort => {
+                            session.config_mut().set_effort(None);
+                            terminal.print_info(&context, "Effort level cleared.");
+                        }
+                        ChatCommand::Spend(dollars) => {
+                            session.set_session_spend(Some(dollars));
+                            terminal.print_info(
+                                &context,
+                                &format!("Session spend limit set to ${dollars:.2}."),
+                            );
+                        }
+                        ChatCommand::ClearSpend => {
+                            session.set_session_spend(None);
+                            terminal.print_info(&context, "Session spend limit cleared.");
                         }
                         ChatCommand::Caching(enabled) => {
                             session.config_mut().caching_enabled = enabled;
@@ -384,13 +406,7 @@ fn print_stats<A: ChatAgent>(session: &ChatSession<A>) {
     } else {
         println!("      System prompt: (none)");
     }
-    println!(
-        "      Thinking: {}",
-        match stats.thinking_budget {
-            Some(budget) => format!("enabled ({} tokens)", budget),
-            None => "disabled".to_string(),
-        }
-    );
+    println!("      Thinking: {}", describe_thinking(&stats));
     print_stop_sequences(&stats.stop_sequences);
     println!(
         "      Total tokens: {} in / {} out ({} requests)",
@@ -406,14 +422,13 @@ fn print_stats<A: ChatAgent>(session: &ChatSession<A>) {
         let output = stats.last_turn_output_tokens.unwrap_or(0);
         println!("      Last turn tokens: {input} in / {output} out");
     }
-    if let Some(limit) = stats.session_budget_tokens {
-        let remaining = limit.saturating_sub(stats.budget_spent_tokens);
-        println!(
-            "      Budget: {}/{} tokens ({} remaining)",
-            stats.budget_spent_tokens, limit, remaining
-        );
+    if let Some(limit) = stats.session_spend_micro_cents {
+        let spent = stats.spend_used_micro_cents as f64 / 100_000_000.0;
+        let total = limit as f64 / 100_000_000.0;
+        let remaining = limit.saturating_sub(stats.spend_used_micro_cents) as f64 / 100_000_000.0;
+        println!("      Spend limit: ${spent:.4}/${total:.2} (${remaining:.4} remaining)");
     } else {
-        println!("      Budget: (not set)");
+        println!("      Spend limit: (not set)");
     }
     match stats.transcript_path {
         Some(ref path) => println!("      Transcript file: {}", path.display()),
@@ -429,13 +444,7 @@ fn print_config<A: ChatAgent>(session: &ChatSession<A>) {
     println!("      Temperature: {}", describe_float(stats.temperature));
     println!("      Top-p: {}", describe_float(stats.top_p));
     println!("      Top-k: {}", describe_top_k(stats.top_k));
-    println!(
-        "      Thinking: {}",
-        match stats.thinking_budget {
-            Some(budget) => format!("enabled ({} tokens)", budget),
-            None => "disabled".to_string(),
-        }
-    );
+    println!("      Thinking: {}", describe_thinking(&stats));
     println!(
         "      Caching: {}",
         if stats.caching_enabled {
@@ -464,6 +473,26 @@ fn print_stop_sequences(stop_sequences: &[String]) {
         for seq in stop_sequences {
             println!("        - {}", seq);
         }
+    }
+}
+
+fn describe_thinking(stats: &claudius::chat::SessionStats) -> String {
+    match stats.thinking_config {
+        Some(ThinkingConfig::Adaptive) => {
+            let effort = stats
+                .effort
+                .map(|e| match e {
+                    Effort::Low => "low",
+                    Effort::Medium => "medium",
+                    Effort::High => "high",
+                })
+                .unwrap_or("default");
+            format!("adaptive (effort: {effort})")
+        }
+        Some(ThinkingConfig::Enabled { budget_tokens }) => {
+            format!("enabled ({budget_tokens} tokens)")
+        }
+        Some(ThinkingConfig::Disabled) | None => "disabled".to_string(),
     }
 }
 

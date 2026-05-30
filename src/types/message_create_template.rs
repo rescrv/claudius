@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    MessageCreateParams, MessageParam, Metadata, Model, SystemPrompt, ThinkingConfig, ToolChoice,
-    ToolUnionParam,
+    MessageCreateParams, MessageParam, Metadata, Model, OutputConfig, SystemPrompt, ThinkingConfig,
+    ToolChoice, ToolUnionParam,
 };
 
 /// A template for creating message parameters.
@@ -55,6 +55,10 @@ pub struct MessageCreateTemplate {
     /// Amount of randomness injected into the response.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+
+    /// Output configuration (effort level, structured output format).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_config: Option<OutputConfig>,
 
     /// Configuration for enabling Claude's extended thinking.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -150,6 +154,12 @@ impl MessageCreateTemplate {
         Ok(self)
     }
 
+    /// Set the output configuration.
+    pub fn with_output_config(mut self, output_config: OutputConfig) -> Self {
+        self.output_config = Some(output_config);
+        self
+    }
+
     /// Set the thinking configuration field.
     pub fn with_thinking(mut self, thinking: ThinkingConfig) -> Self {
         self.thinking = Some(thinking);
@@ -210,6 +220,9 @@ impl MessageCreateTemplate {
         if other.temperature.is_some() {
             self.temperature = other.temperature;
         }
+        if other.output_config.is_some() {
+            self.output_config = other.output_config;
+        }
         if other.thinking.is_some() {
             self.thinking = other.thinking;
         }
@@ -258,6 +271,9 @@ impl MessageCreateTemplate {
         if let Some(temperature) = self.temperature {
             params.temperature = Some(temperature);
         }
+        if let Some(output_config) = self.output_config {
+            params.output_config = Some(output_config);
+        }
         if let Some(thinking) = self.thinking {
             params.thinking = Some(thinking);
         }
@@ -296,6 +312,7 @@ mod tests {
         assert!(template.stop_sequences.is_none());
         assert!(template.system.is_none());
         assert!(template.temperature.is_none());
+        assert!(template.output_config.is_none());
         assert!(template.thinking.is_none());
         assert!(template.tool_choice.is_none());
         assert!(template.tools.is_none());

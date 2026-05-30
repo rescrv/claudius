@@ -53,11 +53,20 @@ pub enum ChatCommand {
     /// `None` disables thinking, `Some(budget)` enables with the given token budget.
     Thinking(Option<u32>),
 
-    /// Set a per-session token budget.
-    Budget(u64),
+    /// Enable adaptive thinking (with default or current effort level).
+    ThinkingAdaptive,
 
-    /// Clear the token budget.
-    ClearBudget,
+    /// Set the effort level for adaptive thinking.
+    Effort(crate::types::Effort),
+
+    /// Clear the effort level.
+    ClearEffort,
+
+    /// Set a per-session dollar spend limit.
+    Spend(f64),
+
+    /// Clear the spend limit.
+    ClearSpend,
 
     /// Enable or disable prompt caching.
     Caching(bool),
@@ -152,15 +161,19 @@ pub fn parse_command(input: &str) -> Option<ChatCommand> {
         },
         "stop" => parse_stop_command(argument),
         "thinking" => parse_thinking_command(argument),
-        "budget" => match argument {
-            Some(arg) if arg.eq_ignore_ascii_case("clear") => ChatCommand::ClearBudget,
-            Some(arg) => match arg.parse::<u64>() {
-                Ok(value) => ChatCommand::Budget(value),
+        "effort" => parse_effort_command(argument),
+        "spend" => match argument {
+            Some(arg) if arg.eq_ignore_ascii_case("clear") => ChatCommand::ClearSpend,
+            Some(arg) => match arg.parse::<f64>() {
+                Ok(value) if value.is_finite() && value > 0.0 => ChatCommand::Spend(value),
+                Ok(_) => {
+                    ChatCommand::Invalid("/spend expects a positive dollar amount".to_string())
+                }
                 Err(_) => {
-                    ChatCommand::Invalid("/budget expects an integer token count".to_string())
+                    ChatCommand::Invalid("/spend expects a positive dollar amount".to_string())
                 }
             },
-            None => ChatCommand::Invalid("/budget requires a value".to_string()),
+            None => ChatCommand::Invalid("/spend requires a dollar amount".to_string()),
         },
         "cache" => parse_cache_command(argument),
         "transcript" => match argument {
@@ -236,7 +249,7 @@ const DEFAULT_THINKING_BUDGET: u32 = 1024;
 fn parse_thinking_command(argument: Option<&str>) -> ChatCommand {
     let Some(arg) = argument else {
         return ChatCommand::Invalid(
-            "/thinking expects 'on', 'off', or a token budget (e.g., 2048)".to_string(),
+            "/thinking expects 'on', 'off', 'adaptive', or a token budget (e.g., 2048)".to_string(),
         );
     };
 
@@ -244,12 +257,33 @@ fn parse_thinking_command(argument: Option<&str>) -> ChatCommand {
     match lower.as_str() {
         "off" | "false" | "no" => ChatCommand::Thinking(None),
         "on" | "true" | "yes" => ChatCommand::Thinking(Some(DEFAULT_THINKING_BUDGET)),
+        "adaptive" => ChatCommand::ThinkingAdaptive,
         _ => match arg.parse::<u32>() {
             Ok(budget) => ChatCommand::Thinking(Some(budget)),
             Err(_) => ChatCommand::Invalid(
-                "/thinking expects 'on', 'off', or a token budget (e.g., 2048)".to_string(),
+                "/thinking expects 'on', 'off', 'adaptive', or a token budget (e.g., 2048)"
+                    .to_string(),
             ),
         },
+    }
+}
+
+fn parse_effort_command(argument: Option<&str>) -> ChatCommand {
+    let Some(arg) = argument else {
+        return ChatCommand::Invalid(
+            "/effort expects 'low', 'medium', 'high', or 'clear'".to_string(),
+        );
+    };
+
+    let lower = arg.to_lowercase();
+    match lower.as_str() {
+        "low" => ChatCommand::Effort(crate::types::Effort::Low),
+        "medium" | "med" => ChatCommand::Effort(crate::types::Effort::Medium),
+        "high" => ChatCommand::Effort(crate::types::Effort::High),
+        "clear" | "off" | "none" => ChatCommand::ClearEffort,
+        _ => {
+            ChatCommand::Invalid("/effort expects 'low', 'medium', 'high', or 'clear'".to_string())
+        }
     }
 }
 
@@ -279,9 +313,10 @@ pub fn help_text() -> &'static str {
   /stop add <seq>        Add a stop sequence
   /stop clear            Clear all stop sequences
   /stop list             List current stop sequences
-  /thinking on|off|<n>   Enable/disable extended thinking (or set budget)
+  /thinking on|off|adaptive|<n>  Enable/disable extended thinking (or set budget)
+  /effort low|medium|high|clear  Set effort level for adaptive thinking
   /cache on|off          Enable/disable prompt caching
-  /budget <tokens>       Set total session budget (or 'clear')
+  /spend <dollars>       Set session spend limit in dollars (or 'clear')
   /transcript <file>     Enable auto-saving transcripts (or 'clear')
   /save <file>           Save the current transcript immediately
   /load <file>           Load a transcript from disk
@@ -384,6 +419,10 @@ mod tests {
             parse_command("/thinking 2048"),
             Some(ChatCommand::Thinking(Some(2048)))
         );
+        assert_eq!(
+            parse_command("/thinking adaptive"),
+            Some(ChatCommand::ThinkingAdaptive)
+        );
         assert!(matches!(
             parse_command("/thinking maybe"),
             Some(ChatCommand::Invalid(msg)) if msg.contains("expects")
@@ -391,15 +430,55 @@ mod tests {
     }
 
     #[test]
-    fn parse_budget() {
+    fn parse_effort_levels() {
         assert_eq!(
-            parse_command("/budget 1000"),
-            Some(ChatCommand::Budget(1000))
+            parse_command("/effort low"),
+            Some(ChatCommand::Effort(crate::types::Effort::Low))
         );
         assert_eq!(
-            parse_command("/budget clear"),
-            Some(ChatCommand::ClearBudget)
+            parse_command("/effort medium"),
+            Some(ChatCommand::Effort(crate::types::Effort::Medium))
         );
+        assert_eq!(
+            parse_command("/effort med"),
+            Some(ChatCommand::Effort(crate::types::Effort::Medium))
+        );
+        assert_eq!(
+            parse_command("/effort high"),
+            Some(ChatCommand::Effort(crate::types::Effort::High))
+        );
+        assert_eq!(
+            parse_command("/effort clear"),
+            Some(ChatCommand::ClearEffort)
+        );
+        assert_eq!(parse_command("/effort off"), Some(ChatCommand::ClearEffort));
+        assert!(matches!(
+            parse_command("/effort"),
+            Some(ChatCommand::Invalid(msg)) if msg.contains("expects")
+        ));
+        assert!(matches!(
+            parse_command("/effort whatever"),
+            Some(ChatCommand::Invalid(msg)) if msg.contains("expects")
+        ));
+    }
+
+    #[test]
+    fn parse_spend() {
+        assert_eq!(parse_command("/spend 5.0"), Some(ChatCommand::Spend(5.0)));
+        assert_eq!(parse_command("/spend 0.50"), Some(ChatCommand::Spend(0.50)));
+        assert_eq!(parse_command("/spend clear"), Some(ChatCommand::ClearSpend));
+        assert!(matches!(
+            parse_command("/spend -1.0"),
+            Some(ChatCommand::Invalid(_))
+        ));
+        assert!(matches!(
+            parse_command("/spend 0.0"),
+            Some(ChatCommand::Invalid(_))
+        ));
+        assert!(matches!(
+            parse_command("/spend abc"),
+            Some(ChatCommand::Invalid(_))
+        ));
     }
 
     #[test]

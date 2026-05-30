@@ -1,4 +1,5 @@
 use std::env;
+use std::error::Error as StdError;
 use std::fs;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -78,8 +79,22 @@ impl Stream for LoggingStream<'_> {
 
 const DEFAULT_API_URL: &str = "https://api.anthropic.com";
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
+/// Default connect/read inactivity timeout shared by all requests.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 const STRUCTURED_OUTPUTS_BETA: &str = "structured-outputs-2025-11-13";
+
+fn format_reqwest_error(err: &reqwest::Error) -> String {
+    let mut parts = vec![err.to_string()];
+    let mut source = StdError::source(err);
+    while let Some(inner) = source {
+        let detail = inner.to_string();
+        if !parts.iter().any(|part| part == &detail) {
+            parts.push(detail);
+        }
+        source = inner.source();
+    }
+    parts.join(": ")
+}
 
 /// Client for the Anthropic API with performance optimizations.
 #[derive(Debug, Clone)]
@@ -98,6 +113,22 @@ pub struct Anthropic {
 }
 
 impl Anthropic {
+    fn build_http_client(timeout: Duration) -> Result<ReqwestClient> {
+        ReqwestClient::builder()
+            .connect_timeout(timeout)
+            .read_timeout(timeout)
+            .pool_max_idle_per_host(10) // Connection pooling optimization
+            .pool_idle_timeout(Duration::from_secs(90))
+            .tcp_keepalive(Duration::from_secs(60))
+            .build()
+            .map_err(|e| {
+                Error::http_client(
+                    format!("Failed to build HTTP client: {e}"),
+                    Some(Box::new(e)),
+                )
+            })
+    }
+
     /// Resolve an API key value, handling file:// URLs
     fn resolve_api_key(key_value: &str) -> Result<String> {
         if let Some(stripped) = key_value.strip_prefix("file://") {
@@ -149,18 +180,7 @@ impl Anthropic {
         };
 
         let timeout = DEFAULT_TIMEOUT;
-        let client = ReqwestClient::builder()
-            .timeout(timeout)
-            .pool_max_idle_per_host(10) // Connection pooling optimization
-            .pool_idle_timeout(Duration::from_secs(90))
-            .tcp_keepalive(Duration::from_secs(60))
-            .build()
-            .map_err(|e| {
-                Error::http_client(
-                    format!("Failed to build HTTP client: {e}"),
-                    Some(Box::new(e)),
-                )
-            })?;
+        let client = Self::build_http_client(timeout)?;
 
         // Pre-build headers for performance
         let cached_headers = Arc::new(Self::build_default_headers(&api_key)?);
@@ -213,25 +233,18 @@ impl Anthropic {
 
     /// Set a custom timeout for this client.
     ///
-    /// This method allows you to specify a different timeout for API requests.
+    /// This method allows you to specify a different connect/read inactivity
+    /// timeout for API requests.
     pub fn with_timeout(mut self, timeout: Duration) -> Result<Self> {
         self.timeout = timeout;
 
-        // Recreate the client with the new timeout and performance optimizations
-        let client = ReqwestClient::builder()
-            .timeout(timeout)
-            .pool_max_idle_per_host(10)
-            .pool_idle_timeout(Duration::from_secs(90))
-            .tcp_keepalive(Duration::from_secs(60))
-            .build()
-            .map_err(|e| {
-                Error::http_client(
-                    "Failed to build HTTP client with new timeout",
-                    Some(Box::new(e)),
-                )
-            })?;
-
-        self.client = client;
+        self.client = Self::build_http_client(timeout).map_err(|e| match e {
+            Error::HttpClient { source, .. } => Error::http_client(
+                "Failed to build HTTP client with new timeout",
+                source.map(|src| Box::new(src) as Box<dyn std::error::Error + Send + Sync>),
+            ),
+            other => other,
+        })?;
         Ok(self)
     }
 
@@ -325,11 +338,7 @@ impl Anthropic {
     /// Collect all beta strings from client defaults, per-request, and auto-detected sources.
     ///
     /// Returns a deduplicated, ordered list.
-    fn collect_betas(
-        &self,
-        request_betas: Option<&[String]>,
-        auto_betas: &[&str],
-    ) -> Vec<String> {
+    fn collect_betas(&self, request_betas: Option<&[String]>, auto_betas: &[&str]) -> Vec<String> {
         let mut seen = std::collections::HashSet::new();
         let mut result = Vec::new();
 
@@ -505,15 +514,36 @@ impl Anthropic {
 
     /// Convert reqwest errors to appropriate Error types
     fn map_request_error(&self, e: reqwest::Error) -> Error {
+        let details = format_reqwest_error(&e);
         if e.is_timeout() {
             Error::timeout(
-                format!("Request timed out: {e}"),
+                format!("Request timed out: {details}"),
                 Some(self.timeout.as_secs_f64()),
             )
         } else if e.is_connect() {
-            Error::connection(format!("Connection error: {e}"), Some(Box::new(e)))
+            Error::connection(format!("Connection error: {details}"), Some(Box::new(e)))
         } else {
-            Error::http_client(format!("Request failed: {e}"), Some(Box::new(e)))
+            Error::http_client(format!("Request failed: {details}"), Some(Box::new(e)))
+        }
+    }
+
+    fn map_response_body_error(&self, e: reqwest::Error) -> Error {
+        let details = format_reqwest_error(&e);
+        if e.is_timeout() {
+            Error::timeout(
+                format!("Response body timed out: {details}"),
+                Some(self.timeout.as_secs_f64()),
+            )
+        } else if e.is_connect() {
+            Error::connection(
+                format!("Response body connection error: {details}"),
+                Some(Box::new(e)),
+            )
+        } else {
+            Error::http_client(
+                format!("Failed to read response body: {details}"),
+                Some(Box::new(e)),
+            )
         }
     }
 
@@ -539,7 +569,12 @@ impl Anthropic {
             return Err(Self::process_error_response(response).await);
         }
 
-        response.json::<T>().await.map_err(|e| {
+        let body = response
+            .bytes()
+            .await
+            .map_err(|e| self.map_response_body_error(e))?;
+
+        serde_json::from_slice::<T>(&body).map_err(|e| {
             Error::serialization(format!("Failed to parse response: {e}"), Some(Box::new(e)))
         })
     }
@@ -569,7 +604,12 @@ impl Anthropic {
             return Err(Self::process_error_response(response).await);
         }
 
-        response.json::<T>().await.map_err(|e| {
+        let body = response
+            .bytes()
+            .await
+            .map_err(|e| self.map_response_body_error(e))?;
+
+        serde_json::from_slice::<T>(&body).map_err(|e| {
             Error::serialization(format!("Failed to parse response: {e}"), Some(Box::new(e)))
         })
     }
@@ -681,7 +721,7 @@ impl Anthropic {
                     .client
                     .post(&url)
                     .headers(headers)
-                    .json(&params)
+                    .json(params)
                     .send()
                     .await
                     .map_err(|e| self.map_request_error(e))?;
@@ -827,8 +867,70 @@ impl Anthropic {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{KnownModel, MessageParam, Model};
+    use futures::StreamExt;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    fn request_headers_end(buffer: &[u8]) -> Option<usize> {
+        buffer.windows(4).position(|window| window == b"\r\n\r\n")
+    }
+
+    async fn read_http_request(socket: &mut tokio::net::TcpStream) {
+        let mut buffer = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        loop {
+            let read = socket.read(&mut chunk).await.unwrap();
+            assert!(
+                read > 0,
+                "client closed the connection before sending headers"
+            );
+            buffer.extend_from_slice(&chunk[..read]);
+            if request_headers_end(&buffer).is_some() {
+                break;
+            }
+        }
+
+        let headers_end = request_headers_end(&buffer).unwrap();
+        let headers = String::from_utf8_lossy(&buffer[..headers_end]);
+        let content_length = headers
+            .lines()
+            .find_map(|line| {
+                let mut parts = line.splitn(2, ':');
+                let name = parts.next()?.trim();
+                let value = parts.next()?.trim();
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.parse::<usize>().ok())
+                    .flatten()
+            })
+            .unwrap_or(0);
+
+        while buffer.len() - (headers_end + 4) < content_length {
+            let read = socket.read(&mut chunk).await.unwrap();
+            assert!(
+                read > 0,
+                "client closed the connection before sending the full body"
+            );
+            buffer.extend_from_slice(&chunk[..read]);
+        }
+    }
+
+    async fn start_test_server<F, Fut>(handler: F) -> String
+    where
+        F: FnOnce(tokio::net::TcpStream) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            socket.set_nodelay(true).unwrap();
+            handler(socket).await;
+        });
+        format!("http://{}", address)
+    }
 
     #[tokio::test]
     async fn retry_logic_with_backoff() {
@@ -1286,5 +1388,127 @@ mod tests {
     fn with_default_betas_builder() {
         let client = test_client().with_default_betas(["a", "b", "c"]);
         assert_eq!(client.default_betas, vec!["a", "b", "c"]);
+    }
+
+    #[tokio::test]
+    async fn streaming_timeout_is_inactivity_based() {
+        let base_url = start_test_server(|mut socket| async move {
+            read_http_request(&mut socket).await;
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\n\
+Content-Type: text/event-stream\r\n\
+Cache-Control: no-cache\r\n\
+Connection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+
+            for chunk in [
+                b"event: ping\n".as_slice(),
+                b"data: {}\n".as_slice(),
+                b"\n".as_slice(),
+            ] {
+                socket.write_all(chunk).await.unwrap();
+                socket.flush().await.unwrap();
+                tokio::time::sleep(Duration::from_millis(40)).await;
+            }
+        })
+        .await;
+
+        let client = Anthropic::new(Some("test_key".to_string()))
+            .unwrap()
+            .with_base_url(base_url)
+            .with_timeout(Duration::from_millis(75))
+            .unwrap();
+        let params = MessageCreateParams::new_streaming(
+            16,
+            vec![MessageParam::user("ping")],
+            Model::Known(KnownModel::ClaudeHaiku45),
+        );
+
+        let mut stream = std::pin::pin!(client.stream(&params).await.unwrap());
+        let first = stream.next().await.unwrap().unwrap();
+        assert_eq!(first, MessageStreamEvent::Ping);
+    }
+
+    #[tokio::test]
+    async fn streaming_stall_reports_timeout_error() {
+        let base_url = start_test_server(|mut socket| async move {
+            read_http_request(&mut socket).await;
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\n\
+Content-Type: text/event-stream\r\n\
+Cache-Control: no-cache\r\n\
+Connection: close\r\n\r\n\
+event: ping\n",
+                )
+                .await
+                .unwrap();
+            socket.flush().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(120)).await;
+            socket.write_all(b"data: {}\n\n").await.unwrap();
+            socket.flush().await.unwrap();
+        })
+        .await;
+
+        let client = Anthropic::new(Some("test_key".to_string()))
+            .unwrap()
+            .with_base_url(base_url)
+            .with_timeout(Duration::from_millis(50))
+            .unwrap();
+        let params = MessageCreateParams::new_streaming(
+            16,
+            vec![MessageParam::user("ping")],
+            Model::Known(KnownModel::ClaudeHaiku45),
+        );
+
+        let mut stream = std::pin::pin!(client.stream(&params).await.unwrap());
+        let err = stream.next().await.unwrap().unwrap_err();
+        assert!(matches!(err, Error::Timeout { .. }));
+        assert!(err.to_string().contains("operation timed out"));
+    }
+
+    #[tokio::test]
+    async fn non_streaming_body_stall_reports_timeout_error() {
+        let base_url = start_test_server(|mut socket| async move {
+            read_http_request(&mut socket).await;
+            let body_prefix = b"{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-haiku-4-5-20251001\",\"content\":[{\"type\":\"text\",\"text\":\"hel";
+            let body_suffix = b"lo\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}";
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\n\
+Content-Type: application/json\r\n\
+Content-Length: {}\r\n\
+Connection: close\r\n\r\n",
+                body_prefix.len() + body_suffix.len()
+            );
+            socket
+                .write_all(headers.as_bytes())
+                .await
+                .unwrap();
+            socket.write_all(body_prefix).await.unwrap();
+            socket.flush().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(120)).await;
+            socket.write_all(body_suffix).await.unwrap();
+            socket.flush().await.unwrap();
+            socket.shutdown().await.unwrap();
+        })
+        .await;
+
+        let client = Anthropic::new(Some("test_key".to_string()))
+            .unwrap()
+            .with_base_url(base_url)
+            .with_timeout(Duration::from_millis(50))
+            .unwrap()
+            .with_max_retries(0);
+        let params = MessageCreateParams::new(
+            16,
+            vec![MessageParam::user("ping")],
+            Model::Known(KnownModel::ClaudeHaiku45),
+        );
+
+        let err = client.send(params).await.unwrap_err();
+        assert!(matches!(err, Error::Timeout { .. }), "{err:?}");
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "claudius"
-version = "0.24.0"
+version = "0.30.0"
 authors = ["Robert Escriva <robert@rescrv.net>"]
 edition = "2024"
 description = "SDK for the Anthropic API"
@@ -8,9 +8,12 @@ license = "Apache-2.0"
 repository = "https://github.com/rescrv/claudius"
 
 [features]
-default = ["binaries"]
+default = ["binaries", "native-tls"]
 
 binaries = []
+
+rustls-tls = ["reqwest/rustls"]
+native-tls = ["reqwest/native-tls"]
 
 [dependencies]
 async-trait = "0.1"
@@ -20,7 +23,7 @@ ctrlc = { version = "3.5", features = ["termination"] }
 futures = "0.3"
 getopts = "0.2"
 libc = "0.2"
-reqwest = { version = "0.13", features = ["json", "query", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "stream"] }
 rustyline = "17.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
@@ -30,10 +33,10 @@ tokio = { version = "^1.49", features = ["full"] }
 tokio-util = { version = "^0.7", features = ["codec"] }
 url = "2.5"
 
-arrrg = "^0.8"
-arrrg_derive = "^0.8"
-biometrics = "^0.12"
-utf8path = "^0.9"
+arrrg = "^0.9"
+arrrg_derive = "^0.9"
+biometrics = "^0.13"
+utf8path = "^0.10"
 
 [[bin]]
 name = "median-text"
