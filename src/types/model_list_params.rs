@@ -27,8 +27,10 @@ pub struct ModelListParams {
     pub limit: Option<u32>,
 
     /// Optional header to specify the beta version(s) you want to use.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "anthropic-beta")]
+    ///
+    /// These are sent as the `anthropic-beta` HTTP header, not as query
+    /// parameters. They are merged with any client-level default betas.
+    #[serde(skip)]
     pub betas: Option<Vec<String>>,
 }
 
@@ -116,9 +118,11 @@ mod tests {
         let json = serde_json::to_value(&params).unwrap();
         let expected = serde_json::json!({
             "limit": 50,
-            "anthropic-beta": ["token-counting-2024-11-01"]
         });
-        assert_eq!(json, expected);
+        assert_eq!(
+            json, expected,
+            "betas should not appear in serialized JSON (they are sent as HTTP headers)"
+        );
     }
 
     #[test]
@@ -126,15 +130,11 @@ mod tests {
         let json = serde_json::json!({
             "after_id": "model_123",
             "limit": 50,
-            "anthropic-beta": ["token-counting-2024-11-01"]
         });
         let params: ModelListParams = serde_json::from_value(json).unwrap();
 
         assert_eq!(params.after_id, Some("model_123".to_string()));
         assert_eq!(params.limit, Some(50));
-        assert_eq!(
-            params.betas,
-            Some(vec!["token-counting-2024-11-01".to_string()])
-        );
+        assert_eq!(params.betas, None);
     }
 }
