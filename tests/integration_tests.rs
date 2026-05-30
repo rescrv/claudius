@@ -11,10 +11,26 @@ mod tests {
     };
     use std::time::Duration;
 
+    fn non_empty_env(name: &str) -> Option<String> {
+        std::env::var(name)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+    }
+
+    fn anthropic_api_key() -> Option<String> {
+        non_empty_env("ANTHROPIC_API_KEY")
+    }
+
+    fn client_env_api_key_available() -> bool {
+        non_empty_env("CLAUDIUS_API_KEY").is_some()
+            || (std::env::var("CLAUDIUS_API_KEY").is_err()
+                && non_empty_env("ANTHROPIC_API_KEY").is_some())
+    }
+
     #[tokio::test]
     async fn simple_message_request() {
         // This test requires ANTHROPIC_API_KEY to be set
-        let api_key = std::env::var("ANTHROPIC_API_KEY").ok();
+        let api_key = anthropic_api_key();
         if api_key.is_none() {
             eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
             return;
@@ -40,7 +56,7 @@ mod tests {
 
     #[tokio::test]
     async fn streaming_response() {
-        let api_key = std::env::var("ANTHROPIC_API_KEY").ok();
+        let api_key = anthropic_api_key();
         if api_key.is_none() {
             eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
             return;
@@ -186,10 +202,10 @@ mod tests {
     #[tokio::test]
     async fn streaming_endpoint_with_env_api_key() {
         // Test streaming endpoint using Anthropic::new(None) to read from environment
-        assert!(
-            std::env::var("ANTHROPIC_API_KEY").is_ok() || std::env::var("CLAUDIUS_API_KEY").is_ok(),
-            "Either ANTHROPIC_API_KEY or CLAUDIUS_API_KEY must be set for this test"
-        );
+        if !client_env_api_key_available() {
+            eprintln!("Skipping test: no non-empty API key env var set");
+            return;
+        }
 
         let client = Anthropic::new(None).expect("Failed to create client with env API key");
 
@@ -224,10 +240,10 @@ mod tests {
     #[tokio::test]
     async fn non_streaming_endpoint_with_env_api_key() {
         // Test non-streaming endpoint using Anthropic::new(None) to read from environment
-        assert!(
-            std::env::var("ANTHROPIC_API_KEY").is_ok() || std::env::var("CLAUDIUS_API_KEY").is_ok(),
-            "Either ANTHROPIC_API_KEY or CLAUDIUS_API_KEY must be set for this test"
-        );
+        if !client_env_api_key_available() {
+            eprintln!("Skipping test: no non-empty API key env var set");
+            return;
+        }
 
         let client = Anthropic::new(None).expect("Failed to create client with env API key");
 

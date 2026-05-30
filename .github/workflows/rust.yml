@@ -30,6 +30,7 @@ jobs:
         env:
           CLAUDIUS_API_KEY: ${{ secrets.CLAUDIUS_API_KEY }}
       - name: prompt tests
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           # Run valid YAML files (excluding base.yaml which has no prompt/messages)
           cargo run --bin claudius-prompt -- --test --verbose prompts/*.yaml prompts/*.txt
