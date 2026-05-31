@@ -2380,7 +2380,7 @@ impl FileSystem for Path<'_> {
 
     async fn list_directory(&self, path: &str) -> Result<Option<String>, std::io::Error> {
         let path = sanitize_path(self.clone(), path)?;
-        if path.is_dir() {
+        if path.is_dir().unwrap_or(false) {
             Ok(Some(directory_listing(&path)?))
         } else {
             Ok(None)
@@ -2394,7 +2394,7 @@ impl FileSystem for Path<'_> {
     ) -> Result<String, std::io::Error> {
         validate_view_range(view_range)?;
         let path = sanitize_path(self.clone(), path)?;
-        if path.is_file() {
+        if path.is_file().unwrap_or(false) {
             let content = std::fs::read_to_string(path)?;
             let lines = content
                 .split('\n')
@@ -2409,7 +2409,7 @@ impl FileSystem for Path<'_> {
             let mut ret = lines.join("\n");
             ret.push('\n');
             Ok(ret)
-        } else if path.is_dir() {
+        } else if path.is_dir().unwrap_or(false) {
             directory_listing(&path)
         } else {
             Err(std::io::Error::new(
@@ -2426,7 +2426,7 @@ impl FileSystem for Path<'_> {
         new_str: &str,
     ) -> Result<String, std::io::Error> {
         let path = sanitize_path(self.clone(), path)?;
-        if path.is_file() {
+        if path.is_file().unwrap_or(false) {
             let content = std::fs::read_to_string(&path)?;
             let count = content.matches(old_str).count();
             if count == 0 {
@@ -2459,7 +2459,7 @@ impl FileSystem for Path<'_> {
         insert_text: &str,
     ) -> Result<String, std::io::Error> {
         let path = sanitize_path(self.clone(), path)?;
-        if path.is_file() {
+        if path.is_file().unwrap_or(false) {
             let content = std::fs::read_to_string(&path)?;
             let mut lines = content
                 .split_terminator('\n')
@@ -2496,7 +2496,7 @@ impl FileSystem for Path<'_> {
     /// Returns other I/O errors if file creation fails for other reasons.
     async fn create(&self, path: &str, file_text: &str) -> Result<String, std::io::Error> {
         let path = sanitize_path(self.clone(), path)?;
-        if !path.exists() {
+        if !path.exists().unwrap_or(false) {
             std::fs::create_dir_all(path.dirname())?;
             std::fs::write(&path, file_text)?;
             Ok("success".to_string())
