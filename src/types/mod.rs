@@ -18,6 +18,7 @@ mod document_block;
 mod image_block;
 mod input_json_delta;
 mod message;
+mod message_batch;
 mod message_count_tokens_params;
 mod message_create_params;
 mod message_create_template;
@@ -88,6 +89,12 @@ pub use document_block::{DocumentBlock, DocumentSource};
 pub use image_block::{ImageBlock, ImageSource};
 pub use input_json_delta::InputJsonDelta;
 pub use message::Message;
+pub use message_batch::{
+    DeletedMessageBatch, MessageBatch, MessageBatchCreateParams, MessageBatchCreateRequest,
+    MessageBatchError, MessageBatchErrorResponse, MessageBatchListParams, MessageBatchListResponse,
+    MessageBatchProcessingStatus, MessageBatchRequestCounts, MessageBatchResult,
+    MessageBatchResultVariant,
+};
 pub use message_count_tokens_params::MessageCountTokensParams;
 pub use message_create_params::MessageCreateParams;
 pub use message_create_template::MessageCreateTemplate;

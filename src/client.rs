@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::env;
 use std::error::Error as StdError;
 use std::fs;
@@ -6,7 +7,8 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use futures::Stream;
+use bytes::Bytes;
+use futures::{Stream, StreamExt, stream};
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client as ReqwestClient, Response, header};
 use serde::Deserialize;
@@ -22,8 +24,9 @@ use crate::observability::{
 };
 use crate::sse::process_message_stream_sse;
 use crate::types::{
-    Message, MessageCountTokensParams, MessageCreateParams, MessageStreamEvent, MessageTokensCount,
-    ModelInfo, ModelListParams, ModelListResponse,
+    DeletedMessageBatch, Message, MessageBatch, MessageBatchCreateParams, MessageBatchListParams,
+    MessageBatchListResponse, MessageBatchResult, MessageCountTokensParams, MessageCreateParams,
+    MessageStreamEvent, MessageTokensCount, ModelInfo, ModelListParams, ModelListResponse,
 };
 
 /// A stream wrapper that logs events and the final message through a [`ClientLogger`].
@@ -94,6 +97,131 @@ fn format_reqwest_error(err: &reqwest::Error) -> String {
         source = inner.source();
     }
     parts.join(": ")
+}
+
+const MAX_MESSAGE_BATCH_RESULT_LINE_BYTES: usize = 64 * 1024 * 1024;
+
+struct MessageBatchJsonlState<S> {
+    byte_stream: S,
+    buffer: Vec<u8>,
+    pending_lines: VecDeque<Vec<u8>>,
+    finished: bool,
+}
+
+fn map_batch_result_stream_error(err: reqwest::Error) -> Error {
+    let details = format_reqwest_error(&err);
+    if err.is_timeout() {
+        Error::timeout(
+            format!("Message batch results stream timed out: {details}"),
+            None,
+        )
+    } else if err.is_connect() {
+        Error::connection(
+            format!("Message batch results stream connection error: {details}"),
+            Some(Box::new(err)),
+        )
+    } else {
+        Error::streaming(
+            format!("Error in message batch results stream: {details}"),
+            Some(Box::new(err)),
+        )
+    }
+}
+
+fn parse_message_batch_result_line(line: &[u8]) -> Result<MessageBatchResult> {
+    let text = std::str::from_utf8(line).map_err(|e| {
+        Error::encoding(
+            format!("Invalid UTF-8 in message batch results JSONL: {e}"),
+            Some(Box::new(e)),
+        )
+    })?;
+
+    serde_json::from_str::<MessageBatchResult>(text).map_err(|e| {
+        Error::serialization(
+            format!("Failed to parse message batch results JSONL line: {e}"),
+            Some(Box::new(e)),
+        )
+    })
+}
+
+fn trim_jsonl_line(mut line: Vec<u8>) -> Vec<u8> {
+    if line.ends_with(b"\n") {
+        line.pop();
+    }
+    if line.ends_with(b"\r") {
+        line.pop();
+    }
+    line
+}
+
+fn process_message_batch_result_jsonl<S>(
+    byte_stream: S,
+) -> impl Stream<Item = Result<MessageBatchResult>>
+where
+    S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Unpin + 'static,
+{
+    let state = MessageBatchJsonlState {
+        byte_stream,
+        buffer: Vec::new(),
+        pending_lines: VecDeque::new(),
+        finished: false,
+    };
+
+    stream::unfold(state, |mut state| async move {
+        loop {
+            if let Some(line) = state.pending_lines.pop_front() {
+                if line.is_empty() {
+                    continue;
+                }
+                return Some((parse_message_batch_result_line(&line), state));
+            }
+
+            if state.finished {
+                if state.buffer.is_empty() {
+                    return None;
+                }
+                let line = trim_jsonl_line(std::mem::take(&mut state.buffer));
+                if line.is_empty() {
+                    continue;
+                }
+                return Some((parse_message_batch_result_line(&line), state));
+            }
+
+            match state.byte_stream.next().await {
+                Some(Ok(bytes)) => {
+                    state.buffer.extend_from_slice(&bytes);
+                    if state.buffer.len() > MAX_MESSAGE_BATCH_RESULT_LINE_BYTES {
+                        state.buffer.clear();
+                        state.finished = true;
+                        return Some((
+                            Err(Error::streaming(
+                                format!(
+                                    "Message batch results JSONL line exceeded maximum size of {} bytes",
+                                    MAX_MESSAGE_BATCH_RESULT_LINE_BYTES
+                                ),
+                                None,
+                            )),
+                            state,
+                        ));
+                    }
+
+                    while let Some(newline) = state.buffer.iter().position(|byte| *byte == b'\n') {
+                        let line = trim_jsonl_line(state.buffer.drain(..=newline).collect());
+                        if !line.is_empty() {
+                            state.pending_lines.push_back(line);
+                        }
+                    }
+                }
+                Some(Err(err)) => {
+                    state.finished = true;
+                    return Some((Err(map_batch_result_stream_error(err)), state));
+                }
+                None => {
+                    state.finished = true;
+                }
+            }
+        }
+    })
 }
 
 /// Client for the Anthropic API with performance optimizations.
@@ -614,6 +742,89 @@ impl Anthropic {
         })
     }
 
+    /// Execute an empty-body POST request with error handling.
+    async fn execute_post_empty_request<T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        headers: Option<HeaderMap>,
+    ) -> Result<T> {
+        let headers = headers.unwrap_or_else(|| self.default_headers());
+
+        let response = self
+            .client
+            .post(url)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(|e| self.map_request_error(e))?;
+
+        if !response.status().is_success() {
+            return Err(Self::process_error_response(response).await);
+        }
+
+        let body = response
+            .bytes()
+            .await
+            .map_err(|e| self.map_response_body_error(e))?;
+
+        serde_json::from_slice::<T>(&body).map_err(|e| {
+            Error::serialization(format!("Failed to parse response: {e}"), Some(Box::new(e)))
+        })
+    }
+
+    /// Execute a DELETE request with error handling.
+    async fn execute_delete_request<T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        headers: Option<HeaderMap>,
+    ) -> Result<T> {
+        let headers = headers.unwrap_or_else(|| self.default_headers());
+
+        let response = self
+            .client
+            .delete(url)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(|e| self.map_request_error(e))?;
+
+        if !response.status().is_success() {
+            return Err(Self::process_error_response(response).await);
+        }
+
+        let body = response
+            .bytes()
+            .await
+            .map_err(|e| self.map_response_body_error(e))?;
+
+        serde_json::from_slice::<T>(&body).map_err(|e| {
+            Error::serialization(format!("Failed to parse response: {e}"), Some(Box::new(e)))
+        })
+    }
+
+    /// Execute a streaming GET request with error handling.
+    async fn execute_get_stream_request(
+        &self,
+        url: &str,
+        headers: Option<HeaderMap>,
+    ) -> Result<Response> {
+        let headers = headers.unwrap_or_else(|| self.default_headers());
+
+        let response = self
+            .client
+            .get(url)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(|e| self.map_request_error(e))?;
+
+        if !response.status().is_success() {
+            return Err(Self::process_error_response(response).await);
+        }
+
+        Ok(response)
+    }
+
     /// Send a message to the API and get a non-streaming response.
     pub async fn send(&self, mut params: MessageCreateParams) -> Result<Message> {
         let start = Instant::now();
@@ -799,6 +1010,206 @@ impl Anthropic {
         result
     }
 
+    /// Create a Message Batch for asynchronous processing.
+    pub async fn create_message_batch(
+        &self,
+        params: MessageBatchCreateParams,
+    ) -> Result<MessageBatch> {
+        let start = Instant::now();
+        CLIENT_REQUESTS.click();
+
+        if let Err(err) = params.validate() {
+            CLIENT_REQUEST_ERRORS.click();
+            CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+            return Err(err);
+        }
+
+        let mut request_betas = Vec::new();
+        if let Some(betas) = &params.betas {
+            request_betas.extend(betas.iter().cloned());
+        }
+        for request in &params.requests {
+            if let Some(betas) = &request.params.betas {
+                request_betas.extend(betas.iter().cloned());
+            }
+        }
+
+        let auto_betas: Vec<&str> = if params
+            .requests
+            .iter()
+            .any(|request| request.params.requires_structured_outputs_beta())
+        {
+            vec![STRUCTURED_OUTPUTS_BETA]
+        } else {
+            vec![]
+        };
+        let all_betas = if request_betas.is_empty() {
+            self.collect_betas(None, &auto_betas)
+        } else {
+            self.collect_betas(Some(&request_betas), &auto_betas)
+        };
+        let headers = self.headers_with_betas(&all_betas);
+
+        let result = self
+            .retry_with_backoff(|| async {
+                let url = self.build_url("messages/batches");
+                self.execute_post_request(&url, &params, headers.clone())
+                    .await
+            })
+            .await;
+
+        CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+        if result.is_err() {
+            CLIENT_REQUEST_ERRORS.click();
+        }
+        result
+    }
+
+    /// Retrieve a Message Batch by ID.
+    pub async fn get_message_batch(&self, message_batch_id: &str) -> Result<MessageBatch> {
+        let start = Instant::now();
+        CLIENT_REQUESTS.click();
+
+        let all_betas = self.collect_betas(None, &[]);
+        let headers = self.headers_with_betas(&all_betas);
+
+        let result = self
+            .retry_with_backoff(|| async {
+                let url = self.build_url(&format!("messages/batches/{message_batch_id}"));
+                self.execute_get_request(&url, None, headers.clone()).await
+            })
+            .await;
+
+        CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+        if result.is_err() {
+            CLIENT_REQUEST_ERRORS.click();
+        }
+        result
+    }
+
+    /// Retrieve a Message Batch by ID.
+    pub async fn retrieve_message_batch(&self, message_batch_id: &str) -> Result<MessageBatch> {
+        self.get_message_batch(message_batch_id).await
+    }
+
+    /// List Message Batches in the current Workspace.
+    pub async fn list_message_batches(
+        &self,
+        params: Option<MessageBatchListParams>,
+    ) -> Result<MessageBatchListResponse> {
+        let start = Instant::now();
+        CLIENT_REQUESTS.click();
+
+        let request_betas = params.as_ref().and_then(|p| p.betas.as_deref());
+        let all_betas = self.collect_betas(request_betas, &[]);
+        let headers = self.headers_with_betas(&all_betas);
+
+        let result = self
+            .retry_with_backoff(|| async {
+                let url = self.build_url("messages/batches");
+                let query_params = params.as_ref().map(|p| {
+                    let mut params = Vec::new();
+                    if let Some(ref after_id) = p.after_id {
+                        params.push(("after_id".to_string(), after_id.clone()));
+                    }
+                    if let Some(ref before_id) = p.before_id {
+                        params.push(("before_id".to_string(), before_id.clone()));
+                    }
+                    if let Some(limit) = p.limit {
+                        params.push(("limit".to_string(), limit.to_string()));
+                    }
+                    params
+                });
+
+                self.execute_get_request(&url, query_params.as_deref(), headers.clone())
+                    .await
+            })
+            .await;
+
+        CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+        if result.is_err() {
+            CLIENT_REQUEST_ERRORS.click();
+        }
+        result
+    }
+
+    /// Cancel a Message Batch that is currently processing.
+    pub async fn cancel_message_batch(&self, message_batch_id: &str) -> Result<MessageBatch> {
+        let start = Instant::now();
+        CLIENT_REQUESTS.click();
+
+        let all_betas = self.collect_betas(None, &[]);
+        let headers = self.headers_with_betas(&all_betas);
+
+        let result = self
+            .retry_with_backoff(|| async {
+                let url = self.build_url(&format!("messages/batches/{message_batch_id}/cancel"));
+                self.execute_post_empty_request(&url, headers.clone()).await
+            })
+            .await;
+
+        CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+        if result.is_err() {
+            CLIENT_REQUEST_ERRORS.click();
+        }
+        result
+    }
+
+    /// Delete a Message Batch after processing has ended.
+    pub async fn delete_message_batch(
+        &self,
+        message_batch_id: &str,
+    ) -> Result<DeletedMessageBatch> {
+        let start = Instant::now();
+        CLIENT_REQUESTS.click();
+
+        let all_betas = self.collect_betas(None, &[]);
+        let headers = self.headers_with_betas(&all_betas);
+
+        let result = self
+            .retry_with_backoff(|| async {
+                let url = self.build_url(&format!("messages/batches/{message_batch_id}"));
+                self.execute_delete_request(&url, headers.clone()).await
+            })
+            .await;
+
+        CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+        if result.is_err() {
+            CLIENT_REQUEST_ERRORS.click();
+        }
+        result
+    }
+
+    /// Stream results for an ended Message Batch as JSONL records.
+    pub async fn stream_message_batch_results(
+        &self,
+        message_batch_id: &str,
+    ) -> Result<impl Stream<Item = Result<MessageBatchResult>> + use<>> {
+        let start = Instant::now();
+        CLIENT_REQUESTS.click();
+
+        let all_betas = self.collect_betas(None, &[]);
+        let headers = self.headers_with_betas(&all_betas);
+
+        let response = self
+            .retry_with_backoff(|| async {
+                let url = self.build_url(&format!("messages/batches/{message_batch_id}/results"));
+                self.execute_get_stream_request(&url, headers.clone()).await
+            })
+            .await;
+
+        CLIENT_REQUEST_DURATION.add(start.elapsed().as_secs_f64());
+        let response = match response {
+            Ok(response) => response,
+            Err(err) => {
+                CLIENT_REQUEST_ERRORS.click();
+                return Err(err);
+            }
+        };
+
+        Ok(process_message_batch_result_jsonl(response.bytes_stream()))
+    }
+
     /// List available models from the API.
     ///
     /// Returns a paginated list of all available models. Use the parameters to control
@@ -867,8 +1278,12 @@ impl Anthropic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{KnownModel, MessageParam, Model};
+    use crate::{
+        KnownModel, MessageBatchCreateParams, MessageBatchCreateRequest, MessageBatchListParams,
+        MessageBatchResultVariant, MessageParam, Model,
+    };
     use futures::StreamExt;
+    use serde_json::Value;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -878,7 +1293,7 @@ mod tests {
         buffer.windows(4).position(|window| window == b"\r\n\r\n")
     }
 
-    async fn read_http_request(socket: &mut tokio::net::TcpStream) {
+    async fn read_http_request_bytes(socket: &mut tokio::net::TcpStream) -> Vec<u8> {
         let mut buffer = Vec::new();
         let mut chunk = [0_u8; 1024];
         loop {
@@ -915,6 +1330,56 @@ mod tests {
             );
             buffer.extend_from_slice(&chunk[..read]);
         }
+        buffer
+    }
+
+    async fn read_http_request(socket: &mut tokio::net::TcpStream) {
+        read_http_request_bytes(socket).await;
+    }
+
+    fn split_http_request(request: &[u8]) -> (String, String) {
+        let headers_end = request_headers_end(request).unwrap();
+        let headers = String::from_utf8_lossy(&request[..headers_end]).to_string();
+        let body = String::from_utf8_lossy(&request[headers_end + 4..]).to_string();
+        (headers, body)
+    }
+
+    fn request_target(headers: &str) -> &str {
+        headers
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .unwrap()
+    }
+
+    fn request_method(headers: &str) -> &str {
+        headers
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().next())
+            .unwrap()
+    }
+
+    fn header_value<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
+        headers.lines().find_map(|line| {
+            let mut parts = line.splitn(2, ':');
+            let header_name = parts.next()?.trim();
+            let value = parts.next()?.trim();
+            header_name.eq_ignore_ascii_case(name).then_some(value)
+        })
+    }
+
+    async fn write_json_response(socket: &mut tokio::net::TcpStream, body: &str) {
+        let response = format!(
+            "HTTP/1.1 200 OK\r\n\
+Content-Type: application/json\r\n\
+Content-Length: {}\r\n\
+Connection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        socket.write_all(response.as_bytes()).await.unwrap();
+        socket.shutdown().await.unwrap();
     }
 
     async fn start_test_server<F, Fut>(handler: F) -> String
@@ -1388,6 +1853,277 @@ mod tests {
     fn with_default_betas_builder() {
         let client = test_client().with_default_betas(["a", "b", "c"]);
         assert_eq!(client.default_betas, vec!["a", "b", "c"]);
+    }
+
+    #[tokio::test]
+    async fn create_message_batch_posts_expected_body_and_betas() {
+        let response_body = r#"{
+            "id": "msgbatch_123",
+            "type": "message_batch",
+            "processing_status": "in_progress",
+            "request_counts": {
+                "processing": 1,
+                "succeeded": 0,
+                "errored": 0,
+                "canceled": 0,
+                "expired": 0
+            },
+            "ended_at": null,
+            "created_at": "2024-09-24T18:37:24Z",
+            "expires_at": "2024-09-25T18:37:24Z",
+            "cancel_initiated_at": null,
+            "results_url": null
+        }"#;
+
+        let base_url = start_test_server(move |mut socket| async move {
+            let request = read_http_request_bytes(&mut socket).await;
+            let (headers, body) = split_http_request(&request);
+            assert_eq!(request_method(&headers), "POST");
+            assert_eq!(request_target(&headers), "/v1/messages/batches");
+            assert_eq!(
+                header_value(&headers, "anthropic-beta"),
+                Some("default-beta, batch-beta, request-beta")
+            );
+
+            let body_json: Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(body_json["requests"][0]["custom_id"], "request-1");
+            assert_eq!(
+                body_json["requests"][0]["params"]["model"],
+                "claude-haiku-4-5"
+            );
+            assert!(
+                body_json["requests"][0]["params"].get("stream").is_none(),
+                "stream must not be serialized inside batch params"
+            );
+            assert!(body_json.get("betas").is_none());
+
+            write_json_response(&mut socket, response_body).await;
+        })
+        .await;
+
+        let client = Anthropic::new(Some("test_key".to_string()))
+            .unwrap()
+            .with_base_url(base_url)
+            .with_default_betas(["default-beta"]);
+        let request_params = MessageCreateParams::new(
+            16,
+            vec![MessageParam::user("ping")],
+            Model::Known(KnownModel::ClaudeHaiku45),
+        )
+        .with_beta("request-beta");
+        let params = MessageBatchCreateParams::new(vec![MessageBatchCreateRequest::new(
+            "request-1",
+            request_params,
+        )])
+        .with_beta("batch-beta");
+
+        let batch = client.create_message_batch(params).await.unwrap();
+        assert_eq!(batch.id, "msgbatch_123");
+    }
+
+    #[tokio::test]
+    async fn get_message_batch_uses_retrieve_endpoint() {
+        let response_body = r#"{
+            "id": "msgbatch_123",
+            "type": "message_batch",
+            "processing_status": "ended",
+            "request_counts": {
+                "processing": 0,
+                "succeeded": 1,
+                "errored": 0,
+                "canceled": 0,
+                "expired": 0
+            },
+            "ended_at": "2024-09-24T18:39:24Z",
+            "created_at": "2024-09-24T18:37:24Z",
+            "expires_at": "2024-09-25T18:37:24Z",
+            "cancel_initiated_at": null,
+            "results_url": "https://api.anthropic.com/results"
+        }"#;
+
+        let base_url = start_test_server(move |mut socket| async move {
+            let request = read_http_request_bytes(&mut socket).await;
+            let (headers, body) = split_http_request(&request);
+            assert_eq!(request_method(&headers), "GET");
+            assert_eq!(
+                request_target(&headers),
+                "/v1/messages/batches/msgbatch_123"
+            );
+            assert!(body.is_empty());
+            write_json_response(&mut socket, response_body).await;
+        })
+        .await;
+
+        let client = Anthropic::new(Some("test_key".to_string()))
+            .unwrap()
+            .with_base_url(base_url);
+        let batch = client.get_message_batch("msgbatch_123").await.unwrap();
+        assert_eq!(batch.id, "msgbatch_123");
+        assert_eq!(batch.request_counts.succeeded, 1);
+    }
+
+    #[tokio::test]
+    async fn list_message_batches_sends_pagination_query_and_beta() {
+        let response_body = r#"{
+            "data": [],
+            "has_more": false,
+            "first_id": null,
+            "last_id": null
+        }"#;
+
+        let base_url = start_test_server(move |mut socket| async move {
+            let request = read_http_request_bytes(&mut socket).await;
+            let (headers, body) = split_http_request(&request);
+            assert_eq!(request_method(&headers), "GET");
+            assert_eq!(
+                request_target(&headers),
+                "/v1/messages/batches?after_id=msgbatch_a&limit=20"
+            );
+            assert_eq!(header_value(&headers, "anthropic-beta"), Some("list-beta"));
+            assert!(body.is_empty());
+            write_json_response(&mut socket, response_body).await;
+        })
+        .await;
+
+        let client = Anthropic::new(Some("test_key".to_string()))
+            .unwrap()
+            .with_base_url(base_url);
+        let params = MessageBatchListParams::new()
+            .with_after_id("msgbatch_a")
+            .with_limit(20)
+            .with_beta("list-beta");
+        let page = client.list_message_batches(Some(params)).await.unwrap();
+        assert!(page.data.is_empty());
+        assert!(!page.has_more);
+    }
+
+    #[tokio::test]
+    async fn cancel_message_batch_posts_empty_body() {
+        let response_body = r#"{
+            "id": "msgbatch_123",
+            "type": "message_batch",
+            "processing_status": "canceling",
+            "request_counts": {
+                "processing": 1,
+                "succeeded": 0,
+                "errored": 0,
+                "canceled": 0,
+                "expired": 0
+            },
+            "ended_at": null,
+            "created_at": "2024-09-24T18:37:24Z",
+            "expires_at": "2024-09-25T18:37:24Z",
+            "cancel_initiated_at": "2024-09-24T18:39:03Z",
+            "results_url": null
+        }"#;
+
+        let base_url = start_test_server(move |mut socket| async move {
+            let request = read_http_request_bytes(&mut socket).await;
+            let (headers, body) = split_http_request(&request);
+            assert_eq!(request_method(&headers), "POST");
+            assert_eq!(
+                request_target(&headers),
+                "/v1/messages/batches/msgbatch_123/cancel"
+            );
+            assert!(body.is_empty());
+            write_json_response(&mut socket, response_body).await;
+        })
+        .await;
+
+        let client = Anthropic::new(Some("test_key".to_string()))
+            .unwrap()
+            .with_base_url(base_url);
+        let batch = client.cancel_message_batch("msgbatch_123").await.unwrap();
+        assert_eq!(batch.id, "msgbatch_123");
+    }
+
+    #[tokio::test]
+    async fn delete_message_batch_uses_delete_endpoint() {
+        let response_body = r#"{
+            "id": "msgbatch_123",
+            "type": "message_batch_deleted"
+        }"#;
+
+        let base_url = start_test_server(move |mut socket| async move {
+            let request = read_http_request_bytes(&mut socket).await;
+            let (headers, body) = split_http_request(&request);
+            assert_eq!(request_method(&headers), "DELETE");
+            assert_eq!(
+                request_target(&headers),
+                "/v1/messages/batches/msgbatch_123"
+            );
+            assert!(body.is_empty());
+            write_json_response(&mut socket, response_body).await;
+        })
+        .await;
+
+        let client = Anthropic::new(Some("test_key".to_string()))
+            .unwrap()
+            .with_base_url(base_url);
+        let deleted = client.delete_message_batch("msgbatch_123").await.unwrap();
+        assert_eq!(deleted.r#type, "message_batch_deleted");
+    }
+
+    #[tokio::test]
+    async fn stream_message_batch_results_preserves_jsonl_order_without_trailing_newline() {
+        let results_body = concat!(
+            r#"{"custom_id":"second","result":{"type":"expired"}}"#,
+            "\n",
+            r#"{"custom_id":"first","result":{"type":"succeeded","message":{"id":"msg_123","type":"message","role":"assistant","model":"claude-haiku-4-5","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}}}"#
+        );
+
+        let base_url = start_test_server(move |mut socket| async move {
+            let request = read_http_request_bytes(&mut socket).await;
+            let (headers, body) = split_http_request(&request);
+            assert_eq!(request_method(&headers), "GET");
+            assert_eq!(
+                request_target(&headers),
+                "/v1/messages/batches/msgbatch_123/results"
+            );
+            assert!(body.is_empty());
+
+            let response_headers = format!(
+                "HTTP/1.1 200 OK\r\n\
+Content-Type: application/jsonl\r\n\
+Content-Length: {}\r\n\
+Connection: close\r\n\r\n",
+                results_body.len()
+            );
+            socket.write_all(response_headers.as_bytes()).await.unwrap();
+            let split_at = results_body.find('\n').unwrap() + 1;
+            socket
+                .write_all(results_body[..split_at].as_bytes())
+                .await
+                .unwrap();
+            socket
+                .write_all(results_body[split_at..].as_bytes())
+                .await
+                .unwrap();
+            socket.shutdown().await.unwrap();
+        })
+        .await;
+
+        let client = Anthropic::new(Some("test_key".to_string()))
+            .unwrap()
+            .with_base_url(base_url);
+        let stream = client
+            .stream_message_batch_results("msgbatch_123")
+            .await
+            .unwrap();
+        let mut stream = std::pin::pin!(stream);
+
+        let first = stream.next().await.unwrap().unwrap();
+        assert_eq!(first.custom_id, "second");
+        assert!(matches!(first.result, MessageBatchResultVariant::Expired));
+
+        let second = stream.next().await.unwrap().unwrap();
+        assert_eq!(second.custom_id, "first");
+        assert!(matches!(
+            second.result,
+            MessageBatchResultVariant::Succeeded { .. }
+        ));
+
+        assert!(stream.next().await.is_none());
     }
 
     #[tokio::test]
