@@ -2092,11 +2092,11 @@ Connection: close\r\n\r\n",
             socket.write_all(response_headers.as_bytes()).await.unwrap();
             let split_at = results_body.find('\n').unwrap() + 1;
             socket
-                .write_all(results_body[..split_at].as_bytes())
+                .write_all(&results_body.as_bytes()[..split_at])
                 .await
                 .unwrap();
             socket
-                .write_all(results_body[split_at..].as_bytes())
+                .write_all(&results_body.as_bytes()[split_at..])
                 .await
                 .unwrap();
             socket.shutdown().await.unwrap();
