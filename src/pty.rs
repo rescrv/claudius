@@ -370,6 +370,28 @@ enum ReadUntilPrompt {
     Eof { output: String },
 }
 
+struct BashPtyLineStreamer {
+    output_tx: tokio::sync::mpsc::UnboundedSender<String>,
+    sent_lines: usize,
+}
+
+impl BashPtyLineStreamer {
+    fn new(output_tx: tokio::sync::mpsc::UnboundedSender<String>) -> Self {
+        Self {
+            output_tx,
+            sent_lines: 0,
+        }
+    }
+
+    fn emit_available(&mut self, raw_output: &str, final_output: bool) {
+        let lines = clean_output_lines_for_streaming(raw_output, final_output);
+        for line in lines.iter().skip(self.sent_lines) {
+            let _ = self.output_tx.send(line.clone());
+        }
+        self.sent_lines = lines.len();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Implementation
 // ---------------------------------------------------------------------------
@@ -391,6 +413,31 @@ impl BashPtySession {
     /// started before executing the command.  Nonzero exit codes are reported in
     /// [`BashPtyResult::status`]; `Err` is only returned for transport failures.
     pub async fn run(&mut self, command: &str, restart: bool) -> std::io::Result<BashPtyResult> {
+        self.run_inner(command, restart, None).await
+    }
+
+    /// Runs `command` and sends cleaned PTY output lines as they become available.
+    ///
+    /// Each channel item is one line without its line terminator.  The sequence
+    /// of sent lines matches `BashPtyResult::output.lines()` for the returned
+    /// result, including interior blank lines and excluding trailing blank
+    /// lines.  If the receiver is dropped, command execution continues and the
+    /// final [`BashPtyResult`] is still returned.
+    pub async fn run_with_output_channel(
+        &mut self,
+        command: &str,
+        restart: bool,
+        output_tx: tokio::sync::mpsc::UnboundedSender<String>,
+    ) -> std::io::Result<BashPtyResult> {
+        self.run_inner(command, restart, Some(output_tx)).await
+    }
+
+    async fn run_inner(
+        &mut self,
+        command: &str,
+        restart: bool,
+        output_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
+    ) -> std::io::Result<BashPtyResult> {
         if restart {
             self.kill_inner();
         }
@@ -431,6 +478,7 @@ impl BashPtySession {
             &inner.master_fd,
             &inner.prompt_prefix,
             self.config.command_timeout,
+            output_tx,
         )
         .await?
         {
@@ -488,6 +536,7 @@ impl BashPtySession {
                 &inner.master_fd,
                 &inner.prompt_prefix,
                 self.config.command_timeout,
+                None,
             )
             .await?
             {
@@ -507,14 +556,12 @@ impl BashPtySession {
     }
 
     fn spawn_shell(&mut self) -> std::io::Result<()> {
-        let (master, slave) = open_pty(self.config.rows, self.config.cols)?;
         let shell_path = self.config.shell.clone();
         let cwd = self.config.cwd.clone();
         let env = self.config.env.clone();
         let prompt_nonce = rand_nonce().to_string();
         let prompt_prefix = prompt_prefix(&prompt_nonce);
         let prompt = prompt_string(&prompt_prefix);
-        let slave_path = pty_slave_path(&slave)?;
         let shell_c = cstring_from_path(&shell_path, "shell path")?;
         let cwd_c = cstring_from_path(&cwd, "working directory")?;
         let arg_noprofile = CString::new("--noprofile").unwrap();
@@ -563,6 +610,9 @@ impl BashPtySession {
             .map(|entry| entry.as_ptr() as *mut libc::c_char)
             .collect::<Vec<_>>();
         envp.push(std::ptr::null_mut());
+
+        let (master, slave) = open_pty(self.config.rows, self.config.cols)?;
+        let slave_path = pty_slave_path(&slave)?;
 
         let mut file_actions = SpawnFileActions::new()?;
         file_actions.add_chdir(&cwd_c)?;
@@ -825,20 +875,27 @@ async fn read_until_prompt(
     fd: &AsyncFd<OwnedFd>,
     prompt_prefix: &str,
     timeout: std::time::Duration,
+    output_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
 ) -> std::io::Result<ReadUntilPrompt> {
     let mut accumulated = Vec::new();
+    let mut line_streamer = output_tx.map(BashPtyLineStreamer::new);
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         if let Some((output, exit_code)) = parse_prompt_output_bytes(&accumulated, prompt_prefix) {
+            if let Some(ref mut line_streamer) = line_streamer {
+                line_streamer.emit_available(&output, true);
+            }
             return Ok(ReadUntilPrompt::Prompt { output, exit_code });
         }
 
         let chunk = match tokio::time::timeout_at(deadline, pty_read(fd)).await {
             Ok(Ok(chunk)) => chunk,
             Ok(Err(err)) if err.kind() == std::io::ErrorKind::UnexpectedEof => {
-                return Ok(ReadUntilPrompt::Eof {
-                    output: String::from_utf8_lossy(&accumulated).into_owned(),
-                });
+                let output = String::from_utf8_lossy(&accumulated).into_owned();
+                if let Some(ref mut line_streamer) = line_streamer {
+                    line_streamer.emit_available(&output, true);
+                }
+                return Ok(ReadUntilPrompt::Eof { output });
             }
             Ok(Err(err)) => {
                 let transcript = String::from_utf8_lossy(&accumulated);
@@ -861,7 +918,14 @@ async fn read_until_prompt(
 
         accumulated.extend_from_slice(&chunk);
         if let Some((output, exit_code)) = parse_prompt_output_bytes(&accumulated, prompt_prefix) {
+            if let Some(ref mut line_streamer) = line_streamer {
+                line_streamer.emit_available(&output, true);
+            }
             return Ok(ReadUntilPrompt::Prompt { output, exit_code });
+        }
+        if let Some(ref mut line_streamer) = line_streamer {
+            let output = streamable_output_before_prompt(&accumulated);
+            line_streamer.emit_available(&output, false);
         }
     }
 }
@@ -869,6 +933,12 @@ async fn read_until_prompt(
 // ---------------------------------------------------------------------------
 // Output parsing
 // ---------------------------------------------------------------------------
+
+fn streamable_output_before_prompt(raw: &[u8]) -> String {
+    let text = String::from_utf8_lossy(raw);
+    let end = text.rfind(OSC133_COMMAND_DONE_PREFIX).unwrap_or(text.len());
+    text[..end].to_string()
+}
 
 #[cfg(test)]
 /// Splits the trailing prompt sentinel from the PTY transcript.
@@ -957,7 +1027,24 @@ fn strip_osc133_marker(s: &str) -> Option<&str> {
 
 /// Removes terminal control noise (carriage returns, trailing whitespace).
 fn clean_output(s: &str) -> String {
+    clean_output_lines(s).join("\n")
+}
+
+fn clean_output_lines(s: &str) -> Vec<String> {
     let stripped = strip_internal_markers(s);
+    clean_output_lines_from_stripped(&stripped)
+}
+
+fn clean_output_lines_for_streaming(s: &str, final_output: bool) -> Vec<String> {
+    let stripped = strip_internal_markers(s);
+    let mut lines = clean_output_lines_from_stripped(&stripped);
+    if !final_output && !stripped.ends_with('\n') && !lines.is_empty() {
+        lines.pop();
+    }
+    lines
+}
+
+fn clean_output_lines_from_stripped(stripped: &str) -> Vec<String> {
     let mut lines: Vec<&str> = stripped.lines().collect();
     // Trim trailing empty lines.
     while lines.last().is_some_and(|l| l.trim().is_empty()) {
@@ -965,9 +1052,8 @@ fn clean_output(s: &str) -> String {
     }
     lines
         .iter()
-        .map(|l| l.trim_end_matches('\r'))
+        .map(|l| l.trim_end_matches('\r').to_string())
         .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn describe_exit_status(status: ExitStatus) -> String {
@@ -1045,6 +1131,16 @@ mod tests {
             "unexpected PTY exit status: actual={:?} expected={:?}",
             actual.status, expected.status
         );
+    }
+
+    async fn collect_streamed_lines(
+        rx: &mut tokio::sync::mpsc::UnboundedReceiver<String>,
+    ) -> Vec<String> {
+        let mut lines = Vec::new();
+        while let Some(line) = rx.recv().await {
+            lines.push(line);
+        }
+        lines
     }
 
     fn make_pipe() -> (OwnedFd, OwnedFd) {
@@ -1263,6 +1359,18 @@ mod tests {
     }
 
     #[test]
+    fn streamable_output_before_prompt_withholds_incomplete_prompt_suffix() {
+        let prefix = prompt_prefix("marker");
+        let raw = format!(
+            "ready\ndone{OSC133_COMMAND_DONE_PREFIX}0{OSC_TERMINATOR}{OSC133_PROMPT_START}{prefix}0{PROMPT_SUFFIX}\n"
+        );
+        assert_eq!(
+            streamable_output_before_prompt(raw.as_bytes()),
+            "ready\ndone"
+        );
+    }
+
+    #[test]
     fn strip_osc133_marker_strips_known_markers() {
         assert_eq!(
             strip_osc133_marker(&format!("{OSC133_PROMPT_START}rest")),
@@ -1338,6 +1446,25 @@ mod tests {
     #[test]
     fn clean_output_drops_all_blank_lines_when_nothing_remains() {
         assert_eq!(clean_output("\r\n \r\n\t\r\n"), "");
+    }
+
+    #[test]
+    fn clean_output_lines_for_streaming_buffers_incomplete_and_trailing_blank_lines() {
+        let raw = format!("{OSC133_COMMAND_START}alpha\r\n\r\nbeta");
+        assert_eq!(
+            clean_output_lines_for_streaming(&raw, false),
+            vec!["alpha".to_string(), String::new()]
+        );
+
+        let raw = format!("{OSC133_COMMAND_START}alpha\r\n\r\n");
+        assert_eq!(
+            clean_output_lines_for_streaming(&raw, false),
+            vec!["alpha".to_string()]
+        );
+        assert_eq!(
+            clean_output_lines_for_streaming(&raw, true),
+            vec!["alpha".to_string()]
+        );
     }
 
     #[test]
@@ -1605,7 +1732,7 @@ mod tests {
             .expect("write prompt");
         });
 
-        match read_until_prompt(&read_fd, &prefix, Duration::from_secs(1))
+        match read_until_prompt(&read_fd, &prefix, Duration::from_secs(1), None)
             .await
             .expect("read until prompt")
         {
@@ -1627,7 +1754,7 @@ mod tests {
         blocking_write(&write_fd, b"partial").expect("write partial output");
         drop(write_fd);
 
-        match read_until_prompt(&read_fd, &prefix, Duration::from_secs(1))
+        match read_until_prompt(&read_fd, &prefix, Duration::from_secs(1), None)
             .await
             .expect("read until eof")
         {
@@ -1647,7 +1774,8 @@ mod tests {
 
         blocking_write(&write_fd, b"before").expect("write partial output");
 
-        let err = match read_until_prompt(&read_fd, &prefix, Duration::from_millis(50)).await {
+        let err = match read_until_prompt(&read_fd, &prefix, Duration::from_millis(50), None).await
+        {
             Ok(ReadUntilPrompt::Prompt { .. }) => panic!("expected timeout, got prompt"),
             Ok(ReadUntilPrompt::Eof { .. }) => panic!("expected timeout, got EOF"),
             Err(err) => err,
@@ -2213,6 +2341,55 @@ HEREDOC"#;
         );
 
         session.close().await.expect("close");
+    }
+
+    #[tokio::test]
+    async fn output_channel_streams_complete_lines_before_completion() {
+        let mut session = make_session().await;
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let run =
+            session.run_with_output_channel("printf 'ready\\n'; sleep 0.2; printf done", false, tx);
+        tokio::pin!(run);
+
+        let first = tokio::select! {
+            line = rx.recv() => line.expect("streamed line"),
+            result = &mut run => panic!("run completed before streaming first line: {result:?}"),
+        };
+        assert_eq!(first, "ready");
+
+        let r = run.await.expect("streaming run");
+        assert_bash_pty_result_eq(
+            &r,
+            BashPtyResult {
+                output: "ready\ndone".to_string(),
+                status: exit_status_from_code(0),
+            },
+        );
+        assert_eq!(rx.recv().await, Some("done".to_string()));
+        assert_eq!(rx.recv().await, None);
+    }
+
+    #[tokio::test]
+    async fn output_channel_lines_match_returned_result_output() {
+        let mut session = make_session().await;
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let r = session
+            .run_with_output_channel("printf 'alpha\\n\\nbeta\\n\\n'; printf tail", false, tx)
+            .await
+            .expect("streaming output");
+
+        assert_bash_pty_result_eq(
+            &r,
+            BashPtyResult {
+                output: "alpha\n\nbeta\n\ntail".to_string(),
+                status: exit_status_from_code(0),
+            },
+        );
+        let streamed = collect_streamed_lines(&mut rx).await;
+        let expected = r.output.lines().map(str::to_string).collect::<Vec<_>>();
+        assert_eq!(streamed, expected);
     }
 
     #[tokio::test]
