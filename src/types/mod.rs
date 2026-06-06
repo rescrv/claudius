@@ -123,7 +123,7 @@ pub use text_block::TextBlock;
 pub use text_citation::TextCitation;
 pub use text_delta::TextDelta;
 pub use thinking_block::ThinkingBlock;
-pub use thinking_config::ThinkingConfig;
+pub use thinking_config::{ThinkingConfig, ThinkingDisplay};
 pub use thinking_delta::ThinkingDelta;
 pub use tool_bash_20241022::ToolBash20241022;
 pub use tool_bash_20250124::ToolBash20250124;
