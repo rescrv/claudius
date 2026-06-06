@@ -53,13 +53,9 @@ pub struct ChatArgs {
     #[arrrg(optional, "Top-k sampling", "TOP_K")]
     pub top_k: Option<u32>,
 
-    /// Thinking budget (enables extended thinking with given token budget).
-    #[arrrg(
-        optional,
-        "Thinking budget in tokens (enables extended thinking)",
-        "TOKENS"
-    )]
-    pub thinking: Option<u32>,
+    /// Thinking mode or budget.
+    #[arrrg(optional, "Thinking mode: adaptive, on, off, or token budget", "MODE")]
+    pub thinking: Option<String>,
 
     /// Effort level for adaptive thinking (low, medium, high).
     #[arrrg(
@@ -111,6 +107,29 @@ fn parse_effort(s: &str) -> Result<Effort, ChatArgsError> {
     }
 }
 
+enum ThinkingArg {
+    Disabled,
+    Adaptive,
+    Budget(u32),
+}
+
+fn parse_thinking_arg(s: &str) -> Result<ThinkingArg, ChatArgsError> {
+    match s.to_lowercase().as_str() {
+        "off" | "false" | "no" | "disabled" => Ok(ThinkingArg::Disabled),
+        "adaptive" => Ok(ThinkingArg::Adaptive),
+        "on" | "true" | "yes" | "enabled" => Ok(ThinkingArg::Budget(1024)),
+        _ => s
+            .parse::<u32>()
+            .map(ThinkingArg::Budget)
+            .map_err(|_| ChatArgsError {
+                message: format!(
+                    "invalid value for --thinking: '{}' (expected adaptive, on, off, or a token budget)",
+                    s
+                ),
+            }),
+    }
+}
+
 impl TryFrom<ChatArgs> for MessageCreateTemplate {
     type Error = ChatArgsError;
 
@@ -140,14 +159,30 @@ impl TryFrom<ChatArgs> for MessageCreateTemplate {
 
         template.top_k = args.top_k;
 
-        if let Some(ref effort_str) = args.effort {
-            let effort = parse_effort(effort_str)?;
+        let effort = match args.effort.as_deref() {
+            Some(effort_str) => Some(parse_effort(effort_str)?),
+            None => None,
+        };
+
+        if let Some(effort) = effort {
             template.thinking = Some(ThinkingConfig::adaptive_summarized());
             template.output_config = Some(OutputConfig::new().with_effort(effort));
         }
 
-        if let Some(thinking) = args.thinking {
-            template.thinking = Some(ThinkingConfig::enabled_summarized(thinking));
+        if let Some(ref thinking) = args.thinking {
+            match parse_thinking_arg(thinking)? {
+                ThinkingArg::Disabled => {
+                    template.thinking = None;
+                    template.output_config = None;
+                }
+                ThinkingArg::Adaptive => {
+                    template.thinking = Some(ThinkingConfig::adaptive_summarized());
+                }
+                ThinkingArg::Budget(budget) => {
+                    template.thinking = Some(ThinkingConfig::enabled_summarized(budget));
+                    template.output_config = None;
+                }
+            }
         }
 
         Ok(template)
@@ -466,6 +501,10 @@ impl TryFrom<ChatArgs> for ChatConfig {
             None => None,
         };
         let template = default_template().merge(MessageCreateTemplate::try_from(args)?);
+        let effort = match template.thinking {
+            Some(ThinkingConfig::Adaptive | ThinkingConfig::AdaptiveWithDisplay { .. }) => effort,
+            _ => None,
+        };
 
         Ok(ChatConfig {
             template,
@@ -528,7 +567,7 @@ mod tests {
             temperature: Some("0.7".to_string()),
             top_p: Some("0.9".to_string()),
             top_k: Some(40),
-            thinking: Some(2048),
+            thinking: Some("2048".to_string()),
             effort: None,
             no_color: true,
         };
@@ -557,6 +596,52 @@ mod tests {
             Some(ThinkingConfig::adaptive_summarized())
         );
         assert_eq!(config.effort(), Some(Effort::High));
+    }
+
+    #[test]
+    fn config_from_args_thinking_adaptive_with_effort() {
+        let args = ChatArgs {
+            model: Some("claude-opus-4-8".to_string()),
+            thinking: Some("adaptive".to_string()),
+            effort: Some("high".to_string()),
+            ..Default::default()
+        };
+
+        let config = ChatConfig::try_from(args).unwrap();
+
+        assert_eq!(
+            config.thinking_config(),
+            Some(ThinkingConfig::adaptive_summarized())
+        );
+        assert_eq!(config.effort(), Some(Effort::High));
+    }
+
+    #[test]
+    fn config_from_args_budget_thinking_clears_effort() {
+        let args = ChatArgs {
+            thinking: Some("2048".to_string()),
+            effort: Some("high".to_string()),
+            ..Default::default()
+        };
+
+        let config = ChatConfig::try_from(args).unwrap();
+
+        assert_eq!(config.thinking_budget(), Some(2048));
+        assert_eq!(config.effort(), None);
+        assert_eq!(config.output_config(), None);
+    }
+
+    #[test]
+    fn config_from_args_invalid_thinking() {
+        let args = ChatArgs {
+            thinking: Some("maybe".to_string()),
+            ..Default::default()
+        };
+
+        let result = ChatConfig::try_from(args);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("--thinking"));
     }
 
     #[test]

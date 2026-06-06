@@ -411,8 +411,11 @@ fn print_stats<A: ChatAgent>(session: &ChatSession<A>) {
     println!("      Thinking: {}", describe_thinking(&stats));
     print_stop_sequences(&stats.stop_sequences);
     println!(
-        "      Total tokens: {} in / {} out ({} requests)",
-        stats.total_input_tokens, stats.total_output_tokens, stats.total_requests
+        "      Total tokens: {} in / {} out{} ({} requests)",
+        stats.total_input_tokens,
+        stats.total_output_tokens,
+        describe_thinking_token_suffix(stats.total_thinking_tokens),
+        stats.total_requests
     );
     if stats.caching_enabled {
         println!(
@@ -422,7 +425,10 @@ fn print_stats<A: ChatAgent>(session: &ChatSession<A>) {
     }
     if let Some(input) = stats.last_turn_input_tokens {
         let output = stats.last_turn_output_tokens.unwrap_or(0);
-        println!("      Last turn tokens: {input} in / {output} out");
+        println!(
+            "      Last turn tokens: {input} in / {output} out{}",
+            describe_thinking_token_suffix(stats.last_turn_thinking_tokens)
+        );
     }
     if let Some(limit) = stats.session_spend_micro_cents {
         let spent = stats.spend_used_micro_cents as f64 / 100_000_000.0;
@@ -513,6 +519,12 @@ fn describe_display(display: Option<ThinkingDisplay>) -> &'static str {
         Some(ThinkingDisplay::Omitted) => ", display: omitted",
         None => "",
     }
+}
+
+fn describe_thinking_token_suffix(thinking_tokens: Option<u64>) -> String {
+    thinking_tokens
+        .map(|tokens| format!(" ({tokens} thinking)"))
+        .unwrap_or_default()
 }
 
 fn describe_float(value: Option<f32>) -> String {
