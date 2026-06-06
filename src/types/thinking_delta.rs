@@ -22,10 +22,10 @@ impl<'de> Deserialize<'de> for ThinkingDelta {
 
 fn extract_thinking_text(value: &Value) -> Option<String> {
     for field in ["thinking", "summary", "text", "content"] {
-        if let Some(candidate) = value.get(field) {
-            if let Some(text) = extract_textish(candidate) {
-                return Some(text);
-            }
+        if let Some(candidate) = value.get(field)
+            && let Some(text) = extract_textish(candidate)
+        {
+            return Some(text);
         }
     }
     None
