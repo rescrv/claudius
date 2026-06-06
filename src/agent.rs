@@ -3095,6 +3095,8 @@ async fn stream_message_with_renderer(
     let (mut acc_stream, rx) = AccumulatingStream::new_with_message(stream, fallback_message);
     let mut active_tool_uses = HashSet::new();
     let mut active_tool_results = HashSet::new();
+    let mut active_thinking_blocks = HashSet::new();
+    let mut rendered_thinking_blocks = HashSet::new();
 
     while let Some(event) = acc_stream.next().await {
         if renderer.should_interrupt() {
@@ -3130,10 +3132,15 @@ async fn stream_message_with_renderer(
                         ContentBlock::Text(text_block) if !text_block.text.is_empty() => {
                             renderer.print_text(context, &text_block.text);
                         }
-                        ContentBlock::Thinking(thinking_block)
-                            if show_thinking && !thinking_block.thinking.is_empty() =>
-                        {
-                            renderer.print_thinking(context, &thinking_block.thinking);
+                        block if block.is_thinking() => {
+                            let thinking_block = block
+                                .as_thinking()
+                                .expect("is_thinking blocks must expose thinking");
+                            active_thinking_blocks.insert(start_event.index);
+                            if show_thinking && !thinking_block.thinking.is_empty() {
+                                rendered_thinking_blocks.insert(start_event.index);
+                                renderer.print_thinking(context, &thinking_block.thinking);
+                            }
                         }
                         _ => {}
                     }
@@ -3145,14 +3152,20 @@ async fn stream_message_with_renderer(
                         }
                     }
                     ContentBlockDelta::TextDelta(text_delta) => {
-                        if active_tool_results.contains(&delta_event.index) {
+                        if active_thinking_blocks.contains(&delta_event.index) {
+                            if show_thinking && !text_delta.text.is_empty() {
+                                rendered_thinking_blocks.insert(delta_event.index);
+                                renderer.print_thinking(context, &text_delta.text);
+                            }
+                        } else if active_tool_results.contains(&delta_event.index) {
                             renderer.print_tool_result_text(context, &text_delta.text);
                         } else {
                             renderer.print_text(context, &text_delta.text);
                         }
                     }
                     ContentBlockDelta::ThinkingDelta(thinking_delta) => {
-                        if show_thinking {
+                        if show_thinking && !thinking_delta.thinking.is_empty() {
+                            rendered_thinking_blocks.insert(delta_event.index);
                             renderer.print_thinking(context, &thinking_delta.thinking);
                         }
                     }
@@ -3166,6 +3179,7 @@ async fn stream_message_with_renderer(
                     if active_tool_results.remove(&stop_event.index) {
                         renderer.finish_tool_result(context);
                     }
+                    active_thinking_blocks.remove(&stop_event.index);
                 }
                 MessageStreamEvent::MessageStop(_) => {}
             },
@@ -3176,9 +3190,18 @@ async fn stream_message_with_renderer(
         }
     }
 
-    renderer.finish_response(context);
     match rx.await {
-        Ok(Ok(resp)) => Ok(resp),
+        Ok(Ok(resp)) => {
+            render_unstreamed_thinking_blocks(
+                renderer,
+                context,
+                show_thinking,
+                &resp,
+                &rendered_thinking_blocks,
+            );
+            renderer.finish_response(context);
+            Ok(resp)
+        }
         Ok(Err(err)) => {
             renderer.print_error(context, &err.to_string());
             Err(err)
@@ -3191,14 +3214,73 @@ async fn stream_message_with_renderer(
     }
 }
 
+fn render_unstreamed_thinking_blocks(
+    renderer: &mut dyn Renderer,
+    context: &dyn StreamContext,
+    show_thinking: bool,
+    message: &Message,
+    rendered_thinking_blocks: &HashSet<usize>,
+) {
+    if !show_thinking {
+        return;
+    }
+
+    for (index, block) in message.content.iter().enumerate() {
+        let Some(thinking_block) = block.as_thinking() else {
+            continue;
+        };
+        if rendered_thinking_blocks.contains(&index) || thinking_block.thinking.is_empty() {
+            continue;
+        }
+        renderer.print_thinking(context, &thinking_block.thinking);
+    }
+}
+
 /////////////////////////////////////////////// tests //////////////////////////////////////////////
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Usage;
+    use crate::{TextBlock, ThinkingBlock, Usage};
     use std::sync::atomic::Ordering;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[derive(Default)]
+    struct CapturingRenderer {
+        thinking: Vec<String>,
+    }
+
+    impl Renderer for CapturingRenderer {
+        fn print_text(&mut self, _context: &dyn StreamContext, _text: &str) {}
+
+        fn print_thinking(&mut self, _context: &dyn StreamContext, text: &str) {
+            self.thinking.push(text.to_string());
+        }
+
+        fn print_error(&mut self, _context: &dyn StreamContext, _error: &str) {}
+
+        fn print_info(&mut self, _context: &dyn StreamContext, _info: &str) {}
+
+        fn start_tool_use(&mut self, _context: &dyn StreamContext, _name: &str, _id: &str) {}
+
+        fn print_tool_input(&mut self, _context: &dyn StreamContext, _partial_json: &str) {}
+
+        fn finish_tool_use(&mut self, _context: &dyn StreamContext) {}
+
+        fn start_tool_result(
+            &mut self,
+            _context: &dyn StreamContext,
+            _tool_use_id: &str,
+            _is_error: bool,
+        ) {
+        }
+
+        fn print_tool_result_text(&mut self, _context: &dyn StreamContext, _text: &str) {}
+
+        fn finish_tool_result(&mut self, _context: &dyn StreamContext) {}
+
+        fn finish_response(&mut self, _context: &dyn StreamContext) {}
+    }
 
     fn make_temp_dir(prefix: &str) -> std::path::PathBuf {
         let mut dir = std::env::temp_dir();
@@ -3213,6 +3295,39 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn render_unstreamed_thinking_blocks_prints_missing_summaries() {
+        let message = Message::new(
+            "msg".to_string(),
+            vec![
+                ContentBlock::Thinking(ThinkingBlock::new("summary", "sig")),
+                ContentBlock::Text(TextBlock::new("answer")),
+            ],
+            KnownModel::ClaudeOpus48.into(),
+            Usage::new(10, 20),
+        );
+        let mut renderer = CapturingRenderer::default();
+
+        render_unstreamed_thinking_blocks(&mut renderer, &(), true, &message, &HashSet::new());
+
+        assert_eq!(renderer.thinking, vec!["summary"]);
+    }
+
+    #[test]
+    fn render_unstreamed_thinking_blocks_skips_already_rendered_summaries() {
+        let message = Message::new(
+            "msg".to_string(),
+            vec![ContentBlock::Thinking(ThinkingBlock::new("summary", "sig"))],
+            KnownModel::ClaudeOpus48.into(),
+            Usage::new(10, 20),
+        );
+        let mut renderer = CapturingRenderer::default();
+
+        render_unstreamed_thinking_blocks(&mut renderer, &(), true, &message, &HashSet::from([0]));
+
+        assert!(renderer.thinking.is_empty());
     }
 
     #[test]

@@ -1,10 +1,50 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 
 /// A thinking delta, representing a piece of thinking in a streaming response.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ThinkingDelta {
     /// The thinking content.
     pub thinking: String,
+}
+
+impl<'de> Deserialize<'de> for ThinkingDelta {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        Ok(Self {
+            thinking: extract_thinking_text(&value).unwrap_or_default(),
+        })
+    }
+}
+
+fn extract_thinking_text(value: &Value) -> Option<String> {
+    for field in ["thinking", "summary", "text", "content"] {
+        if let Some(candidate) = value.get(field) {
+            if let Some(text) = extract_textish(candidate) {
+                return Some(text);
+            }
+        }
+    }
+    None
+}
+
+fn extract_textish(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(items) => {
+            let text = items
+                .iter()
+                .filter_map(extract_textish)
+                .collect::<Vec<_>>()
+                .join("");
+            if text.is_empty() { None } else { Some(text) }
+        }
+        Value::Object(_) => extract_thinking_text(value),
+        _ => None,
+    }
 }
 
 impl ThinkingDelta {
@@ -48,6 +88,26 @@ mod tests {
 
         let delta: ThinkingDelta = serde_json::from_value(json).unwrap();
         assert_eq!(delta.thinking, "Let me think about this...");
+    }
+
+    #[test]
+    fn thinking_delta_deserialization_accepts_summary() {
+        let json = json!({
+            "summary": "Summarized thinking..."
+        });
+
+        let delta: ThinkingDelta = serde_json::from_value(json).unwrap();
+        assert_eq!(delta.thinking, "Summarized thinking...");
+    }
+
+    #[test]
+    fn thinking_delta_deserialization_accepts_text() {
+        let json = json!({
+            "text": "Text-shaped thinking..."
+        });
+
+        let delta: ThinkingDelta = serde_json::from_value(json).unwrap();
+        assert_eq!(delta.thinking, "Text-shaped thinking...");
     }
 
     #[test]

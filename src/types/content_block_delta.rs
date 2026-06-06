@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 
 use crate::types::{CitationsDelta, InputJsonDelta, SignatureDelta, TextDelta, ThinkingDelta};
 
@@ -6,7 +7,7 @@ use crate::types::{CitationsDelta, InputJsonDelta, SignatureDelta, TextDelta, Th
 ///
 /// This type is used for streaming responses from the API, where content blocks
 /// are updated incrementally.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type")]
 pub enum ContentBlockDelta {
     /// A text delta.
@@ -28,6 +29,64 @@ pub enum ContentBlockDelta {
     /// A signature delta.
     #[serde(rename = "signature_delta")]
     SignatureDelta(SignatureDelta),
+}
+
+impl<'de> Deserialize<'de> for ContentBlockDelta {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        let delta_type = value
+            .get("type")
+            .and_then(Value::as_str)
+            .ok_or_else(|| serde::de::Error::missing_field("type"))?
+            .to_string();
+
+        match delta_type.as_str() {
+            "text_delta" => from_value(value).map(ContentBlockDelta::TextDelta),
+            "input_json_delta" => from_value(value).map(ContentBlockDelta::InputJsonDelta),
+            "citations_delta" => from_value(value).map(ContentBlockDelta::CitationsDelta),
+            "thinking_delta" | "summary_delta" | "thinking_summary_delta" => {
+                from_value(value).map(ContentBlockDelta::ThinkingDelta)
+            }
+            "signature_delta" => from_value(value).map(ContentBlockDelta::SignatureDelta),
+            other if is_thinking_like_delta(other) => {
+                let thinking_delta: ThinkingDelta = from_value(value)?;
+                if thinking_delta.thinking.is_empty() {
+                    Err(serde::de::Error::custom(format!(
+                        "unknown thinking delta type {other:?} did not contain text"
+                    )))
+                } else {
+                    Ok(ContentBlockDelta::ThinkingDelta(thinking_delta))
+                }
+            }
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &[
+                    "text_delta",
+                    "input_json_delta",
+                    "citations_delta",
+                    "thinking_delta",
+                    "summary_delta",
+                    "thinking_summary_delta",
+                    "signature_delta",
+                ],
+            )),
+        }
+    }
+}
+
+fn from_value<T, E>(value: Value) -> Result<T, E>
+where
+    T: serde::de::DeserializeOwned,
+    E: serde::de::Error,
+{
+    serde_json::from_value(value).map_err(E::custom)
+}
+
+fn is_thinking_like_delta(delta_type: &str) -> bool {
+    delta_type.contains("thinking") || delta_type.contains("summary")
 }
 
 impl ContentBlockDelta {
@@ -165,6 +224,38 @@ mod tests {
                 assert_eq!(text_delta.text, "Hello world");
             }
             _ => panic!("Expected TextDelta variant"),
+        }
+    }
+
+    #[test]
+    fn deserializes_summary_delta_as_thinking_delta() {
+        let json = json!({
+            "summary": "A compact thinking summary.",
+            "type": "summary_delta"
+        });
+
+        let delta: ContentBlockDelta = from_value(json).unwrap();
+        match delta {
+            ContentBlockDelta::ThinkingDelta(thinking_delta) => {
+                assert_eq!(thinking_delta.thinking, "A compact thinking summary.");
+            }
+            _ => panic!("Expected ThinkingDelta variant"),
+        }
+    }
+
+    #[test]
+    fn deserializes_thinking_summary_delta_as_thinking_delta() {
+        let json = json!({
+            "text": "Thinking summary text.",
+            "type": "thinking_summary_delta"
+        });
+
+        let delta: ContentBlockDelta = from_value(json).unwrap();
+        match delta {
+            ContentBlockDelta::ThinkingDelta(thinking_delta) => {
+                assert_eq!(thinking_delta.thinking, "Thinking summary text.");
+            }
+            _ => panic!("Expected ThinkingDelta variant"),
         }
     }
 }

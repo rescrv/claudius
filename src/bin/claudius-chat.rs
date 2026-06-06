@@ -291,11 +291,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         ChatCommand::Effort(effort) => {
                             session.config_mut().set_effort(Some(effort));
-                            let label = match effort {
-                                Effort::Low => "low",
-                                Effort::Medium => "medium",
-                                Effort::High => "high",
-                            };
+                            let label = describe_effort(effort);
                             terminal.print_info(&context, &format!("Effort level set to {label}."));
                         }
                         ChatCommand::ClearEffort => {
@@ -487,14 +483,7 @@ fn print_stop_sequences(stop_sequences: &[String]) {
 fn describe_thinking(stats: &claudius::chat::SessionStats) -> String {
     match stats.thinking_config {
         Some(ThinkingConfig::Adaptive | ThinkingConfig::AdaptiveWithDisplay { .. }) => {
-            let effort = stats
-                .effort
-                .map(|e| match e {
-                    Effort::Low => "low",
-                    Effort::Medium => "medium",
-                    Effort::High => "high",
-                })
-                .unwrap_or("default");
+            let effort = stats.effort.map(describe_effort).unwrap_or("default");
             format!(
                 "adaptive (effort: {effort}{})",
                 describe_display(stats.thinking_config.and_then(|config| config.display()))
@@ -510,6 +499,16 @@ fn describe_thinking(stats: &claudius::chat::SessionStats) -> String {
             )
         }
         Some(ThinkingConfig::Disabled) | None => "disabled".to_string(),
+    }
+}
+
+fn describe_effort(effort: Effort) -> &'static str {
+    match effort {
+        Effort::Low => "low",
+        Effort::Medium => "medium",
+        Effort::High => "high",
+        Effort::XHigh => "xhigh",
+        Effort::Max => "max",
     }
 }
 

@@ -299,6 +299,14 @@ impl PlainTextRenderer {
         }
         self.flush();
     }
+
+    fn thinking_prefix(context: &dyn StreamContext) -> &'static str {
+        if context.depth() == 0 && context.label().is_none() {
+            "\n[thinking] "
+        } else {
+            "[thinking] "
+        }
+    }
 }
 
 impl Default for PlainTextRenderer {
@@ -342,17 +350,13 @@ impl Renderer for PlainTextRenderer {
                 self.write_with_indent(context, ANSI_THINKING);
                 self.write_with_indent(context, ANSI_DIM);
                 self.write_with_indent(context, ANSI_ITALIC);
+                self.write_with_indent(context, Self::thinking_prefix(context));
                 self.in_thinking = true;
             }
             self.write_with_indent(context, text);
         } else {
             if !self.in_thinking {
-                let prefix = if context.depth() == 0 && context.label().is_none() {
-                    "\n[thinking] "
-                } else {
-                    "[thinking] "
-                };
-                self.write_with_indent(context, prefix);
+                self.write_with_indent(context, Self::thinking_prefix(context));
                 self.in_thinking = true;
             }
             self.write_with_indent(context, text);

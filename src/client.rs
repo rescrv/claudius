@@ -86,6 +86,21 @@ const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 const STRUCTURED_OUTPUTS_BETA: &str = "structured-outputs-2025-11-13";
 
+fn stream_debug_enabled() -> bool {
+    env::var_os("CLAUDIUS_DEBUG_STREAM").is_some()
+}
+
+fn debug_stream_request(url: &str, params: &MessageCreateParams) {
+    if !stream_debug_enabled() {
+        return;
+    }
+
+    match serde_json::to_string_pretty(params) {
+        Ok(body) => eprintln!("[claudius-debug] stream request POST {url}\n{body}"),
+        Err(err) => eprintln!("[claudius-debug] failed to serialize stream request: {err}"),
+    }
+}
+
 fn format_reqwest_error(err: &reqwest::Error) -> String {
     let mut parts = vec![err.to_string()];
     let mut source = StdError::source(err);
@@ -919,6 +934,7 @@ impl Anthropic {
         let response = self
             .retry_with_backoff(|| async {
                 let url = self.build_url("messages");
+                debug_stream_request(&url, params);
 
                 let mut headers = self
                     .headers_with_betas(&all_betas)
