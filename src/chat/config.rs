@@ -57,10 +57,10 @@ pub struct ChatArgs {
     #[arrrg(optional, "Thinking mode: adaptive, on, off, or token budget", "MODE")]
     pub thinking: Option<String>,
 
-    /// Effort level for adaptive thinking (low, medium, high).
+    /// Effort level for adaptive thinking (low, medium, high, xhigh, max).
     #[arrrg(
         optional,
-        "Effort level for adaptive thinking (low, medium, high)",
+        "Effort level for adaptive thinking (low, medium, high, xhigh, max)",
         "LEVEL"
     )]
     pub effort: Option<String>,
@@ -98,9 +98,11 @@ fn parse_effort(s: &str) -> Result<Effort, ChatArgsError> {
         "low" => Ok(Effort::Low),
         "medium" | "med" => Ok(Effort::Medium),
         "high" => Ok(Effort::High),
+        "xhigh" | "x-high" | "extra-high" => Ok(Effort::XHigh),
+        "max" | "maximum" => Ok(Effort::Max),
         _ => Err(ChatArgsError {
             message: format!(
-                "invalid value for --effort: '{}' (expected low, medium, or high)",
+                "invalid value for --effort: '{}' (expected low, medium, high, xhigh, or max)",
                 s
             ),
         }),
@@ -614,6 +616,25 @@ mod tests {
             Some(ThinkingConfig::adaptive_summarized())
         );
         assert_eq!(config.effort(), Some(Effort::High));
+    }
+
+    #[test]
+    fn config_from_args_thinking_adaptive_with_max_effort() {
+        let args = ChatArgs {
+            model: Some("claude-opus-4-8".to_string()),
+            thinking: Some("adaptive".to_string()),
+            effort: Some("max".to_string()),
+            ..Default::default()
+        };
+
+        let config = ChatConfig::try_from(args).unwrap();
+
+        assert_eq!(
+            config.thinking_config(),
+            Some(ThinkingConfig::adaptive_summarized())
+        );
+        assert_eq!(config.effort(), Some(Effort::Max));
+        assert_eq!(config.output_config().unwrap().effort, Some(Effort::Max));
     }
 
     #[test]

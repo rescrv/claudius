@@ -271,7 +271,7 @@ fn parse_thinking_command(argument: Option<&str>) -> ChatCommand {
 fn parse_effort_command(argument: Option<&str>) -> ChatCommand {
     let Some(arg) = argument else {
         return ChatCommand::Invalid(
-            "/effort expects 'low', 'medium', 'high', or 'clear'".to_string(),
+            "/effort expects 'low', 'medium', 'high', 'xhigh', 'max', or 'clear'".to_string(),
         );
     };
 
@@ -280,10 +280,12 @@ fn parse_effort_command(argument: Option<&str>) -> ChatCommand {
         "low" => ChatCommand::Effort(crate::types::Effort::Low),
         "medium" | "med" => ChatCommand::Effort(crate::types::Effort::Medium),
         "high" => ChatCommand::Effort(crate::types::Effort::High),
+        "xhigh" | "x-high" | "extra-high" => ChatCommand::Effort(crate::types::Effort::XHigh),
+        "max" | "maximum" => ChatCommand::Effort(crate::types::Effort::Max),
         "clear" | "off" | "none" => ChatCommand::ClearEffort,
-        _ => {
-            ChatCommand::Invalid("/effort expects 'low', 'medium', 'high', or 'clear'".to_string())
-        }
+        _ => ChatCommand::Invalid(
+            "/effort expects 'low', 'medium', 'high', 'xhigh', 'max', or 'clear'".to_string(),
+        ),
     }
 }
 
@@ -314,7 +316,7 @@ pub fn help_text() -> &'static str {
   /stop clear            Clear all stop sequences
   /stop list             List current stop sequences
   /thinking on|off|adaptive|<n>  Enable/disable extended thinking (or set budget)
-  /effort low|medium|high|clear  Set effort level for adaptive thinking
+  /effort low|medium|high|xhigh|max|clear  Set effort level for adaptive thinking
   /cache on|off          Enable/disable prompt caching
   /spend <dollars>       Set session spend limit in dollars (or 'clear')
   /transcript <file>     Enable auto-saving transcripts (or 'clear')
@@ -446,6 +448,14 @@ mod tests {
         assert_eq!(
             parse_command("/effort high"),
             Some(ChatCommand::Effort(crate::types::Effort::High))
+        );
+        assert_eq!(
+            parse_command("/effort xhigh"),
+            Some(ChatCommand::Effort(crate::types::Effort::XHigh))
+        );
+        assert_eq!(
+            parse_command("/effort max"),
+            Some(ChatCommand::Effort(crate::types::Effort::Max))
         );
         assert_eq!(
             parse_command("/effort clear"),

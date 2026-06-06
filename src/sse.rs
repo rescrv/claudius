@@ -259,6 +259,17 @@ pub fn parse_message_stream_event(event: &SseEvent) -> Result<MessageStreamEvent
     }
 }
 
+fn debug_stream_event(event: &SseEvent) {
+    if std::env::var_os("CLAUDIUS_DEBUG_STREAM").is_none() {
+        return;
+    }
+
+    eprintln!(
+        "[claudius-debug] sse event={} data={}",
+        event.event, event.data
+    );
+}
+
 /// Process a stream of bytes into decoded Claudius [`MessageStreamEvent`] values.
 pub fn process_message_stream_sse<S>(
     byte_stream: S,
@@ -266,8 +277,12 @@ pub fn process_message_stream_sse<S>(
 where
     S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Unpin + 'static,
 {
-    process_sse(byte_stream)
-        .map(|result| result.and_then(|event| parse_message_stream_event(&event)))
+    process_sse(byte_stream).map(|result| {
+        result.and_then(|event| {
+            debug_stream_event(&event);
+            parse_message_stream_event(&event)
+        })
+    })
 }
 
 /// Extract a complete SSE event from a buffer string with size validation.

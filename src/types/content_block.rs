@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 
 use crate::types::{
     DocumentBlock, ImageBlock, RedactedThinkingBlock, ServerToolUseBlock, TextBlock, ThinkingBlock,
@@ -9,7 +10,7 @@ use crate::types::{
 ///
 /// This enum represents the different types of content blocks that can be included
 /// in a message's content.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum ContentBlock {
     /// A block of text content
@@ -47,6 +48,58 @@ pub enum ContentBlock {
     /// A block containing redacted thinking data
     #[serde(rename = "redacted_thinking")]
     RedactedThinking(RedactedThinkingBlock),
+}
+
+impl<'de> Deserialize<'de> for ContentBlock {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        let block_type = value
+            .get("type")
+            .and_then(Value::as_str)
+            .ok_or_else(|| serde::de::Error::missing_field("type"))?
+            .to_string();
+
+        match block_type.as_str() {
+            "text" => from_value(value).map(ContentBlock::Text),
+            "image" => from_value(value).map(ContentBlock::Image),
+            "tool_use" => from_value(value).map(ContentBlock::ToolUse),
+            "server_tool_use" => from_value(value).map(ContentBlock::ServerToolUse),
+            "web_search_tool_result" => from_value(value).map(ContentBlock::WebSearchToolResult),
+            "tool_result" => from_value(value).map(ContentBlock::ToolResult),
+            "document" => from_value(value).map(ContentBlock::Document),
+            "thinking" | "thinking_summary" | "summary" => {
+                from_value(value).map(ContentBlock::Thinking)
+            }
+            "redacted_thinking" => from_value(value).map(ContentBlock::RedactedThinking),
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &[
+                    "text",
+                    "image",
+                    "tool_use",
+                    "server_tool_use",
+                    "web_search_tool_result",
+                    "tool_result",
+                    "document",
+                    "thinking",
+                    "thinking_summary",
+                    "summary",
+                    "redacted_thinking",
+                ],
+            )),
+        }
+    }
+}
+
+fn from_value<T, E>(value: Value) -> Result<T, E>
+where
+    T: serde::de::DeserializeOwned,
+    E: serde::de::Error,
+{
+    serde_json::from_value(value).map_err(E::custom)
 }
 
 impl ContentBlock {
@@ -293,6 +346,18 @@ mod tests {
         let expected = r#"{"type":"thinking","signature":"abc123signature","thinking":"Let me think through this problem step by step..."}"#;
 
         assert_eq!(json, expected);
+    }
+
+    #[test]
+    fn thinking_summary_block_deserializes_as_thinking() {
+        let json = r#"{"type":"thinking_summary","summary":"Condensed reasoning."}"#;
+        let content_block: ContentBlock = serde_json::from_str(json).unwrap();
+
+        let thinking = content_block
+            .as_thinking()
+            .expect("summary block should deserialize as thinking");
+        assert_eq!(thinking.signature, "");
+        assert_eq!(thinking.thinking, "Condensed reasoning.");
     }
 
     #[test]

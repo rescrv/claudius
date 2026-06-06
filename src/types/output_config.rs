@@ -11,10 +11,15 @@ use crate::types::OutputFormat;
 pub enum Effort {
     /// Low effort - minimal thinking for simple tasks
     Low,
-    /// Medium effort - moderate thinking (default)
+    /// Medium effort - moderate thinking
     Medium,
-    /// High effort - thorough thinking for complex tasks
+    /// High effort - thorough thinking for complex tasks; API default
     High,
+    /// Extra-high effort - extended capability for long-horizon work.
+    #[serde(rename = "xhigh")]
+    XHigh,
+    /// Maximum effort - always think with no constraints on thinking depth.
+    Max,
 }
 
 /// Output configuration for API requests.
@@ -82,6 +87,8 @@ mod tests {
         assert_eq!(to_value(Effort::Low).unwrap(), json!("low"));
         assert_eq!(to_value(Effort::Medium).unwrap(), json!("medium"));
         assert_eq!(to_value(Effort::High).unwrap(), json!("high"));
+        assert_eq!(to_value(Effort::XHigh).unwrap(), json!("xhigh"));
+        assert_eq!(to_value(Effort::Max).unwrap(), json!("max"));
     }
 
     #[test]
@@ -94,6 +101,12 @@ mod tests {
 
         let high: Effort = serde_json::from_value(json!("high")).unwrap();
         assert_eq!(high, Effort::High);
+
+        let xhigh: Effort = serde_json::from_value(json!("xhigh")).unwrap();
+        assert_eq!(xhigh, Effort::XHigh);
+
+        let max: Effort = serde_json::from_value(json!("max")).unwrap();
+        assert_eq!(max, Effort::Max);
     }
 
     #[test]
