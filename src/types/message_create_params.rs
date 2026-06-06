@@ -527,7 +527,8 @@ impl MessageCreateParams {
         // Validate thinking config with security checks
         if let Some(ref thinking) = self.thinking {
             match thinking {
-                ThinkingConfig::Enabled { budget_tokens } => {
+                ThinkingConfig::Enabled { budget_tokens }
+                | ThinkingConfig::EnabledWithDisplay { budget_tokens, .. } => {
                     if *budget_tokens < 1024 {
                         return Err(crate::Error::validation(
                             format!(
@@ -559,7 +560,7 @@ impl MessageCreateParams {
                 ThinkingConfig::Disabled => {
                     // No validation needed for disabled state
                 }
-                ThinkingConfig::Adaptive => {
+                ThinkingConfig::Adaptive | ThinkingConfig::AdaptiveWithDisplay { .. } => {
                     // No validation needed for adaptive thinking
                 }
             }

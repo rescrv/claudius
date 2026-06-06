@@ -42,7 +42,9 @@ use claudius::chat::{
     ChatAgent, ChatArgs, ChatCommand, ChatConfig, ChatSession, PlainTextRenderer, help_text,
     parse_command,
 };
-use claudius::{Anthropic, Effort, Model, StopReason, SystemPrompt, ThinkingConfig};
+use claudius::{
+    Anthropic, Effort, Model, StopReason, SystemPrompt, ThinkingConfig, ThinkingDisplay,
+};
 use claudius::{OperatorLine, Renderer, StreamContext};
 
 struct ChatTerminal {
@@ -478,7 +480,7 @@ fn print_stop_sequences(stop_sequences: &[String]) {
 
 fn describe_thinking(stats: &claudius::chat::SessionStats) -> String {
     match stats.thinking_config {
-        Some(ThinkingConfig::Adaptive) => {
+        Some(ThinkingConfig::Adaptive | ThinkingConfig::AdaptiveWithDisplay { .. }) => {
             let effort = stats
                 .effort
                 .map(|e| match e {
@@ -487,12 +489,29 @@ fn describe_thinking(stats: &claudius::chat::SessionStats) -> String {
                     Effort::High => "high",
                 })
                 .unwrap_or("default");
-            format!("adaptive (effort: {effort})")
+            format!(
+                "adaptive (effort: {effort}{})",
+                describe_display(stats.thinking_config.and_then(|config| config.display()))
+            )
         }
-        Some(ThinkingConfig::Enabled { budget_tokens }) => {
-            format!("enabled ({budget_tokens} tokens)")
+        Some(
+            ThinkingConfig::Enabled { budget_tokens }
+            | ThinkingConfig::EnabledWithDisplay { budget_tokens, .. },
+        ) => {
+            format!(
+                "enabled ({budget_tokens} tokens{})",
+                describe_display(stats.thinking_config.and_then(|config| config.display()))
+            )
         }
         Some(ThinkingConfig::Disabled) | None => "disabled".to_string(),
+    }
+}
+
+fn describe_display(display: Option<ThinkingDisplay>) -> &'static str {
+    match display {
+        Some(ThinkingDisplay::Summarized) => ", display: summarized",
+        Some(ThinkingDisplay::Omitted) => ", display: omitted",
+        None => "",
     }
 }
 

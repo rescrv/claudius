@@ -107,14 +107,12 @@ mod tests {
         let mut params = MessageCreateParams::simple("test", KnownModel::ClaudeHaiku45);
 
         // Test thinking config with insufficient budget
-        params = params.with_thinking(ThinkingConfig::Enabled { budget_tokens: 500 });
+        params = params.with_thinking(ThinkingConfig::enabled(500));
         assert!(params.validate().is_err(), "Should reject budget < 1024");
 
         // Test thinking config exceeding max_tokens
         params.max_tokens = 1000;
-        params = params.with_thinking(ThinkingConfig::Enabled {
-            budget_tokens: 1500,
-        });
+        params = params.with_thinking(ThinkingConfig::enabled(1500));
         assert!(
             params.validate().is_err(),
             "Should reject budget > max_tokens"
@@ -122,9 +120,7 @@ mod tests {
 
         // Test valid thinking config
         params.max_tokens = 2000;
-        params = params.with_thinking(ThinkingConfig::Enabled {
-            budget_tokens: 1024,
-        });
+        params = params.with_thinking(ThinkingConfig::enabled(1024));
         assert!(
             params.validate().is_ok(),
             "Should accept valid thinking config"

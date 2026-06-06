@@ -39,7 +39,7 @@ Output the corrected/unified document and only the corrected/unified document.
         output_format: None,
         output_config: None,
         stop_sequences: None,
-        thinking: Some(ThinkingConfig::enabled(1024)),
+        thinking: Some(ThinkingConfig::enabled_summarized(1024)),
         tools: None,
         temperature: None,
         tool_choice: None,
