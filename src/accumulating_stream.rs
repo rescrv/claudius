@@ -91,6 +91,9 @@ impl AccumulatingStream {
                     if let Some(cache_read) = delta_event.usage.cache_read_input_tokens {
                         msg.usage.cache_read_input_tokens = Some(cache_read);
                     }
+                    if let Some(details) = delta_event.usage.output_tokens_details {
+                        msg.usage.output_tokens_details = Some(details);
+                    }
                     if let Some(server_tool) = delta_event.usage.server_tool_use {
                         msg.usage.server_tool_use = Some(server_tool);
                     }
@@ -336,7 +339,7 @@ mod tests {
     use crate::{
         ContentBlockDeltaEvent, ContentBlockStartEvent, ContentBlockStopEvent, InputJsonDelta,
         KnownModel, MessageDelta, MessageDeltaEvent, MessageDeltaUsage, MessageStartEvent, Model,
-        TextDelta, Usage,
+        OutputTokensDetails, TextDelta, Usage,
     };
     use futures::stream;
 
@@ -368,7 +371,7 @@ mod tests {
         );
 
         // Build message_delta with final output tokens (no cache tokens - they were in start)
-        let delta_usage = MessageDeltaUsage::new(10);
+        let delta_usage = MessageDeltaUsage::new(10).with_thinking_tokens(7);
         let message_delta = MessageDelta::new().with_stop_reason(StopReason::EndTurn);
         let delta_event =
             MessageStreamEvent::MessageDelta(MessageDeltaEvent::new(message_delta, delta_usage));
@@ -418,6 +421,11 @@ mod tests {
         assert_eq!(
             message.usage.output_tokens, 10,
             "output_tokens should be from message_delta"
+        );
+        assert_eq!(
+            message.usage.output_tokens_details,
+            Some(OutputTokensDetails::new(7)),
+            "output_tokens_details should be from message_delta"
         );
     }
 

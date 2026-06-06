@@ -148,12 +148,16 @@ pub struct SessionStats {
     pub total_input_tokens: u64,
     /// Total output tokens across all requests.
     pub total_output_tokens: u64,
+    /// Total output tokens generated as internal reasoning, if reported.
+    pub total_thinking_tokens: Option<u64>,
     /// Total number of API requests made.
     pub total_requests: u64,
     /// Input tokens for the last turn, if available.
     pub last_turn_input_tokens: Option<u64>,
     /// Output tokens for the last turn, if available.
     pub last_turn_output_tokens: Option<u64>,
+    /// Output tokens generated as internal reasoning for the last turn, if reported.
+    pub last_turn_thinking_tokens: Option<u64>,
     /// Whether prompt caching is enabled.
     pub caching_enabled: bool,
     /// Total cache creation tokens across all requests.
@@ -385,6 +389,10 @@ impl<A: ChatAgent> ChatSession<A> {
             transcript_path: config.transcript_path.clone(),
             total_input_tokens: tokens_to_u64(self.usage_totals.input_tokens),
             total_output_tokens: tokens_to_u64(self.usage_totals.output_tokens),
+            total_thinking_tokens: self
+                .usage_totals
+                .output_tokens_details
+                .map(|details| tokens_to_u64(details.thinking_tokens)),
             total_requests: self.request_count,
             last_turn_input_tokens: self
                 .last_turn_usage
@@ -392,6 +400,10 @@ impl<A: ChatAgent> ChatSession<A> {
             last_turn_output_tokens: self
                 .last_turn_usage
                 .map(|usage| tokens_to_u64(usage.output_tokens)),
+            last_turn_thinking_tokens: self
+                .last_turn_usage
+                .and_then(|usage| usage.output_tokens_details)
+                .map(|details| tokens_to_u64(details.thinking_tokens)),
             caching_enabled: config.caching_enabled,
             total_cache_creation_tokens: self
                 .usage_totals
@@ -494,7 +506,7 @@ fn same_budget_state(left: Option<&Budget>, right: Option<&Budget>) -> bool {
 mod tests {
     use super::*;
     use crate::MessageParamContent;
-    use crate::types::{KnownModel, SystemPrompt, Usage};
+    use crate::types::{KnownModel, OutputTokensDetails, SystemPrompt, Usage};
 
     struct TestRenderer;
 
@@ -673,7 +685,7 @@ mod tests {
             Some(MessageParam::assistant("branched response")),
             Ok(TurnOutcome {
                 stop_reason: crate::StopReason::EndTurn,
-                usage: Usage::new(12, 34),
+                usage: Usage::new(12, 34).with_thinking_tokens(21),
                 request_count: 2,
             }),
         );
@@ -702,9 +714,11 @@ mod tests {
         assert_eq!(stats.message_count, 1);
         assert_eq!(stats.total_input_tokens, 12);
         assert_eq!(stats.total_output_tokens, 34);
+        assert_eq!(stats.total_thinking_tokens, Some(21));
         assert_eq!(stats.total_requests, 2);
         assert_eq!(stats.last_turn_input_tokens, Some(12));
         assert_eq!(stats.last_turn_output_tokens, Some(34));
+        assert_eq!(stats.last_turn_thinking_tokens, Some(21));
     }
 
     #[tokio::test]
@@ -740,9 +754,43 @@ mod tests {
         let stats = session.stats();
         assert_eq!(stats.total_input_tokens, 0);
         assert_eq!(stats.total_output_tokens, 0);
+        assert_eq!(stats.total_thinking_tokens, None);
         assert_eq!(stats.total_requests, 0);
         assert_eq!(stats.last_turn_input_tokens, None);
         assert_eq!(stats.last_turn_output_tokens, None);
+        assert_eq!(stats.last_turn_thinking_tokens, None);
+    }
+
+    #[tokio::test]
+    async fn stats_accumulate_thinking_tokens_across_turns() {
+        let client = Anthropic::new(None).unwrap();
+        let agent = StubAgent::new(
+            ChatConfig::default(),
+            Some(MessageParam::assistant("first response")),
+            Ok(TurnOutcome {
+                stop_reason: crate::StopReason::EndTurn,
+                usage: Usage::new(10, 30).with_output_tokens_details(OutputTokensDetails::new(12)),
+                request_count: 1,
+            }),
+        );
+        let mut session = ChatSession::with_agent(client, agent);
+        let mut renderer = TestRenderer;
+
+        session
+            .send_message(MessageParam::user("first"), &mut renderer)
+            .await
+            .unwrap();
+
+        session
+            .send_message(MessageParam::user("second"), &mut renderer)
+            .await
+            .unwrap();
+
+        let stats = session.stats();
+        assert_eq!(stats.total_output_tokens, 60);
+        assert_eq!(stats.total_thinking_tokens, Some(24));
+        assert_eq!(stats.last_turn_output_tokens, Some(30));
+        assert_eq!(stats.last_turn_thinking_tokens, Some(12));
     }
 
     #[test]
