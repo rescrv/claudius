@@ -18,20 +18,27 @@ const ANSI_ITALIC: &str = "\x1b[3m";
 /// ANSI escape code to reset all styling.
 const ANSI_RESET: &str = "\x1b[0m";
 
-/// ANSI escape code for cyan text (used for tool names).
-const ANSI_CYAN: &str = "\x1b[36m";
+// Selected from the Zenburn Vim theme's 256-color palette.
+/// ANSI escape code for muted metadata.
+const ANSI_METADATA: &str = "\x1b[38;5;245m";
 
-/// ANSI escape code for yellow text (used for tool input).
-const ANSI_YELLOW: &str = "\x1b[33m";
+/// ANSI escape code for thinking blocks.
+const ANSI_THINKING: &str = "\x1b[38;5;245m";
 
-/// ANSI escape code for green text (used for tool result success).
-const ANSI_GREEN: &str = "\x1b[32m";
+/// ANSI escape code for tool names.
+const ANSI_TOOL_LABEL: &str = "\x1b[38;5;109m";
 
-/// ANSI escape code for red text (used for tool result errors).
-const ANSI_RED: &str = "\x1b[31m";
+/// ANSI escape code for tool input.
+const ANSI_TOOL_INPUT: &str = "\x1b[38;5;229m";
 
-/// ANSI escape code for magenta text (used for tool result bodies).
-const ANSI_MAGENTA: &str = "\x1b[35m";
+/// ANSI escape code for successful tool result labels.
+const ANSI_TOOL_RESULT_OK: &str = "\x1b[38;5;108m";
+
+/// ANSI escape code for errors and failed tool result labels.
+const ANSI_ERROR: &str = "\x1b[38;5;217m";
+
+/// ANSI escape code for tool result bodies.
+const ANSI_TOOL_RESULT_BODY: &str = "\x1b[38;5;187m";
 
 ///////////////////////////////////////// Streaming /////////////////////////////////////////
 
@@ -332,6 +339,7 @@ impl Renderer for PlainTextRenderer {
     fn print_thinking(&mut self, context: &dyn StreamContext, text: &str) {
         if self.use_color {
             if !self.in_thinking {
+                self.write_with_indent(context, ANSI_THINKING);
                 self.write_with_indent(context, ANSI_DIM);
                 self.write_with_indent(context, ANSI_ITALIC);
                 self.in_thinking = true;
@@ -354,9 +362,17 @@ impl Renderer for PlainTextRenderer {
     fn print_error(&mut self, context: &dyn StreamContext, error: &str) {
         self.reset_styles();
         if context.depth() == 0 && context.label().is_none() {
-            eprintln!("\nError: {error}");
+            if self.use_color {
+                eprintln!("\n{ANSI_ERROR}{error}{ANSI_RESET}");
+            } else {
+                eprintln!("\n{error}");
+            }
         } else {
-            self.write_with_indent(context, &format!("\nError: {error}\n"));
+            if self.use_color {
+                self.write_with_indent(context, &format!("\n{ANSI_ERROR}{error}{ANSI_RESET}\n"));
+            } else {
+                self.write_with_indent(context, &format!("\n{error}\n"));
+            }
         }
     }
 
@@ -377,9 +393,11 @@ impl Renderer for PlainTextRenderer {
         if self.use_color {
             self.write_with_indent(
                 context,
-                &format!("\n{ANSI_CYAN}[tool: {name}]{ANSI_RESET} {ANSI_DIM}({id}){ANSI_RESET}\n"),
+                &format!(
+                    "\n{ANSI_TOOL_LABEL}[tool: {name}]{ANSI_RESET} {ANSI_METADATA}{ANSI_DIM}({id}){ANSI_RESET}\n"
+                ),
             );
-            self.write_with_indent(context, ANSI_YELLOW);
+            self.write_with_indent(context, ANSI_TOOL_INPUT);
         } else {
             self.write_with_indent(context, &format!("\n[tool: {name}] ({id})\n"));
         }
@@ -405,12 +423,16 @@ impl Renderer for PlainTextRenderer {
         self.reset_styles();
         self.in_tool_result = true;
         if self.use_color {
-            let label_color = if is_error { ANSI_RED } else { ANSI_GREEN };
+            let label_color = if is_error {
+                ANSI_ERROR
+            } else {
+                ANSI_TOOL_RESULT_OK
+            };
             let status = if is_error { "error" } else { "ok" };
             self.write_with_indent(
                 context,
                 &format!(
-                    "\n{label_color}[tool result: {tool_use_id} ({status})]{ANSI_RESET}\n{ANSI_MAGENTA}"
+                    "\n{label_color}[tool result: {tool_use_id} ({status})]{ANSI_RESET}\n{ANSI_TOOL_RESULT_BODY}"
                 ),
             );
         } else if is_error {
