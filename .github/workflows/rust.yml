@@ -26,7 +26,7 @@ jobs:
           cargo build --bin claudius-prompt --features native-tls
           cargo build --bin claudius-prompt --features rustls-tls
       - name: cargo test
-        run: cargo test
+        run: cargo test -- --test-threads=1
         env:
           CLAUDIUS_API_KEY: ${{ secrets.CLAUDIUS_API_KEY }}
       - name: prompt tests
