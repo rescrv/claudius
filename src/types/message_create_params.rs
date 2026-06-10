@@ -160,6 +160,18 @@ pub struct MessageCreateParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
 
+    /// Models to fall back to if this request is refused.
+    ///
+    /// When a model with safety classifiers (such as Claude Fable 5) declines a request
+    /// with `stop_reason: "refusal"`, the API can transparently retry the request against
+    /// the models listed here, in order, and return the first successful response.
+    ///
+    /// Server-side fallback is in beta and requires the `fallbacks` beta header. See
+    /// [server-side fallback](https://docs.anthropic.com/en/docs/build-with-claude/refusals-and-fallback#server-side-fallback)
+    /// for details.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallbacks: Option<Vec<Model>>,
+
     /// Whether to incrementally stream the response using server-sent events.
     ///
     /// See [streaming](https://docs.anthropic.com/en/api/messages-streaming) for
@@ -215,6 +227,7 @@ impl MessageCreateParams {
             tools: None,
             top_k: None,
             top_p: None,
+            fallbacks: None,
             stream: false,
             betas: None,
         }
@@ -238,6 +251,7 @@ impl MessageCreateParams {
             tools: None,
             top_k: None,
             top_p: None,
+            fallbacks: None,
             stream: true,
             betas: None,
         }
@@ -359,6 +373,25 @@ impl MessageCreateParams {
     /// Sets the streaming option.
     pub fn with_stream(mut self, stream: bool) -> Self {
         self.stream = stream;
+        self
+    }
+
+    /// Set the models to fall back to if this request is refused.
+    ///
+    /// Replaces any previously configured fallbacks. Server-side fallback is in beta and
+    /// requires the `fallbacks` beta header.
+    pub fn with_fallbacks(mut self, fallbacks: impl IntoIterator<Item = impl Into<Model>>) -> Self {
+        self.fallbacks = Some(fallbacks.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Add a single fallback model for this request.
+    ///
+    /// Appends to any previously configured fallbacks, preserving order.
+    pub fn with_fallback(mut self, fallback: impl Into<Model>) -> Self {
+        self.fallbacks
+            .get_or_insert_with(Vec::new)
+            .push(fallback.into());
         self
     }
 
@@ -660,6 +693,7 @@ impl Default for MessageCreateParams {
             tools: None,
             top_k: None,
             top_p: None,
+            fallbacks: None,
             stream: false,
             betas: None,
         }
@@ -1012,6 +1046,74 @@ mod tests {
         assert!(
             json.get("betas").is_none(),
             "betas should not appear in serialized JSON"
+        );
+    }
+
+    #[test]
+    fn fallbacks_none_by_default() {
+        let params = MessageCreateParams::simple("Hello", KnownModel::ClaudeFable5);
+        assert_eq!(params.fallbacks, None);
+
+        // Omitted from serialized JSON when unset.
+        let json = to_value(&params).unwrap();
+        assert!(json.get("fallbacks").is_none());
+    }
+
+    #[test]
+    fn with_fallbacks_replaces() {
+        let params = MessageCreateParams::simple("Hello", KnownModel::ClaudeFable5)
+            .with_fallbacks([KnownModel::ClaudeSonnet45, KnownModel::ClaudeHaiku45]);
+
+        assert_eq!(
+            params.fallbacks,
+            Some(vec![
+                Model::Known(KnownModel::ClaudeSonnet45),
+                Model::Known(KnownModel::ClaudeHaiku45),
+            ])
+        );
+    }
+
+    #[test]
+    fn with_fallback_appends_in_order() {
+        let params = MessageCreateParams::simple("Hello", KnownModel::ClaudeFable5)
+            .with_fallback(KnownModel::ClaudeSonnet45)
+            .with_fallback(KnownModel::ClaudeHaiku45);
+
+        assert_eq!(
+            params.fallbacks,
+            Some(vec![
+                Model::Known(KnownModel::ClaudeSonnet45),
+                Model::Known(KnownModel::ClaudeHaiku45),
+            ])
+        );
+    }
+
+    #[test]
+    fn fallbacks_serialization() {
+        let params = MessageCreateParams::simple("Hello", KnownModel::ClaudeFable5)
+            .with_fallbacks([KnownModel::ClaudeSonnet45]);
+
+        let json = to_value(&params).unwrap();
+        assert_eq!(json.get("fallbacks").unwrap(), &json!(["claude-sonnet-4-5"]));
+    }
+
+    #[test]
+    fn fallbacks_deserialization() {
+        let json = json!({
+            "max_tokens": 1024,
+            "messages": [{ "role": "user", "content": "Hello" }],
+            "model": "claude-fable-5",
+            "stream": false,
+            "fallbacks": ["claude-sonnet-4-5", "claude-haiku-4-5"]
+        });
+
+        let params: MessageCreateParams = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            params.fallbacks,
+            Some(vec![
+                Model::Known(KnownModel::ClaudeSonnet45),
+                Model::Known(KnownModel::ClaudeHaiku45),
+            ])
         );
     }
 }
