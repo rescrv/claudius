@@ -72,6 +72,12 @@ pub enum KnownModel {
     /// Claude Opus 4.8 (alias)
     ClaudeOpus48,
 
+    /// Claude Fable 5
+    ClaudeFable5,
+
+    /// Claude Mythos 5 (Project Glasswing limited release)
+    ClaudeMythos5,
+
     /// Claude 3 Opus (latest version)
     Claude3OpusLatest,
 
@@ -142,7 +148,8 @@ impl KnownModel {
     ///
     /// # Panics
     ///
-    /// If a model other than Haiku 4.5, Sonnet 4.5, or Opus 4.5, 4.6, 4.7, or 4.8 is self.
+    /// If a model other than Haiku 4.5, Sonnet 4.5, Opus 4.5, 4.6, 4.7, or 4.8, or Fable/Mythos 5
+    /// is self.
     pub fn token_rates(&self) -> TokenRates {
         match self {
             // Claude Haiku 4.5 — $0.80/$4, $1.00/$0.08
@@ -190,6 +197,14 @@ impl KnownModel {
                 cache_read: 50,
             },
 
+            // Claude Fable 5 / Mythos 5 — $10/$50, $12.50/$1.00
+            KnownModel::ClaudeFable5 | KnownModel::ClaudeMythos5 => TokenRates {
+                input: 1000,
+                output: 5000,
+                cache_creation: 1250,
+                cache_read: 100,
+            },
+
             _ => unimplemented!("model not known"),
         }
     }
@@ -216,6 +231,8 @@ impl fmt::Display for KnownModel {
             KnownModel::ClaudeOpus4120250805 => write!(f, "claude-opus-4-1-20250805"),
             KnownModel::ClaudeOpus47 => write!(f, "claude-opus-4-7"),
             KnownModel::ClaudeOpus48 => write!(f, "claude-opus-4-8"),
+            KnownModel::ClaudeFable5 => write!(f, "claude-fable-5"),
+            KnownModel::ClaudeMythos5 => write!(f, "claude-mythos-5"),
             KnownModel::Claude3OpusLatest => write!(f, "claude-3-opus-latest"),
             KnownModel::Claude3Opus20240229 => write!(f, "claude-3-opus-20240229"),
             KnownModel::Claude3Haiku20240307 => write!(f, "claude-3-haiku-20240307"),
@@ -260,6 +277,8 @@ impl<'de> Deserialize<'de> for Model {
             "claude-opus-4-1-20250805" => Ok(Model::Known(KnownModel::ClaudeOpus4120250805)),
             "claude-opus-4-7" => Ok(Model::Known(KnownModel::ClaudeOpus47)),
             "claude-opus-4-8" => Ok(Model::Known(KnownModel::ClaudeOpus48)),
+            "claude-fable-5" => Ok(Model::Known(KnownModel::ClaudeFable5)),
+            "claude-mythos-5" => Ok(Model::Known(KnownModel::ClaudeMythos5)),
             "claude-3-opus-latest" => Ok(Model::Known(KnownModel::Claude3OpusLatest)),
             "claude-3-opus-20240229" => Ok(Model::Known(KnownModel::Claude3Opus20240229)),
             "claude-3-haiku-20240307" => Ok(Model::Known(KnownModel::Claude3Haiku20240307)),
@@ -298,6 +317,8 @@ impl FromStr for KnownModel {
             "claude-opus-4-1-20250805" => Ok(KnownModel::ClaudeOpus4120250805),
             "claude-opus-4-7" => Ok(KnownModel::ClaudeOpus47),
             "claude-opus-4-8" => Ok(KnownModel::ClaudeOpus48),
+            "claude-fable-5" => Ok(KnownModel::ClaudeFable5),
+            "claude-mythos-5" => Ok(KnownModel::ClaudeMythos5),
             "claude-3-opus-latest" => Ok(KnownModel::Claude3OpusLatest),
             "claude-3-opus-20240229" => Ok(KnownModel::Claude3Opus20240229),
             "claude-3-haiku-20240307" => Ok(KnownModel::Claude3Haiku20240307),
@@ -474,6 +495,30 @@ mod tests {
     }
 
     #[test]
+    fn claude_5_models() {
+        // Test Claude Fable 5
+        let model = Model::Known(KnownModel::ClaudeFable5);
+        assert_eq!(model.to_string(), "claude-fable-5");
+        let json = serde_json::to_string(&model).unwrap();
+        assert_eq!(json, r#""claude-fable-5""#);
+
+        // Test Claude Mythos 5
+        let model = Model::Known(KnownModel::ClaudeMythos5);
+        assert_eq!(model.to_string(), "claude-mythos-5");
+        let json = serde_json::to_string(&model).unwrap();
+        assert_eq!(json, r#""claude-mythos-5""#);
+
+        // Test deserialization of Claude 5 models
+        let json = r#""claude-fable-5""#;
+        let model: Model = serde_json::from_str(json).unwrap();
+        assert_eq!(model, Model::Known(KnownModel::ClaudeFable5));
+
+        let json = r#""claude-mythos-5""#;
+        let model: Model = serde_json::from_str(json).unwrap();
+        assert_eq!(model, Model::Known(KnownModel::ClaudeMythos5));
+    }
+
+    #[test]
     fn display() {
         let model = Model::Known(KnownModel::Claude37SonnetLatest);
         assert_eq!(model.to_string(), "claude-3-7-sonnet-latest");
@@ -521,6 +566,17 @@ mod tests {
             assert_eq!(rates.output, 2500);
             assert_eq!(rates.cache_creation, 625);
             assert_eq!(rates.cache_read, 50);
+        }
+    }
+
+    #[test]
+    fn token_rates_fable_mythos_5() {
+        for model in [KnownModel::ClaudeFable5, KnownModel::ClaudeMythos5] {
+            let rates = model.token_rates();
+            assert_eq!(rates.input, 1000);
+            assert_eq!(rates.output, 5000);
+            assert_eq!(rates.cache_creation, 1250);
+            assert_eq!(rates.cache_read, 100);
         }
     }
 }
