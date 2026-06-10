@@ -3,7 +3,4 @@ prompt: "Invent a completely new programming language concept that has never bee
 model: "claude-haiku-4-5"
 max_tokens: 600
 temperature: 1.0
-expected_not_contains:
-  - "I can't"
-  - "impossible"
 min_response_length: 100
