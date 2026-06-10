@@ -42,9 +42,7 @@ use claudius::chat::{
     ChatAgent, ChatArgs, ChatCommand, ChatConfig, ChatSession, PlainTextRenderer, help_text,
     parse_command,
 };
-use claudius::{
-    Anthropic, Effort, Model, StopReason, SystemPrompt, ThinkingConfig, ThinkingDisplay,
-};
+use claudius::{Anthropic, Effort, Model, StopReason, ThinkingConfig, ThinkingDisplay};
 use claudius::{OperatorLine, Renderer, StreamContext};
 
 struct ChatTerminal {
@@ -210,13 +208,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             terminal
                                 .print_info(&context, &format!("Model changed to: {}", model_name));
                         }
-                        ChatCommand::System(prompt) => {
-                            session.template_mut().system = prompt.clone().map(SystemPrompt::from);
-                            match prompt {
-                                Some(p) => terminal
-                                    .print_info(&context, &format!("System prompt set to: {}", p)),
-                                None => terminal.print_info(&context, "System prompt cleared."),
-                            }
+                        ChatCommand::System(message) => {
+                            session.insert_system_message(message.clone());
+                            terminal.print_info(
+                                &context,
+                                &format!("System message inserted: {}", message),
+                            );
                         }
                         ChatCommand::MaxTokens(value) => {
                             session.template_mut().max_tokens = Some(value);

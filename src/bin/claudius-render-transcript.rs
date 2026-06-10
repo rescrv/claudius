@@ -126,6 +126,7 @@ fn render_message(out: &mut String, message: &MessageParam) {
     match message.role {
         MessageRole::User => out.push_str("## User\n\n"),
         MessageRole::Assistant => out.push_str("## Assistant\n\n"),
+        MessageRole::System => out.push_str("## System\n\n"),
     }
 
     match &message.content {
