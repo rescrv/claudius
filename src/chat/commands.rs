@@ -15,9 +15,11 @@ pub enum ChatCommand {
     /// Change the model.
     Model(String),
 
-    /// Set or clear the system prompt.
-    /// `None` clears the current system prompt.
-    System(Option<String>),
+    /// Insert a system message into the conversation history.
+    ///
+    /// The message is appended with the `system` role and included in the next
+    /// request to the API.
+    System(String),
 
     /// Set the maximum tokens per response.
     MaxTokens(u32),
@@ -129,7 +131,10 @@ pub fn parse_command(input: &str) -> Option<ChatCommand> {
             Some(model) => ChatCommand::Model(model.to_string()),
             None => ChatCommand::Invalid("/model requires a model name".to_string()),
         },
-        "system" => ChatCommand::System(argument.map(|s| s.to_string())),
+        "system" => match argument {
+            Some(message) => ChatCommand::System(message.to_string()),
+            None => ChatCommand::Invalid("/system requires message text".to_string()),
+        },
         "help" | "?" => ChatCommand::Help,
         "quit" | "exit" | "q" => ChatCommand::Quit,
         "stats" | "status" => ChatCommand::Stats,
@@ -307,7 +312,7 @@ pub fn help_text() -> &'static str {
     r#"Available commands:
   /clear                 Clear conversation history
   /model <name>          Change the model (e.g., /model claude-sonnet-4-0)
-  /system [prompt]       Set system prompt (no argument clears it)
+  /system <message>      Insert a system message into the conversation
   /max_tokens <n>        Set maximum response tokens
   /temperature <v>       Set temperature 0.0-1.0 (use 'clear' to reset)
   /top_p <v>             Set top-p 0.0-1.0 (use 'clear' to reset)
@@ -368,11 +373,16 @@ mod tests {
     fn parse_system() {
         assert_eq!(
             parse_command("/system You are a helpful assistant"),
-            Some(ChatCommand::System(Some(
+            Some(ChatCommand::System(
                 "You are a helpful assistant".to_string()
-            )))
+            ))
         );
-        assert_eq!(parse_command("/system"), Some(ChatCommand::System(None)));
+        assert_eq!(
+            parse_command("/system"),
+            Some(ChatCommand::Invalid(
+                "/system requires message text".to_string()
+            ))
+        );
     }
 
     #[test]

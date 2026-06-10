@@ -32,6 +32,13 @@ pub enum MessageRole {
 
     /// Assistant role.
     Assistant,
+
+    /// System role.
+    ///
+    /// System messages provide instructions or context that steer the
+    /// assistant's behavior. Unlike the top-level system prompt, a system
+    /// message can be interleaved at any point in the conversation history.
+    System,
 }
 
 impl MessageParam {
@@ -58,6 +65,11 @@ impl MessageParam {
     /// Create a new assistant `MessageParam` with a string content.
     pub fn assistant(content: impl Into<String>) -> Self {
         Self::new_with_string(content.into(), MessageRole::Assistant)
+    }
+
+    /// Create a new system `MessageParam` with a string content.
+    pub fn system(content: impl Into<String>) -> Self {
+        Self::new_with_string(content.into(), MessageRole::System)
     }
 }
 

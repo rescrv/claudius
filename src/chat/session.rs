@@ -230,6 +230,24 @@ impl<A: ChatAgent> ChatSession<A> {
         }
     }
 
+    /// Inserts a message into the conversation history without contacting the API.
+    ///
+    /// The message becomes part of the transcript and is included in the next
+    /// turn. This is primarily used to interleave system messages (with
+    /// [`MessageRole::System`](crate::MessageRole::System)) into the
+    /// conversation.
+    pub fn push_message(&mut self, message: MessageParam) {
+        self.messages.push(message);
+    }
+
+    /// Inserts a system message into the conversation history.
+    ///
+    /// The message is appended with [`MessageRole::System`](crate::MessageRole::System)
+    /// and is included in the next request to the API.
+    pub fn insert_system_message(&mut self, content: impl Into<String>) {
+        self.messages.push(MessageParam::system(content));
+    }
+
     /// Returns a snapshot of the current conversation history.
     pub fn clone_messages(&self) -> Vec<MessageParam> {
         self.messages.clone()
