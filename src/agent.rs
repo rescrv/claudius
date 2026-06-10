@@ -1781,6 +1781,15 @@ pub trait Agent: Send + Sync + Sized {
         None
     }
 
+    /// Returns the models to fall back to if a request is refused.
+    ///
+    /// When a model with safety classifiers declines a request with
+    /// `stop_reason: "refusal"`, the API can transparently retry against these models
+    /// in order. Server-side fallback is in beta and requires the `fallbacks` beta header.
+    async fn fallbacks(&self) -> Option<Vec<Model>> {
+        None
+    }
+
     /// Returns the filesystem implementation for this agent.
     async fn filesystem(&self) -> Option<&dyn FileSystem> {
         None
@@ -2171,6 +2180,7 @@ pub trait Agent: Send + Sync + Sized {
             temperature: self.temperature().await,
             top_k: self.top_k().await,
             top_p: self.top_p().await,
+            fallbacks: self.fallbacks().await,
             stream,
             tool_choice: self.tool_choice().await,
             tools,
