@@ -39,6 +39,7 @@ pub struct TelegramTransport {
     state: Arc<Mutex<TransportState>>,
     store: Arc<dyn StateStore>,
     allowed_updates: Vec<String>,
+    allowed_user_ids: Vec<i64>,
 }
 
 impl TelegramTransport {
@@ -56,6 +57,7 @@ impl TelegramTransport {
             state,
             store,
             allowed_updates: vec!["message".to_string()],
+            allowed_user_ids: Vec::new(),
         })
     }
 
@@ -67,6 +69,19 @@ impl TelegramTransport {
         self.poll_timeout_secs = secs;
         self.api = TelegramApi::new(token, secs)?;
         Ok(self)
+    }
+
+    /// Restricts inbound messages to the given Telegram user ids.
+    ///
+    /// Passing an empty iterator restores the default allow-all policy. Messages
+    /// from other users, or messages without a sender id, are acknowledged and
+    /// ignored by the shared turn loop.
+    pub fn with_allowed_user_ids<I>(mut self, user_ids: I) -> Self
+    where
+        I: IntoIterator<Item = i64>,
+    {
+        self.allowed_user_ids = user_ids.into_iter().collect();
+        self
     }
 
     /// Returns the bot's own `@username` (a connectivity/auth check).
@@ -151,6 +166,10 @@ impl TelegramTransport {
 
 #[async_trait::async_trait]
 impl ChatTransport for TelegramTransport {
+    fn allowed_user_ids(&self) -> &[i64] {
+        &self.allowed_user_ids
+    }
+
     async fn recv(&mut self) -> Result<Vec<Inbound>, Error> {
         let offset = self.state.lock().await.next_offset;
         let updates = self

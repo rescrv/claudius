@@ -320,6 +320,15 @@ where
         }
 
         for inbound in batch {
+            if !transport.is_user_allowed(inbound.from_user_id) {
+                eprintln!(
+                    "[telegram] rejecting update_id={} from user_id={:?}; not in allow-list",
+                    inbound.update_id, inbound.from_user_id
+                );
+                transport.ack(inbound.update_id).await?;
+                continue;
+            }
+
             let chat = inbound.chat;
             let update_id = inbound.update_id;
 

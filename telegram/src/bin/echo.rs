@@ -60,6 +60,25 @@ struct EchoArgs {
     /// Delete any active webhook on startup.
     #[arrrg(flag, "Call deleteWebhook on startup")]
     delete_webhook_on_start: bool,
+
+    /// Comma-separated Telegram user ids allowed to talk to the bot.
+    #[arrrg(optional, "Comma-separated Telegram user ids to allow", "IDS")]
+    allowed_user_ids: Option<String>,
+}
+
+fn parse_allowed_user_ids(raw: Option<&str>) -> Result<Vec<i64>, Error> {
+    let Some(raw) = raw else {
+        return Ok(Vec::new());
+    };
+
+    raw.split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            part.parse::<i64>()
+                .map_err(|err| Error::Internal(format!("invalid Telegram user id '{part}': {err}")))
+        })
+        .collect()
 }
 
 #[tokio::main]
@@ -115,6 +134,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })?;
         let mut transport =
             TelegramTransport::new(token.clone(), Arc::clone(&state), Arc::clone(&store))?;
+        transport = transport
+            .with_allowed_user_ids(parse_allowed_user_ids(args.allowed_user_ids.as_deref())?);
         if let Some(secs) = args.poll_timeout {
             transport = transport.with_poll_timeout(secs, token.clone())?;
         }
