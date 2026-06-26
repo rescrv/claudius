@@ -14,9 +14,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use async_trait::async_trait;
+use claudius::ContentBlock;
 
 use claudius_telegram::{
-    ChatId, ChatTransport, Error, Inbound, MessageId, Outbound, StdinTransport, UpdateId,
+    ChatId, ChatTransport, Error, Inbound, MessageId, StdinTransport, UpdateId, text_content,
 };
 
 /// How a scripted send should behave.
@@ -69,7 +70,7 @@ impl ChatTransport for MockTelegram {
         Ok(())
     }
 
-    async fn send(&self, _out: Outbound) -> Result<MessageId, Error> {
+    async fn send(&self, _chat: ChatId, _content: Vec<ContentBlock>) -> Result<MessageId, Error> {
         self.send_attempts.fetch_add(1, Ordering::SeqCst);
         match self.script {
             SendScript::Ok(id) => Ok(MessageId(id)),
@@ -88,10 +89,7 @@ fn inbound(id: i64, text: &str) -> Inbound {
 
 #[tokio::test]
 async fn recv_does_not_advance_cursor_without_ack() {
-    let mut t = MockTelegram::new(
-        vec![inbound(0, "a"), inbound(1, "b")],
-        SendScript::Ok(100),
-    );
+    let mut t = MockTelegram::new(vec![inbound(0, "a"), inbound(1, "b")], SendScript::Ok(100));
 
     // Repeated recv without ack returns the same updates every time.
     let first = t.recv().await.unwrap();
@@ -118,7 +116,7 @@ async fn ack_advances_cursor() {
 #[tokio::test]
 async fn send_returns_message_id_on_success() {
     let t = MockTelegram::new(vec![], SendScript::Ok(777));
-    let id = t.send(Outbound::new(ChatId(1), "hi")).await.unwrap();
+    let id = t.send(ChatId(1), text_content("hi")).await.unwrap();
     assert_eq!(id, MessageId(777));
 }
 
@@ -127,7 +125,7 @@ async fn send_403_returns_without_retry() {
     let t = MockTelegram::new(vec![], SendScript::Forbidden);
     let attempts = Arc::clone(&t.send_attempts);
 
-    let err = t.send(Outbound::new(ChatId(1), "hi")).await.unwrap_err();
+    let err = t.send(ChatId(1), text_content("hi")).await.unwrap_err();
     assert_eq!(err.api_code(), Some(403));
     // Exactly one attempt: a 403 must not be retried.
     assert_eq!(attempts.load(Ordering::SeqCst), 1);
@@ -140,6 +138,9 @@ async fn stdin_ack_is_noop_and_send_succeeds() {
     // ack is a no-op on the terminal cursor.
     t.ack(UpdateId(42)).await.unwrap();
     // send prints and reports a synthetic message id.
-    let id = t.send(Outbound::new(ChatId(0), "printed line")).await.unwrap();
+    let id = t
+        .send(ChatId(0), text_content("printed line"))
+        .await
+        .unwrap();
     assert_eq!(id, MessageId(0));
 }

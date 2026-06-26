@@ -9,17 +9,48 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
+use claudius::{
+    Agent, Anthropic, Budget, ContentBlock, MessageParam, MessageParamContent, MessageRole,
+    Renderer, StopReason, TextBlock, ThinkingBlock, TurnOutcome, Usage,
+};
 use tokio::sync::Mutex;
 
-use claudius::{Agent, Anthropic, Budget};
 use claudius_telegram::{
-    ChatId, ChatTransport, Error, InMemoryStateStore, Inbound, LoopConfig, MessageId, Outbound,
-    PreFilter, StateStore, TransportState, UpdateId, run_agent_loop,
+    ChatId, ChatTransport, Error, InMemoryStateStore, Inbound, LoopConfig, MessageId, PreFilter,
+    StateStore, TransportState, UpdateId, content_blocks_to_text, run_agent_loop,
 };
 
 /// A trivial agent; never invoked because the pre-filter handles every message.
 struct EchoAgent;
 impl Agent for EchoAgent {}
+
+/// An agent that appends native assistant blocks, including thinking.
+struct NativeBlockAgent;
+
+#[async_trait]
+impl Agent for NativeBlockAgent {
+    async fn take_turn_streaming_root(
+        &mut self,
+        _client: &Anthropic,
+        messages: &mut Vec<MessageParam>,
+        _budget: &Arc<Budget>,
+        _renderer: &mut dyn Renderer,
+    ) -> Result<TurnOutcome, claudius::Error> {
+        messages.push(MessageParam::new(
+            MessageParamContent::Array(vec![
+                ContentBlock::Thinking(ThinkingBlock::new("internal", "signature")),
+                ContentBlock::Text(TextBlock::new("answer")),
+            ]),
+            MessageRole::Assistant,
+        ));
+
+        Ok(TurnOutcome {
+            stop_reason: StopReason::EndTurn,
+            usage: Usage::new(0, 0),
+            request_count: 0,
+        })
+    }
+}
 
 /// An in-memory transport sharing durable state with the loop.
 struct InMemTransport {
@@ -61,14 +92,17 @@ impl ChatTransport for InMemTransport {
         self.store.commit(&snapshot).await
     }
 
-    async fn send(&self, out: Outbound) -> Result<MessageId, Error> {
-        self.sent.lock().await.push((out.chat.0, out.text));
+    async fn send(&self, chat: ChatId, content: Vec<ContentBlock>) -> Result<MessageId, Error> {
+        self.sent
+            .lock()
+            .await
+            .push((chat.0, content_blocks_to_text(&content)));
         Ok(MessageId(1))
     }
 }
 
 fn echo_filter() -> Box<dyn Fn(&Inbound) -> PreFilter + Send> {
-    Box::new(|inb: &Inbound| PreFilter::Handled(inb.text.to_uppercase()))
+    Box::new(|inb: &Inbound| PreFilter::handled_text(inb.text.to_uppercase()))
 }
 
 #[tokio::test]
@@ -100,11 +134,16 @@ async fn loop_commits_history_and_advances_offset() {
     };
     let client = Anthropic::new(Some("dummy".to_string())).unwrap();
 
-    run_agent_loop(EchoAgent, transport, client, config).await.unwrap();
+    run_agent_loop(EchoAgent, transport, client, config)
+        .await
+        .unwrap();
 
     // Both messages were echoed uppercased.
     let sent = sent.lock().await.clone();
-    assert_eq!(sent, vec![(1, "HELLO".to_string()), (1, "WORLD".to_string())]);
+    assert_eq!(
+        sent,
+        vec![(1, "HELLO".to_string()), (1, "WORLD".to_string())]
+    );
 
     // The committed state advanced the offset past update 1 and recorded the
     // full user+assistant history.
@@ -112,6 +151,48 @@ async fn loop_commits_history_and_advances_offset() {
     assert_eq!(committed.next_offset, 2);
     let convo = committed.conversation(ChatId(1)).unwrap();
     assert_eq!(convo.len(), 4); // user, assistant, user, assistant
+}
+
+#[tokio::test]
+async fn loop_persists_native_blocks_but_sends_text_only() {
+    let store: Arc<dyn StateStore> = Arc::new(InMemoryStateStore::new());
+    let state = Arc::new(Mutex::new(store.load().await.unwrap()));
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let sent = Arc::new(Mutex::new(Vec::new()));
+
+    let transport = InMemTransport {
+        updates: vec![Inbound::new(UpdateId(0), ChatId(1), "hello")],
+        state: Arc::clone(&state),
+        store: Arc::clone(&store),
+        interrupted: Arc::clone(&interrupted),
+        sent: Arc::clone(&sent),
+        polled: false,
+    };
+
+    let config = LoopConfig {
+        store: Arc::clone(&store),
+        state: Arc::clone(&state),
+        budget: Arc::new(Budget::from_dollars_flat_rate(0.0, 1000)),
+        use_outbox: false,
+        interrupted: Arc::clone(&interrupted),
+        pre_filter: None,
+    };
+    let client = Anthropic::new(Some("dummy".to_string())).unwrap();
+
+    run_agent_loop(NativeBlockAgent, transport, client, config)
+        .await
+        .unwrap();
+
+    assert_eq!(sent.lock().await.clone(), vec![(1, "answer".to_string())]);
+
+    let committed = store.load().await.unwrap();
+    let convo = committed.conversation(ChatId(1)).unwrap();
+    assert_eq!(convo.len(), 2);
+    let MessageParamContent::Array(blocks) = &convo[1].content else {
+        panic!("assistant message should use native content blocks");
+    };
+    assert!(matches!(blocks[0], ContentBlock::Thinking(_)));
+    assert!(matches!(blocks[1], ContentBlock::Text(_)));
 }
 
 #[tokio::test]
@@ -140,7 +221,9 @@ async fn restart_does_not_reprocess_acked_updates() {
             pre_filter: Some(echo_filter()),
         };
         let client = Anthropic::new(Some("dummy".to_string())).unwrap();
-        run_agent_loop(EchoAgent, transport, client, config).await.unwrap();
+        run_agent_loop(EchoAgent, transport, client, config)
+            .await
+            .unwrap();
         assert_eq!(sent.lock().await.len(), 1);
     }
 
@@ -167,7 +250,9 @@ async fn restart_does_not_reprocess_acked_updates() {
             pre_filter: Some(echo_filter()),
         };
         let client = Anthropic::new(Some("dummy".to_string())).unwrap();
-        run_agent_loop(EchoAgent, transport, client, config).await.unwrap();
+        run_agent_loop(EchoAgent, transport, client, config)
+            .await
+            .unwrap();
         // The already-acked update is filtered out: no reprocessing.
         assert_eq!(sent.lock().await.len(), 0);
     }

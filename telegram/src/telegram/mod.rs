@@ -13,7 +13,9 @@ use tokio::sync::Mutex;
 
 use crate::chunk::{DEFAULT_CHUNK_LIMIT, chunk_message};
 use crate::state::{StateStore, TransportState};
-use crate::transport::{ChatTransport, Inbound, Outbound};
+use claudius::ContentBlock;
+
+use crate::transport::{ChatTransport, Inbound, content_blocks_to_text};
 use crate::{ChatId, Error, MessageId, UpdateId};
 
 /// The default long-poll timeout, in seconds.
@@ -89,7 +91,9 @@ impl TelegramTransport {
         if chunks.is_empty() {
             // Nothing to send; surface as an internal no-op error rather than
             // silently returning a bogus message id.
-            return Err(Error::Internal("refusing to send empty message".to_string()));
+            return Err(Error::Internal(
+                "refusing to send empty message".to_string(),
+            ));
         }
         let mut last_id = MessageId(0);
         for (i, chunk) in chunks.iter().enumerate() {
@@ -196,8 +200,9 @@ impl ChatTransport for TelegramTransport {
         self.store.commit(&snapshot).await
     }
 
-    async fn send(&self, out: Outbound) -> Result<MessageId, Error> {
-        self.send_text(out.chat.0, &out.text).await
+    async fn send(&self, chat: ChatId, content: Vec<ContentBlock>) -> Result<MessageId, Error> {
+        let text = content_blocks_to_text(&content);
+        self.send_text(chat.0, &text).await
     }
 
     async fn typing(&self, chat: ChatId) -> Result<(), Error> {

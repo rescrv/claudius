@@ -13,6 +13,9 @@ double-processing messages.
     4096-char chunking).
   - **`StdinTransport`** — the terminal behavior behind the same trait, for
     token-free integration testing.
+  - Transport `send` takes native `Vec<claudius::ContentBlock>` content; concrete
+    transports flatten text blocks and discard thinking/non-text blocks at the
+    chat boundary.
 - **`run_agent_loop`** — a durable turn loop generic over any `claudius::Agent`
   and any `ChatTransport`.
 - **`TransportState` + `StateStore`** — the single durable artifact holding the
@@ -34,7 +37,7 @@ commits the conversation *before* it acks (advances the offset). The loop never
 exits between commit and ack, so the only replay window is a crash strictly
 between "turn produced output" and "state committed."
 
-Outbound `sendMessage` is not idempotent. A reactive agent (`use_outbox: false`)
+Telegram `sendMessage` is not idempotent. A reactive agent (`use_outbox: false`)
 sends directly and tolerates the rare duplicate. A proactive agent
 (`use_outbox: true`) routes sends through the transactional outbox: an intent is
 recorded `Pending` and committed before the send, then marked `Sent`. The one
@@ -89,5 +92,5 @@ restart recovery. `runtime_loop` drives the full durable loop end-to-end.
 
 Webhooks (a `WebhookTransport` could implement the same trait later),
 multi-tenant sharding, live token streaming to Telegram, and non-text content
-(media, inline keyboards, polls). The `Inbound`/`Outbound` types are
-`#[non_exhaustive]` so these can be added without a breaking change.
+(media, inline keyboards, polls). `Inbound` is `#[non_exhaustive]` so these can
+be added without a breaking change.

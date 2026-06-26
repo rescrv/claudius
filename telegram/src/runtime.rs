@@ -12,23 +12,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 
 use claudius::{
-    Agent, Anthropic, Budget, MessageParam, MessageParamContent, MessageRole, Renderer,
-    StreamContext,
+    Agent, Anthropic, Budget, ContentBlock, MessageParam, MessageParamContent, MessageRole,
+    Renderer, StreamContext,
 };
 
-use crate::state::{
-    ConversationEntry, EntryRole, OutboxRecord, OutboxStatus, StateStore, TransportState,
-};
-use crate::transport::{ChatTransport, Inbound, Outbound};
+use crate::state::{OutboxRecord, OutboxStatus, StateStore, TransportState};
+use crate::transport::{ChatTransport, Inbound, content_blocks_have_text, text_content};
 use crate::{ChatId, Error, MessageId};
 
 /////////////////////////////////////// BufferingRenderer ///////////////////////////////////////
 
 /// A [`Renderer`] that accumulates streamed assistant text instead of writing to
-/// stdout, so the turn loop can hand a single buffered message to a transport.
+/// stdout.
 ///
-/// Chunking to Telegram's size limit happens in the transport's `send`, not here:
-/// this renderer stays dumb -- accumulate and hand back.
+/// Chunking to Telegram's size limit happens in the transport's `send`, not here.
 #[derive(Default)]
 pub struct BufferingRenderer {
     buffer: String,
@@ -86,7 +83,13 @@ impl Renderer for BufferingRenderer {
 
     fn finish_tool_use(&mut self, _context: &dyn StreamContext) {}
 
-    fn start_tool_result(&mut self, _context: &dyn StreamContext, _tool_use_id: &str, _is_error: bool) {}
+    fn start_tool_result(
+        &mut self,
+        _context: &dyn StreamContext,
+        _tool_use_id: &str,
+        _is_error: bool,
+    ) {
+    }
 
     fn print_tool_result_text(&mut self, _context: &dyn StreamContext, _text: &str) {}
 
@@ -104,10 +107,17 @@ impl Renderer for BufferingRenderer {
 /// Lets the binary intercept slash-commands (or, for the echo smoke test, every
 /// message) before the agent is invoked.
 pub enum PreFilter {
-    /// The message was handled; send this text and skip the agent turn.
-    Handled(String),
+    /// The message was handled; send this content and skip the agent turn.
+    Handled(Vec<ContentBlock>),
     /// Pass the message through to the agent.
     PassToAgent,
+}
+
+impl PreFilter {
+    /// Builds a handled pre-filter response from plain text.
+    pub fn handled_text(text: impl Into<String>) -> Self {
+        Self::Handled(text_content(text))
+    }
 }
 
 /////////////////////////////////////////// LoopConfig ///////////////////////////////////////////
@@ -161,20 +171,26 @@ pub fn known_chats(state: &TransportState) -> Vec<ChatId> {
     state.conversations.keys().copied().map(ChatId).collect()
 }
 
-fn entry_to_message(entry: &ConversationEntry) -> MessageParam {
-    let role = match entry.role {
-        EntryRole::User => MessageRole::User,
-        EntryRole::Assistant => MessageRole::Assistant,
-        EntryRole::System => MessageRole::System,
-    };
-    MessageParam::new(MessageParamContent::String(entry.text.clone()), role)
-}
-
 fn build_messages(state: &TransportState, chat: ChatId) -> Vec<MessageParam> {
     state
         .conversation(chat)
-        .map(|entries| entries.iter().map(entry_to_message).collect())
+        .map(|messages| messages.to_vec())
         .unwrap_or_default()
+}
+
+fn content_to_blocks(content: &MessageParamContent) -> Vec<ContentBlock> {
+    match content {
+        MessageParamContent::String(text) => text_content(text.clone()),
+        MessageParamContent::Array(blocks) => blocks.clone(),
+    }
+}
+
+fn assistant_content(messages: &[MessageParam]) -> Vec<ContentBlock> {
+    messages
+        .iter()
+        .filter(|message| message.role == MessageRole::Assistant)
+        .flat_map(|message| content_to_blocks(&message.content))
+        .collect()
 }
 
 /// Drives a single `Pending` outbox record to `Sent`: sends it, then marks it and
@@ -186,18 +202,18 @@ async fn drive_outbox_record(
     state: &Arc<Mutex<TransportState>>,
     logical_id: crate::state::LogicalId,
 ) -> Result<MessageId, Error> {
-    // Read the record's chat/text without holding the lock across the send.
-    let (chat, text) = {
+    // Read the record's chat/content without holding the lock across the send.
+    let (chat, content) = {
         let st = state.lock().await;
         let rec = st
             .outbox
             .iter()
             .find(|r| r.logical_id == logical_id && r.status == OutboxStatus::Pending)
             .ok_or_else(|| Error::Internal("outbox record not found or not pending".to_string()))?;
-        (rec.chat, rec.text.clone())
+        (rec.chat, rec.content.clone())
     };
 
-    match transport.send(Outbound::new(chat, text)).await {
+    match transport.send(chat, content).await {
         Ok(message_id) => {
             let snapshot = {
                 let mut st = state.lock().await;
@@ -225,7 +241,7 @@ async fn drive_outbox_record(
     }
 }
 
-/// Sends `text` to `chat` independently of any inbound message, via the outbox.
+/// Sends `content` to `chat` independently of any inbound message, via the outbox.
 ///
 /// Respects `dead_chats` (returns an error without attempting a send) and records
 /// the intent durably before sending. This is the §9 hook the downstream
@@ -235,9 +251,8 @@ pub async fn send_proactive(
     store: &dyn StateStore,
     state: &Arc<Mutex<TransportState>>,
     chat: ChatId,
-    text: impl Into<String>,
+    content: Vec<ContentBlock>,
 ) -> Result<MessageId, Error> {
-    let text = text.into();
     let logical_id = {
         let mut st = state.lock().await;
         if st.is_dead(chat) {
@@ -247,7 +262,7 @@ pub async fn send_proactive(
                 retry_after: None,
             });
         }
-        let record = OutboxRecord::pending(chat, text);
+        let record = OutboxRecord::pending(chat, content);
         let id = record.logical_id;
         st.outbox.push(record);
         let snapshot = st.clone();
@@ -309,12 +324,19 @@ where
             let update_id = inbound.update_id;
 
             // 1. First contact + record the user's message, then build context.
-            let messages_seed = {
+            let mut messages = {
                 let mut st = state.lock().await;
                 st.note_chat(chat);
-                st.push_entry(chat, ConversationEntry::new(EntryRole::User, &inbound.text));
+                st.push_message(
+                    chat,
+                    MessageParam::new(
+                        MessageParamContent::String(inbound.text.clone()),
+                        MessageRole::User,
+                    ),
+                );
                 build_messages(&st, chat)
             };
+            let turn_start = messages.len();
 
             // 2. Pre-filter.
             let decision = pre_filter
@@ -322,30 +344,32 @@ where
                 .map(|f| f(&inbound))
                 .unwrap_or(PreFilter::PassToAgent);
 
-            // 3. Produce the assistant text.
-            let assistant_text = match decision {
-                PreFilter::Handled(text) => text,
+            // 3. Produce the assistant content.
+            let send_content = match decision {
+                PreFilter::Handled(content) => {
+                    messages.push(MessageParam::new(
+                        MessageParamContent::Array(content.clone()),
+                        MessageRole::Assistant,
+                    ));
+                    content
+                }
                 PreFilter::PassToAgent => {
                     transport.typing(chat).await.ok();
-                    let mut messages = messages_seed;
                     let mut renderer = BufferingRenderer::new();
                     agent
                         .take_turn_streaming_root(&client, &mut messages, &budget, &mut renderer)
                         .await?;
-                    renderer.take()
+                    assistant_content(&messages[turn_start..])
                 }
             };
 
-            // 4. Commit point: record the assistant turn (+ enqueue outbox in the
+            // 4. Commit point: record the full native turn (+ enqueue outbox in the
             //    same commit when using the outbox). Offset is NOT advanced here.
             let outbox_id = {
                 let mut st = state.lock().await;
-                st.push_entry(
-                    chat,
-                    ConversationEntry::new(EntryRole::Assistant, &assistant_text),
-                );
-                let id = if use_outbox {
-                    let record = OutboxRecord::pending(chat, &assistant_text);
+                st.set_conversation(chat, messages);
+                let id = if use_outbox && content_blocks_have_text(&send_content) {
+                    let record = OutboxRecord::pending(chat, send_content.clone());
                     let id = record.logical_id;
                     st.outbox.push(record);
                     Some(id)
@@ -367,8 +391,8 @@ where
                 {
                     return Err(err);
                 }
-            } else if !assistant_text.is_empty() {
-                match transport.send(Outbound::new(chat, assistant_text)).await {
+            } else if content_blocks_have_text(&send_content) {
+                match transport.send(chat, send_content).await {
                     Ok(_) => {}
                     Err(err @ Error::Api { code: 403, .. }) => {
                         let snapshot = {

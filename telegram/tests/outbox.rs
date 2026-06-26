@@ -3,11 +3,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use claudius::ContentBlock;
 use tokio::sync::Mutex;
 
 use claudius_telegram::{
-    ChatId, ChatTransport, Error, InMemoryStateStore, Inbound, MessageId, Outbound, OutboxStatus,
-    StateStore, TransportState, UpdateId, known_chats, send_proactive,
+    ChatId, ChatTransport, Error, InMemoryStateStore, Inbound, MessageId, OutboxStatus, StateStore,
+    TransportState, UpdateId, content_blocks_to_text, known_chats, send_proactive, text_content,
 };
 
 /// A transport whose `send` outcome is scripted.
@@ -24,7 +25,7 @@ impl ChatTransport for ScriptedTransport {
     async fn ack(&mut self, _up_to: UpdateId) -> Result<(), Error> {
         Ok(())
     }
-    async fn send(&self, out: Outbound) -> Result<MessageId, Error> {
+    async fn send(&self, chat: ChatId, content: Vec<ContentBlock>) -> Result<MessageId, Error> {
         if self.forbidden {
             return Err(Error::Api {
                 code: 403,
@@ -32,7 +33,10 @@ impl ChatTransport for ScriptedTransport {
                 retry_after: None,
             });
         }
-        self.sent.lock().await.push((out.chat.0, out.text));
+        self.sent
+            .lock()
+            .await
+            .push((chat.0, content_blocks_to_text(&content)));
         Ok(MessageId(555))
     }
 }
@@ -47,9 +51,15 @@ async fn send_proactive_marks_record_sent() {
         sent: Arc::clone(&sent),
     };
 
-    let id = send_proactive(&transport, store.as_ref(), &state, ChatId(9), "ping")
-        .await
-        .unwrap();
+    let id = send_proactive(
+        &transport,
+        store.as_ref(),
+        &state,
+        ChatId(9),
+        text_content("ping"),
+    )
+    .await
+    .unwrap();
     assert_eq!(id, MessageId(555));
     assert_eq!(sent.lock().await.clone(), vec![(9, "ping".to_string())]);
 
@@ -73,9 +83,15 @@ async fn send_proactive_to_dead_chat_is_refused_without_sending() {
         sent: Arc::clone(&sent),
     };
 
-    let err = send_proactive(&transport, store.as_ref(), &state, ChatId(9), "ping")
-        .await
-        .unwrap_err();
+    let err = send_proactive(
+        &transport,
+        store.as_ref(),
+        &state,
+        ChatId(9),
+        text_content("ping"),
+    )
+    .await
+    .unwrap_err();
     assert_eq!(err.api_code(), Some(403));
     // No send was attempted and no Pending record was enqueued.
     assert!(sent.lock().await.is_empty());
@@ -91,9 +107,15 @@ async fn send_proactive_403_marks_chat_dead() {
         sent: Arc::clone(&sent),
     };
 
-    let err = send_proactive(&transport, store.as_ref(), &state, ChatId(9), "ping")
-        .await
-        .unwrap_err();
+    let err = send_proactive(
+        &transport,
+        store.as_ref(),
+        &state,
+        ChatId(9),
+        text_content("ping"),
+    )
+    .await
+    .unwrap_err();
     assert_eq!(err.api_code(), Some(403));
 
     let committed = store.load().await.unwrap();
