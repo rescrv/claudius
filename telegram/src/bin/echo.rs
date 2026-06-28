@@ -114,6 +114,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         use_outbox: false,
         interrupted: Arc::clone(&interrupted),
         pre_filter: Some(pre_filter),
+        max_history_messages: None,
+        reset_on_context_limit: false,
     };
 
     // A dummy client; never used because the pre-filter handles every message.

@@ -26,8 +26,8 @@ mod transport;
 
 pub use chunk::{DEFAULT_CHUNK_LIMIT, chunk_message};
 pub use runtime::{
-    BufferingRenderer, LoopConfig, PreFilter, PreFilterFn, known_chats, run_agent_loop,
-    send_proactive,
+    BufferingRenderer, LoopConfig, PreFilter, PreFilterFn, SyntheticTurnConfig, known_chats,
+    run_agent_loop, run_synthetic_user_turn, send_proactive,
 };
 pub use state::{
     FileStateStore, InMemoryStateStore, LogicalId, OutboxRecord, OutboxStatus, StateStore,

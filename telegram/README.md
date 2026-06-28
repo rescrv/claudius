@@ -22,8 +22,8 @@ double-processing messages.
   poll cursor, per-chat conversation history, the transactional outbox, and the
   dead-chat set, committed atomically (`FileStateStore` uses temp-file +
   `fsync` + rename).
-- **`send_proactive` / `known_chats`** — the hooks a downstream proactive
-  scheduler needs (see "Durability" below).
+- **`run_synthetic_user_turn` / `send_proactive` / `known_chats`** — the hooks a
+  downstream proactive scheduler needs (see "Durability" below).
 
 This crate is transport-only and agent-agnostic; it contains no application
 logic.
@@ -43,6 +43,46 @@ sends directly and tolerates the rare duplicate. A proactive agent
 recorded `Pending` and committed before the send, then marked `Sent`. The one
 documented at-least-once window is a `Pending` record whose send outcome was
 unknown at crash time; it is re-sent on restart.
+
+For model-generated proactive check-ins, use `run_synthetic_user_turn` instead
+of sending prebuilt text. The synthetic prompt is persisted as a real user
+message, the model generates the assistant response, and later replies see the
+full coherent conversation history:
+
+```rust
+use claudius_telegram::{known_chats, run_synthetic_user_turn, SyntheticTurnConfig};
+
+let chats = {
+    let state = state.lock().await;
+    known_chats(&state)
+};
+
+for chat in chats {
+    let prompt = format!(
+        "Current timestamp: {now}\n\n\
+         Proactive wakeup: the following scheduled items are due now:\n{items}\n\n\
+         Check in with the user about these due items."
+    );
+
+    run_synthetic_user_turn(
+        &mut agent,
+        &transport,
+        &client,
+        store.as_ref(),
+        &state,
+        &budget,
+        chat,
+        prompt,
+        SyntheticTurnConfig {
+            max_history_messages: Some(80),
+            reset_on_context_limit: true,
+            use_outbox: true,
+            source_label: Some("scheduler".to_string()),
+        },
+    )
+    .await?;
+}
+```
 
 ## Quick start (terminal)
 

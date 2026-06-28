@@ -16,7 +16,10 @@ fn boundaries_3999_4000_4001() {
 fn eight_thousand_one_splits_into_three() {
     let chunks = chunk_message(&"x".repeat(8001), 4000);
     assert_eq!(chunks.len(), 3);
-    assert_eq!(chunks.iter().map(|c| c.chars().count()).sum::<usize>(), 8001);
+    assert_eq!(
+        chunks.iter().map(|c| c.chars().count()).sum::<usize>(),
+        8001
+    );
 }
 
 #[test]
