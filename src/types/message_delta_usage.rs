@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{OutputTokensDetails, ServerToolUsage};
+use crate::types::{OutputTokensDetails, ServerToolUsage, UsageIteration};
 
 /// Message delta usage information.
 ///
@@ -30,6 +30,10 @@ pub struct MessageDeltaUsage {
     /// The number of server tool requests.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server_tool_use: Option<ServerToolUsage>,
+
+    /// Per-model attempts made by fallback routing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iterations: Option<Vec<UsageIteration>>,
 }
 
 impl MessageDeltaUsage {
@@ -42,6 +46,7 @@ impl MessageDeltaUsage {
             output_tokens,
             output_tokens_details: None,
             server_tool_use: None,
+            iterations: None,
         }
     }
 
