@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
     let params = MessageCreateParams::new(
         1000, // max tokens
         vec![message.clone()],
-        Model::Known(KnownModel::Claude37SonnetLatest),
+        Model::Known(KnownModel::ClaudeSonnet5),
     )
     .with_system_string(system_prompt.clone());
 
@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
 
     let params = MessageCreateParams::simple(
         "Hello, I'm a human. Can you tell me about yourself?",
-        KnownModel::Claude37SonnetLatest,
+        KnownModel::ClaudeSonnet5,
     )
     .with_system("You are Claude, an AI assistant made by Anthropic.");
 
@@ -66,10 +66,8 @@ async fn main() -> Result<()> {
     println!("EXAMPLE 3: Streaming request with new API");
     println!("-----------------------------------------");
 
-    let params = MessageCreateParams::simple_streaming(
-        "Tell me a short joke.",
-        KnownModel::Claude37SonnetLatest,
-    );
+    let params =
+        MessageCreateParams::simple_streaming("Tell me a short joke.", KnownModel::ClaudeSonnet5);
 
     let stream = client.stream(&params).await?;
 

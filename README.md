@@ -32,7 +32,7 @@ async fn main() -> claudius::Result<()> {
     let params = MessageCreateParams::new(
         1000, // max tokens
         vec![message],
-        Model::Known(KnownModel::Claude37SonnetLatest),
+        Model::Known(KnownModel::ClaudeOpus5),
     )
     .with_system_string("You are Claude, an AI assistant made by Anthropic.".to_string());
 
@@ -110,7 +110,7 @@ let message = MessageParam::new_with_string(
 let params = MessageCreateParams::new(
     1000, // max_tokens
     vec![message],
-    Model::Known(KnownModel::Claude37SonnetLatest),
+    Model::Known(KnownModel::ClaudeOpus5),
 )
 .with_system_string("Be concise and informative.".to_string());
 
@@ -135,7 +135,7 @@ for content in response.content {
 let params = MessageCreateParams::new_streaming(
     1000, // max_tokens
     vec![message],
-    Model::Known(KnownModel::Claude37SonnetLatest),
+    Model::Known(KnownModel::ClaudeOpus5),
 );
 
 // Get a stream of events
@@ -172,11 +172,14 @@ while let Some(event) = stream.next().await {
 Claudius supports all Anthropic models via a typed enum:
 
 ```rust
-// Use a known model (latest version)
-let model = Model::Known(KnownModel::Claude37SonnetLatest);
+// Use a current general-purpose model
+let model = Model::Known(KnownModel::ClaudeOpus5);
 
-// Use a specific model version
-let model = Model::Known(KnownModel::Claude37Sonnet20250219);
+// Use the current speed/intelligence balance
+let model = Model::Known(KnownModel::ClaudeSonnet5);
+
+// Use the newest long-horizon reasoning model
+let model = Model::Known(KnownModel::ClaudeFable51);
 
 // Use a custom model identifier
 let model = Model::Custom("custom-model-identifier".to_string());
