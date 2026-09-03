@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{MessageDeltaUsage, StopReason};
+use crate::types::{MessageDeltaUsage, StopDetails, StopReason};
 
 /// The delta information for a message delta event.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -13,6 +13,10 @@ pub struct MessageDelta {
     /// contains the specific stop sequence that was encountered.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_sequence: Option<String>,
+
+    /// Additional refusal information, when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_details: Option<Box<StopDetails>>,
 }
 
 impl MessageDelta {
@@ -21,6 +25,7 @@ impl MessageDelta {
         Self {
             stop_reason: None,
             stop_sequence: None,
+            stop_details: None,
         }
     }
 

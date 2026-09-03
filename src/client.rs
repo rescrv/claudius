@@ -85,6 +85,9 @@ const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 /// Default connect/read inactivity timeout shared by all requests.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 const STRUCTURED_OUTPUTS_BETA: &str = "structured-outputs-2025-11-13";
+const SERVER_SIDE_FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
+const FALLBACK_CREDIT_BETA: &str = "fallback-credit-2026-07-01";
+const THINKING_DISPLAY_UPDATES_BETA: &str = "thinking-display-updates-2026-08-18";
 
 fn stream_debug_enabled() -> bool {
     env::var_os("CLAUDIUS_DEBUG_STREAM").is_some()
@@ -856,11 +859,19 @@ impl Anthropic {
         params.stream = false;
 
         // Collect all betas: client defaults + per-request + auto-detected
-        let auto_betas: Vec<&str> = if params.requires_structured_outputs_beta() {
-            vec![STRUCTURED_OUTPUTS_BETA]
-        } else {
-            vec![]
-        };
+        let mut auto_betas = Vec::new();
+        if params.requires_structured_outputs_beta() {
+            auto_betas.push(STRUCTURED_OUTPUTS_BETA);
+        }
+        if params.fallbacks.is_some() {
+            auto_betas.push(SERVER_SIDE_FALLBACK_BETA);
+        }
+        if params.fallback_credit_token.is_some() {
+            auto_betas.push(FALLBACK_CREDIT_BETA);
+        }
+        if params.requires_thinking_display_updates_beta() {
+            auto_betas.push(THINKING_DISPLAY_UPDATES_BETA);
+        }
         let all_betas = self.collect_betas(params.betas.as_deref(), &auto_betas);
         let headers = self.headers_with_betas(&all_betas);
 
@@ -924,11 +935,19 @@ impl Anthropic {
         }
 
         // Collect all betas: client defaults + per-request + auto-detected
-        let auto_betas: Vec<&str> = if params.requires_structured_outputs_beta() {
-            vec![STRUCTURED_OUTPUTS_BETA]
-        } else {
-            vec![]
-        };
+        let mut auto_betas = Vec::new();
+        if params.requires_structured_outputs_beta() {
+            auto_betas.push(STRUCTURED_OUTPUTS_BETA);
+        }
+        if params.fallbacks.is_some() {
+            auto_betas.push(SERVER_SIDE_FALLBACK_BETA);
+        }
+        if params.fallback_credit_token.is_some() {
+            auto_betas.push(FALLBACK_CREDIT_BETA);
+        }
+        if params.requires_thinking_display_updates_beta() {
+            auto_betas.push(THINKING_DISPLAY_UPDATES_BETA);
+        }
         let all_betas = self.collect_betas(params.betas.as_deref(), &auto_betas);
 
         let response = self

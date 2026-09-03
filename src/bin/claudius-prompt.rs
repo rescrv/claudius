@@ -274,6 +274,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     println!("Block {}: Web Search Tool Result", idx);
                                     println!("  Result: {:?}", web_search_result);
                                 }
+                                claudius::ContentBlock::Fallback(fallback) => {
+                                    println!("Block {}: Model Fallback", idx);
+                                    println!("  {} -> {}", fallback.from.model, fallback.to.model);
+                                }
                             }
                         }
                     } else if !result.api_success {

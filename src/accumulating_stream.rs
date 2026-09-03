@@ -81,6 +81,9 @@ impl AccumulatingStream {
                     if delta_event.delta.stop_sequence.is_some() {
                         msg.stop_sequence = delta_event.delta.stop_sequence.clone();
                     }
+                    if delta_event.delta.stop_details.is_some() {
+                        msg.stop_details = delta_event.delta.stop_details.clone();
+                    }
                     if let Some(input_tokens) = delta_event.usage.input_tokens {
                         msg.usage.input_tokens = input_tokens;
                     }
@@ -96,6 +99,9 @@ impl AccumulatingStream {
                     }
                     if let Some(server_tool) = delta_event.usage.server_tool_use {
                         msg.usage.server_tool_use = Some(server_tool);
+                    }
+                    if let Some(iterations) = &delta_event.usage.iterations {
+                        msg.usage.iterations = Some(iterations.clone());
                     }
                 }
             }

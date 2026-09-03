@@ -210,6 +210,14 @@ fn render_content_block(out: &mut String, block: &ContentBlock) {
             write_fenced(out, "text", &block.data);
             out.push_str("</details>\n\n");
         }
+        ContentBlock::Fallback(block) => {
+            let _ = writeln!(
+                out,
+                "_Model fallback: `{}` → `{}`_",
+                block.from.model, block.to.model
+            );
+            let _ = writeln!(out);
+        }
     }
 }
 
