@@ -89,6 +89,27 @@ const SERVER_SIDE_FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 const FALLBACK_CREDIT_BETA: &str = "fallback-credit-2026-07-01";
 const THINKING_DISPLAY_UPDATES_BETA: &str = "thinking-display-updates-2026-08-18";
 
+/// Base URLs of providers that authenticate via the standard HTTP
+/// `Authorization: Bearer ${API_KEY}` header rather than (or in addition to)
+/// Anthropic's `x-api-key` header. When the client's configured base URL
+/// matches one of these entries, the API key is automatically sent as
+/// `Authorization: Bearer ${API_KEY}` on every request.
+///
+/// Baseten's Anthropic-compatible inference gateway is one such provider: it
+/// expects a bearer token instead of `x-api-key`.
+const BASE_URLS_REQUIRING_AUTH_HEADER: &[&str] = &[
+    "https://inference.baseten.co",
+];
+
+/// Returns `true` when `base_url` (after trimming any trailing slash) matches
+/// one of the entries in [`BASE_URLS_REQUIRING_AUTH_HEADER`].
+fn requires_auth_header(base_url: &str) -> bool {
+    let normalized = base_url.trim_end_matches('/');
+    BASE_URLS_REQUIRING_AUTH_HEADER
+        .iter()
+        .any(|url| url.trim_end_matches('/') == normalized)
+}
+
 fn stream_debug_enabled() -> bool {
     env::var_os("CLAUDIUS_DEBUG_STREAM").is_some()
 }
@@ -328,13 +349,16 @@ impl Anthropic {
         let timeout = DEFAULT_TIMEOUT;
         let client = Self::build_http_client(timeout)?;
 
-        // Pre-build headers for performance
-        let cached_headers = Arc::new(Self::build_default_headers(&api_key)?);
-
-        // Resolve base URL from environment variables, defaulting to the API URL
+        // Resolve base URL from environment variables, defaulting to the API URL.
+        // This is resolved before building headers because some providers
+        // (see `BASE_URLS_REQUIRING_AUTH_HEADER`) require an `Authorization`
+        // header derived from the base URL.
         let base_url = env::var("CLAUDIUS_BASE_URL")
             .or_else(|_| env::var("ANTHROPIC_BASE_URL"))
             .unwrap_or_else(|_| DEFAULT_API_URL.to_string());
+
+        // Pre-build headers for performance
+        let cached_headers = Arc::new(Self::build_default_headers(&api_key, &base_url)?);
 
         Ok(Self {
             api_key,
@@ -373,6 +397,18 @@ impl Anthropic {
     /// # Ok::<(), claudius::Error>(())
     /// ```
     pub fn with_base_url(mut self, base_url: String) -> Self {
+        // The set of default headers is derived from the base URL: providers
+        // listed in `BASE_URLS_REQUIRING_AUTH_HEADER` get an `Authorization`
+        // header. Rebuild the cached headers when switching to or from such a
+        // provider so every subsequent request carries the right auth.
+        if requires_auth_header(&base_url) != requires_auth_header(&self.base_url) {
+            // The API key was already validated when the client was built, so
+            // rebuilding the headers cannot fail here.
+            self.cached_headers =
+                Arc::new(Self::build_default_headers(&self.api_key, &base_url).expect(
+                    "rebuilding default headers with an already-validated API key must succeed",
+                ));
+        }
         self.base_url = base_url;
         self
     }
@@ -436,7 +472,11 @@ impl Anthropic {
     }
 
     /// Build default headers for API requests (static method for initialization).
-    fn build_default_headers(api_key: &str) -> Result<HeaderMap> {
+    ///
+    /// When `base_url` matches one of the entries in
+    /// [`BASE_URLS_REQUIRING_AUTH_HEADER`] (e.g. Baseten's inference gateway),
+    /// the API key is additionally sent as `Authorization: Bearer ${API_KEY}`.
+    fn build_default_headers(api_key: &str, base_url: &str) -> Result<HeaderMap> {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::CONTENT_TYPE,
@@ -456,6 +496,18 @@ impl Anthropic {
             "anthropic-version",
             HeaderValue::from_static(ANTHROPIC_API_VERSION),
         );
+        if requires_auth_header(base_url) {
+            let bearer = format!("Bearer {api_key}");
+            headers.insert(
+                header::AUTHORIZATION,
+                HeaderValue::from_str(&bearer).map_err(|e| {
+                    Error::validation(
+                        format!("Invalid Authorization header value: {e}"),
+                        Some("api_key".to_string()),
+                    )
+                })?,
+            );
+        }
         Ok(headers)
     }
 
@@ -1709,6 +1761,64 @@ Connection: close\r\n\r\n{}",
             client.build_url("messages"),
             "https://api.minimax.io/anthropic/v1/messages"
         );
+    }
+
+    #[test]
+    fn default_headers_omit_authorization_for_default_base_url() {
+        let client = Anthropic::new(Some("test_key".to_string())).unwrap();
+        let headers = client.default_headers();
+        assert!(headers.contains_key("x-api-key"));
+        assert!(!headers.contains_key("authorization"));
+    }
+
+    #[test]
+    fn default_headers_include_authorization_for_baseten() {
+        // Baseten requires `Authorization: Bearer ${API_KEY}`; the env-based
+        // base URL is simulated by constructing headers directly.
+        let headers =
+            Anthropic::build_default_headers("test_key", "https://inference.baseten.co/anthropic")
+                .unwrap();
+        assert!(headers.contains_key("x-api-key"));
+        let auth = headers.get("authorization").unwrap().to_str().unwrap();
+        assert_eq!(auth, "Bearer test_key");
+    }
+
+    #[test]
+    fn default_headers_authorization_is_trailing_slash_insensitive() {
+        let headers = Anthropic::build_default_headers(
+            "test_key",
+            "https://inference.baseten.co/anthropic/",
+        )
+        .unwrap();
+        assert_eq!(
+            headers.get("authorization").unwrap().to_str().unwrap(),
+            "Bearer test_key"
+        );
+    }
+
+    #[test]
+    fn with_base_url_to_baseten_rebuilds_headers_with_authorization() {
+        let client = Anthropic::new(Some("test_key".to_string())).unwrap();
+        assert!(!client.default_headers().contains_key("authorization"));
+
+        let client = client.with_base_url("https://inference.baseten.co/anthropic".to_string());
+        let headers = client.default_headers();
+        assert!(headers.contains_key("x-api-key"));
+        assert_eq!(
+            headers.get("authorization").unwrap().to_str().unwrap(),
+            "Bearer test_key"
+        );
+    }
+
+    #[test]
+    fn with_base_url_away_from_baseten_drops_authorization() {
+        let client = Anthropic::new(Some("test_key".to_string()))
+            .unwrap()
+            .with_base_url("https://inference.baseten.co/anthropic".to_string());
+        assert!(client.default_headers().contains_key("authorization"));
+
+        let client = client.with_base_url("https://api.anthropic.com".to_string());
+        assert!(!client.default_headers().contains_key("authorization"));
     }
 
     #[test]
