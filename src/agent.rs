@@ -3078,6 +3078,23 @@ async fn step_default_turn_impl<A: Agent>(
             }
         };
 
+        // The model reported stop_reason = tool_use, but no usable tool_use blocks
+        // were collected (e.g. the model rendered text resembling a tool call instead
+        // of emitting a structured tool_use block). Appending a user message with empty
+        // content here would produce an invalid transcript entry ({"role":"user","content":[]})
+        // that the API rejects on the next request or on replay. End the turn instead.
+        if tool_results.is_empty() {
+            let stop_reason = match agent.handle_end_turn().await {
+                Ok(stop_reason) => stop_reason,
+                Err(err) => return ControlFlow::Break(Err(err)),
+            };
+            return ControlFlow::Break(Ok(TurnOutcome {
+                stop_reason,
+                usage: usage_total,
+                request_count,
+            }));
+        }
+
         let user_message =
             MessageParam::new(MessageParamContent::Array(tool_results), MessageRole::User);
         push_or_merge_message(messages, user_message);
@@ -5255,6 +5272,104 @@ mod tests {
 
         assert!(matches!(err, Error::BadRequest { .. }));
         assert_eq!(*seen_max_tokens.lock().unwrap(), Some(25));
+    }
+
+    struct EmptyToolUseAgent;
+
+    #[async_trait::async_trait]
+    impl Agent for EmptyToolUseAgent {
+        async fn max_tokens(&self) -> u32 {
+            100
+        }
+    }
+
+    /// Spawn an HTTP/1.1 server that replies to up to `max_requests` requests
+    /// with `body`, then returns the base URL the client should target.
+    ///
+    /// Bounding the number of replies means that if the turn loop fails to stop
+    /// (the bug), it appends empty user messages on the served iterations rather
+    /// than looping forever; the regression assertions then catch the empty
+    /// message rather than hanging.
+    async fn spawn_canned_response_server(body: String, max_requests: usize) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            for _ in 0..max_requests {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                // Drain the request without fully parsing it; we only need to
+                // read enough that the client's write completes.
+                let mut buf = [0u8; 4096];
+                let _ = socket.read(&mut buf).await;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.flush().await;
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    /// Regression test for the empty tool-result turn bug: when the model
+    /// reports `stop_reason = tool_use` but emits no usable `tool_use` blocks
+    /// (e.g. it rendered text resembling a tool call), the turn loop must not
+    /// append a `{"role":"user","content":[]}` message, which the API rejects.
+    #[tokio::test]
+    async fn tool_use_stop_with_no_tool_blocks_does_not_append_empty_user_message() {
+        // Build a response that has stop_reason = tool_use but only a text block
+        // (no structured tool_use block), mirroring the bug's transcript.
+        let content = vec![ContentBlock::Text(TextBlock::new(
+            "bash\n<invoke name=\"bash\">...".to_string(),
+        ))];
+        let model = Model::Known(KnownModel::ClaudeSonnet40);
+        let response = Message::new("msg_regression".to_string(), content, model, Usage::new(5, 5))
+            .with_stop_reason(StopReason::ToolUse);
+        let body = serde_json::to_string(&response).unwrap();
+
+        // Serve a few responses so that, absent the fix, the loop appends empty
+        // user messages on those iterations (which the assertions below catch)
+        // rather than failing on a refused connection.
+        let base_url = spawn_canned_response_server(body, 4).await;
+
+        let client = Anthropic::new(Some("test-key".to_string()))
+            .unwrap()
+            .with_base_url(base_url);
+        let mut agent = EmptyToolUseAgent;
+        let budget = Arc::new(Budget::new_flat_rate(100_000, 10));
+        let mut messages = vec![MessageParam::user("hello")];
+
+        let result = agent.take_turn(&client, &mut messages, &budget).await;
+
+        // No message may have empty array content; that is the invalid entry
+        // the API rejects ("user messages must have non-empty content"). Check
+        // this regardless of whether the turn returned Ok or Err, since the
+        // buggy loop mutates `messages` before any later failure.
+        for (i, message) in messages.iter().enumerate() {
+            if let MessageParamContent::Array(blocks) = &message.content {
+                assert!(
+                    !blocks.is_empty(),
+                    "message {i} (role {:?}) has empty array content",
+                    message.role
+                );
+            }
+        }
+
+        // Specifically, no empty user message was appended after the assistant turn.
+        let appended_empty_user = messages.iter().any(|m| {
+            m.role == MessageRole::User
+                && matches!(&m.content, MessageParamContent::Array(b) if b.is_empty())
+        });
+        assert!(!appended_empty_user, "an empty user message was appended");
+
+        // With the fix the turn terminates cleanly rather than looping.
+        let outcome = result.expect("turn should end cleanly, not error");
+        assert_eq!(outcome.stop_reason, StopReason::EndTurn);
+        assert_eq!(outcome.request_count, 1);
     }
 
     // Budget State Management Tests
