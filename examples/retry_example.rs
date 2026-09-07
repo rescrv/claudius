@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let params = MessageCreateParams::new(
         1000, // max tokens
         vec![message],
-        Model::Known(KnownModel::Claude37SonnetLatest),
+        Model::Known(KnownModel::ClaudeSonnet5),
     );
 
     println!("Sending message with automatic retry on failures...");

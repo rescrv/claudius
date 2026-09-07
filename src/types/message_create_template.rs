@@ -20,7 +20,7 @@ use crate::types::{
 ///     .with_temperature(0.7)
 ///     .unwrap();
 ///
-/// let params = MessageCreateParams::simple("Hello", KnownModel::Claude37SonnetLatest);
+/// let params = MessageCreateParams::simple("Hello", KnownModel::ClaudeSonnet5);
 /// let params = template.apply(params);
 ///
 /// assert_eq!(params.max_tokens, 2048);

@@ -10,7 +10,7 @@ async fn main() -> Result<()> {
     // Create a streaming request with the new ergonomic API
     let params = MessageCreateParams::simple_streaming(
         "Hello, I'm a human. Can you tell me about yourself?",
-        KnownModel::Claude37SonnetLatest,
+        KnownModel::ClaudeSonnet5,
     )
     .with_system("You are Claude, an AI assistant made by Anthropic.");
 
