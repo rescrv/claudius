@@ -2,8 +2,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::types::{
-    DocumentBlock, ImageBlock, RedactedThinkingBlock, ServerToolUseBlock, TextBlock, ThinkingBlock,
-    ToolResultBlock, ToolUseBlock, WebSearchToolResultBlock,
+    DocumentBlock, FallbackBlock, ImageBlock, RedactedThinkingBlock, ServerToolUseBlock, TextBlock,
+    ThinkingBlock, ToolResultBlock, ToolUseBlock, WebSearchToolResultBlock,
 };
 
 /// A block of content in a message.
@@ -48,6 +48,10 @@ pub enum ContentBlock {
     /// A block containing redacted thinking data
     #[serde(rename = "redacted_thinking")]
     RedactedThinking(RedactedThinkingBlock),
+
+    /// A boundary between a refusing model and the model that continued generation.
+    #[serde(rename = "fallback")]
+    Fallback(FallbackBlock),
 }
 
 impl<'de> Deserialize<'de> for ContentBlock {
@@ -74,6 +78,7 @@ impl<'de> Deserialize<'de> for ContentBlock {
                 from_value(value).map(ContentBlock::Thinking)
             }
             "redacted_thinking" => from_value(value).map(ContentBlock::RedactedThinking),
+            "fallback" => from_value(value).map(ContentBlock::Fallback),
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &[
@@ -88,6 +93,7 @@ impl<'de> Deserialize<'de> for ContentBlock {
                     "thinking_summary",
                     "summary",
                     "redacted_thinking",
+                    "fallback",
                 ],
             )),
         }
@@ -146,6 +152,11 @@ impl ContentBlock {
     /// Returns true if this block is a redacted thinking block
     pub fn is_redacted_thinking(&self) -> bool {
         matches!(self, ContentBlock::RedactedThinking(_))
+    }
+
+    /// Returns true if this block marks a model fallback boundary.
+    pub fn is_fallback(&self) -> bool {
+        matches!(self, ContentBlock::Fallback(_))
     }
 
     /// Returns a reference to the inner TextBlock if this is a Text variant,
@@ -285,6 +296,12 @@ impl From<RedactedThinkingBlock> for ContentBlock {
     }
 }
 
+impl From<FallbackBlock> for ContentBlock {
+    fn from(block: FallbackBlock) -> Self {
+        ContentBlock::Fallback(block)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,6 +363,27 @@ mod tests {
         let expected = r#"{"type":"thinking","signature":"abc123signature","thinking":"Let me think through this problem step by step..."}"#;
 
         assert_eq!(json, expected);
+    }
+
+    #[test]
+    fn fallback_block_deserialization() {
+        let json = serde_json::json!({
+            "type": "fallback",
+            "from": { "model": "claude-fable-5-1" },
+            "to": { "model": "claude-opus-5" }
+        });
+        let block: ContentBlock = serde_json::from_value(json).unwrap();
+        let ContentBlock::Fallback(block) = block else {
+            panic!("expected fallback block");
+        };
+        assert_eq!(
+            block.from.model,
+            crate::types::Model::Known(crate::types::KnownModel::ClaudeFable51)
+        );
+        assert_eq!(
+            block.to.model,
+            crate::types::Model::Known(crate::types::KnownModel::ClaudeOpus5)
+        );
     }
 
     #[test]

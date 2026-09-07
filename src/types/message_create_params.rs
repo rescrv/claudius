@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    CacheControlEphemeral, MessageParam, Metadata, Model, OutputConfig, OutputFormat, SystemPrompt,
-    TextBlock, ThinkingConfig, ToolChoice, ToolUnionParam,
+    CacheControlEphemeral, FallbackConfig, Fallbacks, MessageParam, Metadata, Model, OutputConfig,
+    OutputFormat, SystemPrompt, TextBlock, ThinkingConfig, ThinkingDisplay, ToolChoice,
+    ToolUnionParam,
 };
 
 /// Security limits for DoS prevention
@@ -170,7 +171,12 @@ pub struct MessageCreateParams {
     /// [server-side fallback](https://docs.anthropic.com/en/docs/build-with-claude/refusals-and-fallback#server-side-fallback)
     /// for details.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub fallbacks: Option<Vec<Model>>,
+    pub fallbacks: Option<Fallbacks>,
+
+    /// Opaque cache-miss credit from a refused request, redeemed when manually
+    /// retrying on a fallback model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_credit_token: Option<String>,
 
     /// Whether to incrementally stream the response using server-sent events.
     ///
@@ -228,6 +234,7 @@ impl MessageCreateParams {
             top_k: None,
             top_p: None,
             fallbacks: None,
+            fallback_credit_token: None,
             stream: false,
             betas: None,
         }
@@ -252,6 +259,7 @@ impl MessageCreateParams {
             top_k: None,
             top_p: None,
             fallbacks: None,
+            fallback_credit_token: None,
             stream: true,
             betas: None,
         }
@@ -380,18 +388,40 @@ impl MessageCreateParams {
     ///
     /// Replaces any previously configured fallbacks. Server-side fallback is in beta and
     /// requires the `fallbacks` beta header.
-    pub fn with_fallbacks(mut self, fallbacks: impl IntoIterator<Item = impl Into<Model>>) -> Self {
-        self.fallbacks = Some(fallbacks.into_iter().map(Into::into).collect());
+    pub fn with_fallbacks(
+        mut self,
+        fallbacks: impl IntoIterator<Item = impl Into<FallbackConfig>>,
+    ) -> Self {
+        self.fallbacks = Some(Fallbacks::Models(
+            fallbacks.into_iter().map(Into::into).collect(),
+        ));
+        self
+    }
+
+    /// Use Anthropic's recommended fallback routing for each refusal category.
+    pub fn with_default_fallbacks(mut self) -> Self {
+        self.fallbacks = Some(Fallbacks::Default);
+        self
+    }
+
+    /// Redeem the cache-miss credit returned by a prior refusal.
+    pub fn with_fallback_credit_token(mut self, token: impl Into<String>) -> Self {
+        self.fallback_credit_token = Some(token.into());
         self
     }
 
     /// Add a single fallback model for this request.
     ///
     /// Appends to any previously configured fallbacks, preserving order.
-    pub fn with_fallback(mut self, fallback: impl Into<Model>) -> Self {
-        self.fallbacks
-            .get_or_insert_with(Vec::new)
-            .push(fallback.into());
+    pub fn with_fallback(mut self, fallback: impl Into<FallbackConfig>) -> Self {
+        let config = fallback.into();
+        match self
+            .fallbacks
+            .get_or_insert_with(|| Fallbacks::Models(Vec::new()))
+        {
+            Fallbacks::Models(fallbacks) => fallbacks.push(config),
+            Fallbacks::Default => self.fallbacks = Some(Fallbacks::Models(vec![config])),
+        }
         self
     }
 
@@ -557,6 +587,35 @@ impl MessageCreateParams {
             ));
         }
 
+        if let Some(Fallbacks::Models(fallbacks)) = &self.fallbacks
+            && fallbacks.len() > 3
+        {
+            return Err(crate::Error::validation(
+                "fallbacks may contain at most 3 models",
+                Some("fallbacks".to_string()),
+            ));
+        }
+        if let Some(Fallbacks::Models(fallbacks)) = &self.fallbacks {
+            if fallbacks.is_empty() {
+                return Err(crate::Error::validation(
+                    "fallbacks must not be empty",
+                    Some("fallbacks".to_string()),
+                ));
+            }
+            for (index, fallback) in fallbacks.iter().enumerate() {
+                if fallback.model == self.model
+                    || fallbacks[..index]
+                        .iter()
+                        .any(|previous| previous.model == fallback.model)
+                {
+                    return Err(crate::Error::validation(
+                        "fallback models must be distinct from the primary and each other",
+                        Some(format!("fallbacks[{index}].model")),
+                    ));
+                }
+            }
+        }
+
         // Validate thinking config with security checks
         if let Some(ref thinking) = self.thinking {
             match thinking {
@@ -671,6 +730,11 @@ impl MessageCreateParams {
 
         false
     }
+
+    /// Check whether this request uses the beta progress-update display mode.
+    pub fn requires_thinking_display_updates_beta(&self) -> bool {
+        self.thinking.as_ref().and_then(ThinkingConfig::display) == Some(ThinkingDisplay::Updates)
+    }
 }
 
 impl Default for MessageCreateParams {
@@ -694,6 +758,7 @@ impl Default for MessageCreateParams {
             top_k: None,
             top_p: None,
             fallbacks: None,
+            fallback_credit_token: None,
             stream: false,
             betas: None,
         }
@@ -1066,10 +1131,10 @@ mod tests {
 
         assert_eq!(
             params.fallbacks,
-            Some(vec![
-                Model::Known(KnownModel::ClaudeSonnet45),
-                Model::Known(KnownModel::ClaudeHaiku45),
-            ])
+            Some(Fallbacks::Models(vec![
+                FallbackConfig::new(KnownModel::ClaudeSonnet45),
+                FallbackConfig::new(KnownModel::ClaudeHaiku45),
+            ]))
         );
     }
 
@@ -1081,10 +1146,10 @@ mod tests {
 
         assert_eq!(
             params.fallbacks,
-            Some(vec![
-                Model::Known(KnownModel::ClaudeSonnet45),
-                Model::Known(KnownModel::ClaudeHaiku45),
-            ])
+            Some(Fallbacks::Models(vec![
+                FallbackConfig::new(KnownModel::ClaudeSonnet45),
+                FallbackConfig::new(KnownModel::ClaudeHaiku45),
+            ]))
         );
     }
 
@@ -1094,7 +1159,10 @@ mod tests {
             .with_fallbacks([KnownModel::ClaudeSonnet45]);
 
         let json = to_value(&params).unwrap();
-        assert_eq!(json.get("fallbacks").unwrap(), &json!(["claude-sonnet-4-5"]));
+        assert_eq!(
+            json.get("fallbacks").unwrap(),
+            &json!([{ "model": "claude-sonnet-4-5" }])
+        );
     }
 
     #[test]
@@ -1104,16 +1172,26 @@ mod tests {
             "messages": [{ "role": "user", "content": "Hello" }],
             "model": "claude-fable-5",
             "stream": false,
-            "fallbacks": ["claude-sonnet-4-5", "claude-haiku-4-5"]
+            "fallbacks": [
+                { "model": "claude-sonnet-4-5" },
+                { "model": "claude-haiku-4-5" }
+            ]
         });
 
         let params: MessageCreateParams = serde_json::from_value(json).unwrap();
         assert_eq!(
             params.fallbacks,
-            Some(vec![
-                Model::Known(KnownModel::ClaudeSonnet45),
-                Model::Known(KnownModel::ClaudeHaiku45),
-            ])
+            Some(Fallbacks::Models(vec![
+                FallbackConfig::new(KnownModel::ClaudeSonnet45),
+                FallbackConfig::new(KnownModel::ClaudeHaiku45),
+            ]))
         );
+    }
+
+    #[test]
+    fn default_fallbacks_serialization() {
+        let params = MessageCreateParams::simple("Hello", KnownModel::ClaudeFable51)
+            .with_default_fallbacks();
+        assert_eq!(to_value(params).unwrap()["fallbacks"], json!("default"));
     }
 }

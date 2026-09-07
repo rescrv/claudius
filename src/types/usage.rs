@@ -2,13 +2,13 @@ use std::ops::Add;
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{OutputTokensDetails, ServerToolUsage};
+use crate::types::{OutputTokensDetails, ServerToolUsage, UsageIteration};
 
 /// Usage information for API calls.
 ///
 /// Anthropic's API bills and rate-limits by token counts, as tokens represent the
 /// underlying cost to their systems.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Usage {
     /// The number of input tokens used to create the cache entry.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -31,6 +31,10 @@ pub struct Usage {
     /// The number of server tool requests.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server_tool_use: Option<ServerToolUsage>,
+
+    /// Per-model attempts made by fallback routing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iterations: Option<Vec<UsageIteration>>,
 }
 
 impl Usage {
@@ -43,6 +47,7 @@ impl Usage {
             output_tokens,
             output_tokens_details: None,
             server_tool_use: None,
+            iterations: None,
         }
     }
 
@@ -106,6 +111,14 @@ impl Add for Usage {
                 rhs.output_tokens_details,
             ),
             server_tool_use: add_options(self.server_tool_use, rhs.server_tool_use),
+            iterations: match (self.iterations, rhs.iterations) {
+                (Some(mut left), Some(right)) => {
+                    left.extend(right);
+                    Some(left)
+                }
+                (Some(iterations), None) | (None, Some(iterations)) => Some(iterations),
+                (None, None) => None,
+            },
         }
     }
 }

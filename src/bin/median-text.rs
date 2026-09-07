@@ -46,6 +46,7 @@ Output the corrected/unified document and only the corrected/unified document.
         top_k: None,
         top_p: None,
         fallbacks: None,
+        fallback_credit_token: None,
         betas: None,
     };
     let client = Anthropic::new(None).expect("could not create anthropic client");

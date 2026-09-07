@@ -513,6 +513,7 @@ fn describe_display(display: Option<ThinkingDisplay>) -> &'static str {
     match display {
         Some(ThinkingDisplay::Summarized) => ", display: summarized",
         Some(ThinkingDisplay::Omitted) => ", display: omitted",
+        Some(ThinkingDisplay::Updates) => ", display: updates",
         None => "",
     }
 }
