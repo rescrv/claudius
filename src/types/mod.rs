@@ -31,6 +31,7 @@ mod message_stream_event;
 mod message_tokens_count;
 mod metadata;
 mod model;
+mod model_capabilities;
 mod model_info;
 mod model_list_params;
 mod model_list_response;
@@ -108,6 +109,10 @@ pub use message_stream_event::MessageStreamEvent;
 pub use message_tokens_count::MessageTokensCount;
 pub use metadata::Metadata;
 pub use model::{KnownModel, Model, TokenRates};
+pub use model_capabilities::{
+    CapabilitySupport, ContextManagementCapability, EffortCapability, ModelCapabilities,
+    ThinkingCapability, ThinkingTypes,
+};
 pub use model_info::{ModelInfo, ModelType};
 pub use model_list_params::ModelListParams;
 pub use model_list_response::ModelListResponse;

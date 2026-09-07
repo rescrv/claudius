@@ -76,8 +76,11 @@ mod tests {
     fn model_list_response_serialization() {
         let model_info = ModelInfo {
             id: "claude-3-7-sonnet-20250219".to_string(),
+            capabilities: None,
             created_at: datetime!(2025-02-19 0:00:00 UTC),
             display_name: "Claude 3.7 Sonnet".to_string(),
+            max_input_tokens: None,
+            max_tokens: None,
             r#type: ModelType::Model,
         };
 
@@ -129,8 +132,11 @@ mod tests {
     fn model_list_response_accessors() {
         let model_info = ModelInfo {
             id: "claude-3-7-sonnet-20250219".to_string(),
+            capabilities: None,
             created_at: datetime!(2025-02-19 0:00:00 UTC),
             display_name: "Claude 3.7 Sonnet".to_string(),
+            max_input_tokens: None,
+            max_tokens: None,
             r#type: ModelType::Model,
         };
 
