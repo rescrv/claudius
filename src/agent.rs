@@ -2180,7 +2180,15 @@ pub trait Agent: Send + Sync + Sized {
             temperature: self.temperature().await,
             top_k: self.top_k().await,
             top_p: self.top_p().await,
-            fallbacks: self.fallbacks().await,
+            fallbacks: self.fallbacks().await.map(|models| {
+                crate::types::Fallbacks::Models(
+                    models
+                        .into_iter()
+                        .map(crate::types::FallbackConfig::from)
+                        .collect(),
+                )
+            }),
+            fallback_credit_token: None,
             stream,
             tool_choice: self.tool_choice().await,
             tools,
@@ -2969,9 +2977,9 @@ async fn step_default_turn_impl<A: Agent>(
             role: MessageRole::Assistant,
             content: MessageParamContent::Array(resp.content.clone()),
         };
-        usage_total = usage_total + resp.usage;
-        request_count = request_count.saturating_add(1);
         let response_within_budget = tokens_rem.consume_response(&resp.usage);
+        usage_total = usage_total + resp.usage.clone();
+        request_count = request_count.saturating_add(1);
 
         if let Err(err) = agent.hook_message(&resp).await {
             return ControlFlow::Break(Err(err));
@@ -5327,8 +5335,13 @@ mod tests {
             "bash\n<invoke name=\"bash\">...".to_string(),
         ))];
         let model = Model::Known(KnownModel::ClaudeSonnet40);
-        let response = Message::new("msg_regression".to_string(), content, model, Usage::new(5, 5))
-            .with_stop_reason(StopReason::ToolUse);
+        let response = Message::new(
+            "msg_regression".to_string(),
+            content,
+            model,
+            Usage::new(5, 5),
+        )
+        .with_stop_reason(StopReason::ToolUse);
         let body = serde_json::to_string(&response).unwrap();
 
         // Serve a few responses so that, absent the fix, the loop appends empty

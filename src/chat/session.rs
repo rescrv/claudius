@@ -414,12 +414,15 @@ impl<A: ChatAgent> ChatSession<A> {
             total_requests: self.request_count,
             last_turn_input_tokens: self
                 .last_turn_usage
+                .as_ref()
                 .map(|usage| tokens_to_u64(usage.input_tokens)),
             last_turn_output_tokens: self
                 .last_turn_usage
+                .as_ref()
                 .map(|usage| tokens_to_u64(usage.output_tokens)),
             last_turn_thinking_tokens: self
                 .last_turn_usage
+                .as_ref()
                 .and_then(|usage| usage.output_tokens_details)
                 .map(|details| tokens_to_u64(details.thinking_tokens)),
             caching_enabled: config.caching_enabled,
@@ -437,8 +440,8 @@ impl<A: ChatAgent> ChatSession<A> {
     }
 
     fn record_usage(&mut self, outcome: TurnOutcome) {
-        self.last_turn_usage = Some(outcome.usage);
-        self.usage_totals = self.usage_totals + outcome.usage;
+        self.last_turn_usage = Some(outcome.usage.clone());
+        self.usage_totals = self.usage_totals.clone() + outcome.usage;
         self.request_count = self.request_count.saturating_add(outcome.request_count);
     }
 
@@ -594,9 +597,9 @@ mod tests {
             budget: &Arc<Budget>,
             _renderer: &mut dyn Renderer,
         ) -> Result<TurnOutcome> {
-            if let Some(usage) = self.budget_usage {
+            if let Some(usage) = &self.budget_usage {
                 let mut allocation = budget.allocate_available(self.config.max_tokens()).unwrap();
-                assert!(allocation.consume_response(&usage));
+                assert!(allocation.consume_response(usage));
             }
             if let Some(message) = self.append.clone() {
                 crate::push_or_merge_message(messages, message);
@@ -838,7 +841,7 @@ mod tests {
             Some(MessageParam::assistant("charged response")),
             Ok(TurnOutcome {
                 stop_reason: crate::StopReason::EndTurn,
-                usage,
+                usage: usage.clone(),
                 request_count: 1,
             }),
         )

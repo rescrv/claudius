@@ -10,6 +10,9 @@ pub enum ThinkingDisplay {
     Summarized,
     /// Return `thinking` blocks with empty thinking text and only the signature.
     Omitted,
+    /// Return short, user-visible progress updates between tool calls while
+    /// leaving the thinking text empty.
+    Updates,
 }
 
 /// Configuration for enabling Claude's extended thinking capabilities.
@@ -109,6 +112,13 @@ impl ThinkingConfig {
     /// Create a new adaptive thinking configuration that omits thinking text.
     pub fn adaptive_omitted() -> Self {
         Self::adaptive().with_display(ThinkingDisplay::Omitted)
+    }
+
+    /// Create adaptive thinking that emits readable progress updates.
+    ///
+    /// Requires the `thinking-display-updates-2026-08-18` beta header.
+    pub fn adaptive_updates() -> Self {
+        Self::adaptive().with_display(ThinkingDisplay::Updates)
     }
 
     /// Set how thinking content should be returned.
@@ -327,6 +337,10 @@ mod tests {
         assert_eq!(
             to_value(ThinkingDisplay::Omitted).unwrap(),
             json!("omitted")
+        );
+        assert_eq!(
+            to_value(ThinkingDisplay::Updates).unwrap(),
+            json!("updates")
         );
     }
 
