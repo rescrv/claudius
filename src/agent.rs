@@ -2390,10 +2390,11 @@ impl FileSystem for Path<'_> {
 
     async fn list_directory(&self, path: &str) -> Result<Option<String>, std::io::Error> {
         let path = sanitize_path(self.clone(), path)?;
-        if path.is_dir().unwrap_or(false) {
-            Ok(Some(directory_listing(&path)?))
-        } else {
-            Ok(None)
+        match std::fs::metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_dir() => Ok(Some(directory_listing(&path)?)),
+            Ok(_) => Ok(None),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(err),
         }
     }
 
@@ -2404,7 +2405,8 @@ impl FileSystem for Path<'_> {
     ) -> Result<String, std::io::Error> {
         validate_view_range(view_range)?;
         let path = sanitize_path(self.clone(), path)?;
-        if path.is_file().unwrap_or(false) {
+        let file_type = workspace_file_type(&path)?;
+        if file_type.is_file() {
             let content = std::fs::read_to_string(path)?;
             let lines = content
                 .split('\n')
@@ -2419,7 +2421,7 @@ impl FileSystem for Path<'_> {
             let mut ret = lines.join("\n");
             ret.push('\n');
             Ok(ret)
-        } else if path.is_dir().unwrap_or(false) {
+        } else if file_type.is_dir() {
             directory_listing(&path)
         } else {
             Err(std::io::Error::new(
@@ -2436,7 +2438,8 @@ impl FileSystem for Path<'_> {
         new_str: &str,
     ) -> Result<String, std::io::Error> {
         let path = sanitize_path(self.clone(), path)?;
-        if path.is_file().unwrap_or(false) {
+        let file_type = workspace_file_type(&path)?;
+        if file_type.is_file() {
             let content = std::fs::read_to_string(&path)?;
             let count = content.matches(old_str).count();
             if count == 0 {
@@ -2469,7 +2472,8 @@ impl FileSystem for Path<'_> {
         insert_text: &str,
     ) -> Result<String, std::io::Error> {
         let path = sanitize_path(self.clone(), path)?;
-        if path.is_file().unwrap_or(false) {
+        let file_type = workspace_file_type(&path)?;
+        if file_type.is_file() {
             let content = std::fs::read_to_string(&path)?;
             let mut lines = content
                 .split_terminator('\n')
@@ -2775,6 +2779,10 @@ fn validate_view_range(view_range: Option<(u32, u32)>) -> Result<(), std::io::Er
         ));
     }
     Ok(())
+}
+
+fn workspace_file_type(path: &Path) -> Result<std::fs::FileType, std::io::Error> {
+    Ok(std::fs::metadata(path)?.file_type())
 }
 
 fn directory_listing(path: &Path) -> Result<String, std::io::Error> {
@@ -4580,6 +4588,22 @@ mod tests {
         // limit=0 should error
         let err = base.view("file.txt", Some((1, 0))).await.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn filesystem_view_missing_file_reports_not_found() {
+        let dir = make_temp_dir("view_missing");
+        let base = Path::try_from(dir.as_path()).unwrap();
+
+        let err = base.view("missing.txt", None).await.unwrap_err();
+
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+        assert_ne!(
+            err.to_string(),
+            "viewing non-standard file types is not supported"
+        );
 
         std::fs::remove_dir_all(dir).ok();
     }
