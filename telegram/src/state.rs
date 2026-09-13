@@ -13,6 +13,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use claudius::{ContentBlock, MessageParam};
+
 use crate::{ChatId, Error};
 
 one_two_eight::generate_id! {LogicalIdInner, "outbox:"}
@@ -59,42 +61,6 @@ impl<'de> Deserialize<'de> for LogicalId {
     }
 }
 
-/// The role of a [`ConversationEntry`], a serializable mirror of `MessageRole`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum EntryRole {
-    /// A message from the human user.
-    User,
-    /// A message from the assistant/agent.
-    Assistant,
-    /// A system message interleaved into the conversation.
-    System,
-}
-
-/// A serializable projection of a [`claudius::MessageParam`] sufficient to
-/// rebuild the message vector on restart.
-///
-/// Kept deliberately minimal (role + text). `#[non_exhaustive]` so richer block
-/// projections can be added later without a breaking change.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[non_exhaustive]
-pub struct ConversationEntry {
-    /// The role that produced this entry.
-    pub role: EntryRole,
-    /// The flattened text content.
-    pub text: String,
-}
-
-impl ConversationEntry {
-    /// Constructs a conversation entry.
-    pub fn new(role: EntryRole, text: impl Into<String>) -> Self {
-        Self {
-            role,
-            text: text.into(),
-        }
-    }
-}
-
 /// The delivery status of an [`OutboxRecord`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "lowercase")]
@@ -114,26 +80,26 @@ pub enum OutboxStatus {
 /// timeout can produce a duplicate. The outbox bounds this to a single
 /// documented window: a `Pending` record whose send outcome was unknown at
 /// crash time is re-sent on restart (at-least-once).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct OutboxRecord {
     /// The stable dedup key for this intended send.
     pub logical_id: LogicalId,
     /// The destination chat.
     pub chat: ChatId,
-    /// The message text.
-    pub text: String,
+    /// The native content blocks to send.
+    pub content: Vec<ContentBlock>,
     /// The current delivery status.
     pub status: OutboxStatus,
 }
 
 impl OutboxRecord {
     /// Constructs a `Pending` outbox record with a fresh logical id.
-    pub fn pending(chat: ChatId, text: impl Into<String>) -> Self {
+    pub fn pending(chat: ChatId, content: Vec<ContentBlock>) -> Self {
         Self {
             logical_id: LogicalId::generate(),
             chat,
-            text: text.into(),
+            content,
             status: OutboxStatus::Pending,
         }
     }
@@ -144,12 +110,13 @@ impl OutboxRecord {
 /// Serialized to JSON and committed atomically via a [`StateStore`]. The
 /// `next_offset` cursor commits together with `conversations` and `outbox`, which
 /// is what collapses inbound dedup into one atomic state write.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TransportState {
     /// The next offset to pass to `getUpdates`. Persisted on every `ack`.
     pub next_offset: i64,
-    /// Per-chat conversation history, so an agent can resume context on restart.
-    pub conversations: BTreeMap<i64, Vec<ConversationEntry>>,
+    /// Per-chat native conversation history, so an agent can resume context on restart.
+    #[serde(default)]
+    pub conversations: BTreeMap<i64, Vec<MessageParam>>,
     /// The transactional outbox for exactly-once-intent outbound delivery.
     pub outbox: Vec<OutboxRecord>,
     /// Chats known to be dead (`403`). Proactive sends skip these.
@@ -165,13 +132,18 @@ impl TransportState {
         self.conversations.entry(chat.0).or_default();
     }
 
-    /// Appends a conversation entry for `chat`.
-    pub fn push_entry(&mut self, chat: ChatId, entry: ConversationEntry) {
-        self.conversations.entry(chat.0).or_default().push(entry);
+    /// Appends a native conversation message for `chat`.
+    pub fn push_message(&mut self, chat: ChatId, message: MessageParam) {
+        self.conversations.entry(chat.0).or_default().push(message);
+    }
+
+    /// Replaces `chat`'s conversation with `messages`.
+    pub fn set_conversation(&mut self, chat: ChatId, messages: Vec<MessageParam>) {
+        self.conversations.insert(chat.0, messages);
     }
 
     /// Returns the conversation history for `chat`, if any.
-    pub fn conversation(&self, chat: ChatId) -> Option<&[ConversationEntry]> {
+    pub fn conversation(&self, chat: ChatId) -> Option<&[MessageParam]> {
         self.conversations.get(&chat.0).map(|v| v.as_slice())
     }
 
@@ -228,17 +200,13 @@ impl FileStateStore {
 impl StateStore for FileStateStore {
     async fn load(&self) -> Result<TransportState, Error> {
         let path = self.path.clone();
-        tokio::task::spawn_blocking(move || {
-            match std::fs::read(&path) {
-                Ok(bytes) => {
-                    let state: TransportState = serde_json::from_slice(&bytes)?;
-                    Ok(state)
-                }
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                    Ok(TransportState::default())
-                }
-                Err(err) => Err(Error::Io(err)),
+        tokio::task::spawn_blocking(move || match std::fs::read(&path) {
+            Ok(bytes) => {
+                let state: TransportState = serde_json::from_slice(&bytes)?;
+                Ok(state)
             }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(TransportState::default()),
+            Err(err) => Err(Error::Io(err)),
         })
         .await
         .map_err(|e| Error::Internal(format!("load join error: {e}")))?
@@ -322,8 +290,11 @@ mod tests {
             ..Default::default()
         };
         state.note_chat(ChatId(7));
-        state.push_entry(ChatId(7), ConversationEntry::new(EntryRole::User, "hi"));
-        state.outbox.push(OutboxRecord::pending(ChatId(7), "yo"));
+        state.push_message(ChatId(7), MessageParam::user("hi"));
+        state.outbox.push(OutboxRecord::pending(
+            ChatId(7),
+            vec![ContentBlock::Text(claudius::TextBlock::new("yo"))],
+        ));
         state.mark_dead(ChatId(-100));
 
         let json = serde_json::to_string(&state).unwrap();

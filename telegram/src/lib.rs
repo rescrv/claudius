@@ -30,12 +30,14 @@ pub use runtime::{
     send_proactive,
 };
 pub use state::{
-    ConversationEntry, EntryRole, FileStateStore, InMemoryStateStore, LogicalId, OutboxRecord,
-    OutboxStatus, StateStore, TransportState,
+    FileStateStore, InMemoryStateStore, LogicalId, OutboxRecord, OutboxStatus, StateStore,
+    TransportState,
 };
 pub use stdin::StdinTransport;
 pub use telegram::TelegramTransport;
-pub use transport::{ChatTransport, Inbound, Outbound};
+pub use transport::{
+    ChatTransport, Inbound, content_blocks_have_text, content_blocks_to_text, text_content,
+};
 
 use std::fmt;
 
@@ -44,7 +46,9 @@ use std::fmt;
 /// Chat IDs are `i64` and can be negative for groups and channels. A bot must
 /// capture and persist each `chat_id` from a user's first inbound message before
 /// it can ever send to that user (Telegram returns `403` otherwise).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct ChatId(pub i64);
 
 impl fmt::Display for ChatId {
@@ -57,7 +61,9 @@ impl fmt::Display for ChatId {
 ///
 /// An update is consumed only when `getUpdates` is next called with an `offset`
 /// strictly greater than this id. The cursor is this crate's durability ack.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct UpdateId(pub i64);
 
 impl fmt::Display for UpdateId {
@@ -67,7 +73,9 @@ impl fmt::Display for UpdateId {
 }
 
 /// A Telegram message identifier, returned by `sendMessage`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct MessageId(pub i64);
 
 impl fmt::Display for MessageId {

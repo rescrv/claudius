@@ -12,7 +12,9 @@ use std::io::{BufRead, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
-use crate::transport::{ChatTransport, Inbound, Outbound};
+use claudius::ContentBlock;
+
+use crate::transport::{ChatTransport, Inbound, content_blocks_to_text};
 use crate::{ChatId, Error, MessageId, UpdateId};
 
 /// The fixed chat id used for the single terminal "chat".
@@ -78,9 +80,9 @@ impl ChatTransport for StdinTransport {
         Ok(())
     }
 
-    async fn send(&self, out: Outbound) -> Result<MessageId, Error> {
+    async fn send(&self, _chat: ChatId, content: Vec<ContentBlock>) -> Result<MessageId, Error> {
         // Terminals don't care about the 4096 limit; print verbatim.
-        println!("{}", out.text);
+        println!("{}", content_blocks_to_text(&content));
         let _ = std::io::stdout().flush();
         Ok(MessageId(0))
     }

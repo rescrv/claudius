@@ -2,8 +2,8 @@
 //! tokens.
 //!
 //! The "agent" echoes the user's text uppercased. It is wired via a pre-filter
-//! that [`Handled`](claudius_telegram::PreFilter::Handled)s every message, so the
-//! real agent is never invoked and no network/token is required.
+//! that handles every message, so the real agent is never invoked and no
+//! network/token is required.
 //!
 //! # Usage
 //!
@@ -83,7 +83,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // The echo "agent": every message is handled by the pre-filter, uppercased.
     let pre_filter: Box<dyn Fn(&_) -> PreFilter + Send> =
-        Box::new(|inb: &claudius_telegram::Inbound| PreFilter::Handled(inb.text.to_uppercase()));
+        Box::new(|inb: &claudius_telegram::Inbound| {
+            PreFilter::handled_text(inb.text.to_uppercase())
+        });
 
     let budget = Arc::new(Budget::from_dollars_flat_rate(0.0, 1000));
     let config = LoopConfig {
@@ -111,7 +113,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "no token: pass --token or set TELEGRAM_BOT_TOKEN (or use --stdin)".to_string(),
                 )
             })?;
-        let mut transport = TelegramTransport::new(token.clone(), Arc::clone(&state), Arc::clone(&store))?;
+        let mut transport =
+            TelegramTransport::new(token.clone(), Arc::clone(&state), Arc::clone(&store))?;
         if let Some(secs) = args.poll_timeout {
             transport = transport.with_poll_timeout(secs, token.clone())?;
         }

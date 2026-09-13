@@ -1,4 +1,4 @@
-//! The [`ChatTransport`] trait and its inbound/outbound message types.
+//! The [`ChatTransport`] trait and its inbound message type.
 //!
 //! A transport is the seam between an agent's turn loop and the outside world.
 //! Two implementations ship with this crate: [`crate::StdinTransport`] (terminal
@@ -7,6 +7,8 @@
 //! long-polling only.
 
 use time::OffsetDateTime;
+
+use claudius::{ContentBlock, TextBlock};
 
 use crate::{ChatId, Error, MessageId, UpdateId};
 
@@ -43,26 +45,32 @@ impl Inbound {
     }
 }
 
-/// An outbound message to send to a chat.
-///
-/// `#[non_exhaustive]` so future content types can be added without breakage.
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct Outbound {
-    /// The destination chat.
-    pub chat: ChatId,
-    /// The message text. Chunked to Telegram's size limit inside `send`.
-    pub text: String,
+/// Builds a single text [`ContentBlock`].
+pub fn text_content(text: impl Into<String>) -> Vec<ContentBlock> {
+    vec![ContentBlock::Text(TextBlock::new(text))]
 }
 
-impl Outbound {
-    /// Constructs an [`Outbound`].
-    pub fn new(chat: ChatId, text: impl Into<String>) -> Self {
-        Self {
-            chat,
-            text: text.into(),
-        }
-    }
+/// Extracts chat-visible text from content blocks.
+///
+/// Telegram can only send text in this transport, so only text blocks are
+/// concatenated. Thinking, redacted thinking, tool use, and other non-text blocks
+/// are intentionally ignored.
+pub fn content_blocks_to_text(content: &[ContentBlock]) -> String {
+    content
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Returns whether any text block contains visible text.
+pub fn content_blocks_have_text(content: &[ContentBlock]) -> bool {
+    content.iter().any(|block| match block {
+        ContentBlock::Text(text) => !text.text.is_empty(),
+        _ => false,
+    })
 }
 
 /// A duplex chat transport with a split receive/ack cursor.
@@ -89,13 +97,45 @@ pub trait ChatTransport: Send {
 
     /// Sends one message, returning the server message id of the last chunk sent.
     ///
+    /// The transport extracts text from `content` and discards thinking and other
+    /// non-text blocks at the chat boundary.
+    ///
     /// On `429` the implementation handles `retry_after` internally and retries.
     /// On `403` it returns [`Error::Api`] with `code: 403` WITHOUT retrying, so
     /// the caller can mark the channel dead.
-    async fn send(&self, out: Outbound) -> Result<MessageId, Error>;
+    async fn send(&self, chat: ChatId, content: Vec<ContentBlock>) -> Result<MessageId, Error>;
 
     /// Best-effort presence cue (Telegram "typing" for ~5s). Default: `Ok(())`.
     async fn typing(&self, _chat: ChatId) -> Result<(), Error> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use claudius::ThinkingBlock;
+
+    #[test]
+    fn flattening_keeps_text_and_discards_thinking() {
+        let content = vec![
+            ContentBlock::Thinking(ThinkingBlock::new("internal", "signature")),
+            ContentBlock::Text(TextBlock::new("visible")),
+            ContentBlock::Text(TextBlock::new(" text")),
+        ];
+
+        assert_eq!(content_blocks_to_text(&content), "visible text");
+        assert!(content_blocks_have_text(&content));
+    }
+
+    #[test]
+    fn thinking_only_content_has_no_visible_text() {
+        let content = vec![ContentBlock::Thinking(ThinkingBlock::new(
+            "internal",
+            "signature",
+        ))];
+
+        assert_eq!(content_blocks_to_text(&content), "");
+        assert!(!content_blocks_have_text(&content));
     }
 }

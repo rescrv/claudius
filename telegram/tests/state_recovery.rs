@@ -1,8 +1,8 @@
 //! Durability tests for `TransportState` + `FileStateStore`.
 
+use claudius::{ContentBlock, MessageParam, MessageParamContent, MessageRole, TextBlock};
 use claudius_telegram::{
-    ChatId, ConversationEntry, EntryRole, FileStateStore, OutboxRecord, OutboxStatus, StateStore,
-    TransportState,
+    ChatId, FileStateStore, OutboxRecord, OutboxStatus, StateStore, TransportState, text_content,
 };
 
 fn temp_path(name: &str) -> std::path::PathBuf {
@@ -30,15 +30,17 @@ async fn commit_then_reload_preserves_everything() {
         ..Default::default()
     };
     state.note_chat(ChatId(99));
-    state.push_entry(
+    state.push_message(ChatId(99), MessageParam::user("hello"));
+    state.push_message(
         ChatId(99),
-        ConversationEntry::new(EntryRole::User, "hello"),
+        MessageParam::new(
+            MessageParamContent::Array(vec![ContentBlock::Text(TextBlock::new("hi there"))]),
+            MessageRole::Assistant,
+        ),
     );
-    state.push_entry(
-        ChatId(99),
-        ConversationEntry::new(EntryRole::Assistant, "hi there"),
-    );
-    state.outbox.push(OutboxRecord::pending(ChatId(99), "queued"));
+    state
+        .outbox
+        .push(OutboxRecord::pending(ChatId(99), text_content("queued")));
     state.mark_dead(ChatId(-42));
 
     store.commit(&state).await.unwrap();
@@ -91,7 +93,7 @@ async fn sent_records_survive_with_message_id() {
     let store = FileStateStore::new(&path);
 
     let mut state = TransportState::default();
-    let mut rec = OutboxRecord::pending(ChatId(5), "payload");
+    let mut rec = OutboxRecord::pending(ChatId(5), text_content("payload"));
     rec.status = OutboxStatus::Sent { message_id: 808 };
     state.outbox.push(rec);
     store.commit(&state).await.unwrap();
