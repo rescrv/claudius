@@ -26,7 +26,7 @@ async fn main() {
     let create = MessageCreateParams {
         max_tokens: 12_500,
         messages,
-        model: Model::Known(KnownModel::ClaudeOpus40),
+        model: Model::Known(KnownModel::ClaudeOpus48),
         stream: false,
         system: Some(r#"You are tasked with providing the best transcription for a document from multiple transcriptions.
 
@@ -39,7 +39,7 @@ Output the corrected/unified document and only the corrected/unified document.
         output_format: None,
         output_config: None,
         stop_sequences: None,
-        thinking: Some(ThinkingConfig::enabled_summarized(1024)),
+        thinking: Some(ThinkingConfig::adaptive()),
         tools: None,
         temperature: None,
         tool_choice: None,
