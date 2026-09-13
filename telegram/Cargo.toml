@@ -1,0 +1,35 @@
+[package]
+name = "claudius-telegram"
+version = "0.1.0"
+authors = ["Robert Escriva <robert@rescrv.net>"]
+edition = "2024"
+description = "A durable Telegram Bot API transport for claudius agents"
+license = "Apache-2.0"
+repository = "https://github.com/rescrv/claudius"
+
+[dependencies]
+async-trait = "0.1.89"
+claudius = { version = "0.33" }
+reqwest = { version = "0.13.4", default-features = false, features = ["json"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.150", features = ["preserve_order"] }
+time = { version = "0.3.47", features = ["serde", "formatting", "parsing"] }
+tokio = { version = "1.52.3", features = ["full"] }
+one_two_eight = { version = "0.14.0", default-features = false }
+ctrlc = { version = "3.5.2", features = ["termination"] }
+
+arrrg = "0.10.0"
+arrrg_derive = "0.10.0"
+getopts = "0.2.24"
+
+[features]
+default = ["native-tls"]
+native-tls = ["reqwest/native-tls"]
+rustls-tls = ["reqwest/rustls"]
+
+[[bin]]
+name = "echo"
+path = "src/bin/echo.rs"
+
+[dev-dependencies]
+tokio = { version = "1.52.3", features = ["full", "test-util", "macros"] }
