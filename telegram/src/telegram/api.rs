@@ -45,7 +45,9 @@ pub struct TelegramApi {
 impl fmt::Debug for TelegramApi {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Never leak the token.
-        f.debug_struct("TelegramApi").field("token", &"<redacted>").finish()
+        f.debug_struct("TelegramApi")
+            .field("token", &"<redacted>")
+            .finish()
     }
 }
 
@@ -180,8 +182,8 @@ mod tests {
 
     #[test]
     fn resolve_token_file_url_trims_whitespace() {
-        let test_file = std::env::temp_dir()
-            .join(format!("claudius_tg_ws_{}.txt", std::process::id()));
+        let test_file =
+            std::env::temp_dir().join(format!("claudius_tg_ws_{}.txt", std::process::id()));
         std::fs::write(&test_file, "  123:ABC-ws  \n  ").unwrap();
 
         let file_url = format!("file://{}", test_file.display());

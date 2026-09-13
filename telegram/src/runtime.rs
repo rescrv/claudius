@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 
 use claudius::{
     Agent, Anthropic, Budget, ContentBlock, MessageParam, MessageParamContent, MessageRole,
-    Renderer, StreamContext,
+    Renderer, StopReason, StreamContext, TurnOutcome,
 };
 
 use crate::state::{OutboxRecord, OutboxStatus, StateStore, TransportState};
@@ -142,6 +142,16 @@ pub struct LoopConfig {
     pub interrupted: Arc<AtomicBool>,
     /// Optional inbound pre-filter (slash-commands, echo bypass, ...).
     pub pre_filter: Option<PreFilterFn>,
+    /// Reset a chat's model-visible history before an agent turn when its
+    /// persisted message count exceeds this threshold.
+    ///
+    /// The current inbound user message is retained so the agent can still
+    /// answer the active request. A value of `Some(0)` resets before every
+    /// agent turn.
+    pub max_history_messages: Option<usize>,
+    /// On context-length failures, reset the chat history to the current user
+    /// message and retry the agent turn once.
+    pub reset_on_context_limit: bool,
 }
 
 impl LoopConfig {
@@ -159,6 +169,40 @@ impl LoopConfig {
             use_outbox: false,
             interrupted,
             pre_filter: None,
+            max_history_messages: None,
+            reset_on_context_limit: false,
+        }
+    }
+}
+
+////////////////////////////////////// SyntheticTurnConfig //////////////////////////////////////
+
+/// Configuration for [`run_synthetic_user_turn`].
+#[derive(Debug, Clone)]
+pub struct SyntheticTurnConfig {
+    /// Reset a chat's model-visible history before the synthetic agent turn when
+    /// its persisted message count exceeds this threshold.
+    ///
+    /// The synthetic user message is retained so the agent can still answer the
+    /// proactive prompt. A value of `Some(0)` resets before every turn.
+    pub max_history_messages: Option<usize>,
+    /// On context-length failures, reset the chat history to the synthetic user
+    /// message and retry the agent turn once.
+    pub reset_on_context_limit: bool,
+    /// When true, commit the assistant response to the transactional outbox
+    /// before sending it.
+    pub use_outbox: bool,
+    /// Optional operational label included in diagnostic log messages.
+    pub source_label: Option<String>,
+}
+
+impl Default for SyntheticTurnConfig {
+    fn default() -> Self {
+        Self {
+            max_history_messages: None,
+            reset_on_context_limit: false,
+            use_outbox: true,
+            source_label: None,
         }
     }
 }
@@ -193,11 +237,134 @@ fn assistant_content(messages: &[MessageParam]) -> Vec<ContentBlock> {
         .collect()
 }
 
+fn latest_user_message(messages: &[MessageParam]) -> Option<MessageParam> {
+    messages
+        .iter()
+        .rev()
+        .find(|message| message.role == MessageRole::User)
+        .cloned()
+}
+
+fn reset_to_latest_user_message(messages: &mut Vec<MessageParam>) -> bool {
+    let Some(message) = latest_user_message(messages) else {
+        return false;
+    };
+    messages.clear();
+    messages.push(message);
+    true
+}
+
+fn reset_history_if_over_threshold(
+    messages: &mut Vec<MessageParam>,
+    threshold: usize,
+) -> Option<usize> {
+    let previous_len = messages.len();
+    if previous_len <= threshold {
+        return None;
+    }
+    reset_to_latest_user_message(messages).then_some(previous_len)
+}
+
+fn is_context_length_error(err: &claudius::Error) -> bool {
+    fn text_matches(text: &str) -> bool {
+        let lower = text.to_ascii_lowercase();
+        (lower.contains("context") && lower.contains("long"))
+            || lower.contains("context window")
+            || lower.contains("model_context_window_exceeded")
+            || lower.contains("prompt is too long")
+            || lower.contains("messages is too long")
+            || lower.contains("input is too long")
+            || lower.contains("too many tokens")
+            || lower.contains("token limit")
+    }
+
+    match err {
+        claudius::Error::BadRequest { message, param } => {
+            text_matches(message) || param.as_deref().is_some_and(text_matches)
+        }
+        claudius::Error::Validation { message, param } => {
+            text_matches(message) || param.as_deref().is_some_and(text_matches)
+        }
+        claudius::Error::Api {
+            status_code,
+            error_type,
+            message,
+            ..
+        } => {
+            *status_code == 400
+                && (text_matches(message) || error_type.as_deref().is_some_and(text_matches))
+        }
+        claudius::Error::Streaming { message, .. } => text_matches(message),
+        _ => text_matches(&err.to_string()),
+    }
+}
+
+async fn take_agent_turn_with_reset<A: Agent>(
+    agent: &mut A,
+    client: &Anthropic,
+    messages: &mut Vec<MessageParam>,
+    budget: &Arc<Budget>,
+    reset_on_context_limit: bool,
+) -> Result<(usize, TurnOutcome), claudius::Error> {
+    let turn_start = messages.len();
+    if !reset_on_context_limit {
+        let mut renderer = BufferingRenderer::new();
+        let outcome = agent
+            .take_turn_streaming_root(client, messages, budget, &mut renderer)
+            .await?;
+        return Ok((turn_start, outcome));
+    }
+
+    let Some(current_user_message) = latest_user_message(messages) else {
+        let mut renderer = BufferingRenderer::new();
+        let outcome = agent
+            .take_turn_streaming_root(client, messages, budget, &mut renderer)
+            .await?;
+        return Ok((turn_start, outcome));
+    };
+
+    let mut renderer = BufferingRenderer::new();
+    let first = agent
+        .take_turn_streaming_root(client, messages, budget, &mut renderer)
+        .await;
+
+    match first {
+        Ok(outcome) if outcome.stop_reason != StopReason::ModelContextWindowExceeded => {
+            Ok((turn_start, outcome))
+        }
+        Ok(_) => {
+            eprintln!("[telegram] context window exceeded; resetting chat history and retrying");
+            messages.clear();
+            messages.push(current_user_message);
+            let retry_turn_start = messages.len();
+            let mut renderer = BufferingRenderer::new();
+            let outcome = agent
+                .take_turn_streaming_root(client, messages, budget, &mut renderer)
+                .await?;
+            Ok((retry_turn_start, outcome))
+        }
+        Err(err) if is_context_length_error(&err) => {
+            eprintln!(
+                "[telegram] context-length error; resetting chat history and retrying: {err}"
+            );
+            messages.clear();
+            messages.push(current_user_message);
+            let retry_turn_start = messages.len();
+            let mut renderer = BufferingRenderer::new();
+            let outcome = agent
+                .take_turn_streaming_root(client, messages, budget, &mut renderer)
+                .await?;
+            Ok((retry_turn_start, outcome))
+        }
+        Err(err) => Err(err),
+    }
+}
+
 /// Drives a single `Pending` outbox record to `Sent`: sends it, then marks it and
 /// commits. Returns the sent message id. On `403` marks the chat dead, commits,
 /// and returns the error.
 async fn drive_outbox_record(
-    transport: &dyn ChatTransport,
+    transport: &(impl ChatTransport + ?Sized),
     store: &dyn StateStore,
     state: &Arc<Mutex<TransportState>>,
     logical_id: crate::state::LogicalId,
@@ -227,6 +394,29 @@ async fn drive_outbox_record(
             store.commit(&snapshot).await?;
             Ok(message_id)
         }
+        Err(err @ Error::Api { code: 403, .. }) => {
+            let snapshot = {
+                let mut st = state.lock().await;
+                st.mark_dead(chat);
+                st.clone()
+            };
+            store.commit(&snapshot).await?;
+            eprintln!("[telegram] 403 dead chat_id={chat}; marked dead");
+            Err(err)
+        }
+        Err(other) => Err(other),
+    }
+}
+
+async fn send_direct_and_mark_dead(
+    transport: &(impl ChatTransport + ?Sized),
+    store: &dyn StateStore,
+    state: &Arc<Mutex<TransportState>>,
+    chat: ChatId,
+    content: Vec<ContentBlock>,
+) -> Result<MessageId, Error> {
+    match transport.send(chat, content).await {
+        Ok(message_id) => Ok(message_id),
         Err(err @ Error::Api { code: 403, .. }) => {
             let snapshot = {
                 let mut st = state.lock().await;
@@ -273,6 +463,110 @@ pub async fn send_proactive(
     drive_outbox_record(transport, store, state, logical_id).await
 }
 
+/// Runs a model-generated synthetic user turn for a known chat.
+///
+/// This is the proactive-agent counterpart to one inbound Telegram update: it
+/// appends `user_text` as a real user message, runs the supplied agent through
+/// the same native history/reset path as [`run_agent_loop`], commits the full
+/// conversation turn, then delivers the assistant text directly or through the
+/// transactional outbox according to `config.use_outbox`.
+///
+/// The helper refuses dead chats with a `403`-shaped [`Error::Api`] and refuses
+/// unknown chats with [`Error::Internal`]. On transient send failure with
+/// `use_outbox` enabled, the pending outbox record remains durable for a later
+/// retry.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_synthetic_user_turn<A, T>(
+    agent: &mut A,
+    transport: &T,
+    client: &Anthropic,
+    store: &dyn StateStore,
+    state: &Arc<Mutex<TransportState>>,
+    budget: &Arc<Budget>,
+    chat: ChatId,
+    user_text: String,
+    config: SyntheticTurnConfig,
+) -> Result<(), Error>
+where
+    A: Agent,
+    T: ChatTransport + Sync + ?Sized,
+{
+    let source = config.source_label.as_deref().unwrap_or("synthetic");
+    let mut messages = {
+        let st = state.lock().await;
+        if st.is_dead(chat) {
+            return Err(Error::Api {
+                code: 403,
+                description: format!("chat {chat} is marked dead"),
+                retry_after: None,
+            });
+        }
+        if st.conversation(chat).is_none() {
+            return Err(Error::Internal(format!(
+                "cannot run synthetic turn for unknown chat {chat}"
+            )));
+        }
+        let mut messages = build_messages(&st, chat);
+        messages.push(MessageParam::new(
+            MessageParamContent::String(user_text),
+            MessageRole::User,
+        ));
+        messages
+    };
+
+    if let Some(threshold) = config.max_history_messages
+        && let Some(previous_len) = reset_history_if_over_threshold(&mut messages, threshold)
+    {
+        eprintln!(
+            "[telegram] reset chat history for chat_id={chat}; source={source}; \
+             previous messages={previous_len}, threshold={threshold}"
+        );
+    }
+
+    transport.typing(chat).await.ok();
+    let (turn_start, _outcome) = take_agent_turn_with_reset(
+        agent,
+        client,
+        &mut messages,
+        budget,
+        config.reset_on_context_limit,
+    )
+    .await?;
+    let send_content = assistant_content(&messages[turn_start..]);
+
+    let outbox_id = {
+        let mut st = state.lock().await;
+        if st.is_dead(chat) {
+            return Err(Error::Api {
+                code: 403,
+                description: format!("chat {chat} is marked dead"),
+                retry_after: None,
+            });
+        }
+        st.set_conversation(chat, messages);
+        let id = if config.use_outbox && content_blocks_have_text(&send_content) {
+            let record = OutboxRecord::pending(chat, send_content.clone());
+            let id = record.logical_id;
+            st.outbox.push(record);
+            Some(id)
+        } else {
+            None
+        };
+        let snapshot = st.clone();
+        drop(st);
+        store.commit(&snapshot).await?;
+        id
+    };
+
+    if let Some(id) = outbox_id {
+        drive_outbox_record(transport, store, state, id).await?;
+    } else if content_blocks_have_text(&send_content) {
+        send_direct_and_mark_dead(transport, store, state, chat, send_content).await?;
+    }
+
+    Ok(())
+}
+
 /////////////////////////////////////////// the loop ///////////////////////////////////////////
 
 /// Runs the durable turn loop until interrupted or the transport signals EOF.
@@ -303,6 +597,8 @@ where
         use_outbox,
         interrupted,
         pre_filter,
+        max_history_messages,
+        reset_on_context_limit,
     } = config;
 
     loop {
@@ -345,8 +641,6 @@ where
                 );
                 build_messages(&st, chat)
             };
-            let turn_start = messages.len();
-
             // 2. Pre-filter.
             let decision = pre_filter
                 .as_ref()
@@ -363,11 +657,24 @@ where
                     content
                 }
                 PreFilter::PassToAgent => {
+                    if let Some(threshold) = max_history_messages
+                        && let Some(previous_len) =
+                            reset_history_if_over_threshold(&mut messages, threshold)
+                    {
+                        eprintln!(
+                            "[telegram] reset chat history for chat_id={chat}; \
+                             previous messages={previous_len}, threshold={threshold}"
+                        );
+                    }
                     transport.typing(chat).await.ok();
-                    let mut renderer = BufferingRenderer::new();
-                    agent
-                        .take_turn_streaming_root(&client, &mut messages, &budget, &mut renderer)
-                        .await?;
+                    let (turn_start, _outcome) = take_agent_turn_with_reset(
+                        &mut agent,
+                        &client,
+                        &mut messages,
+                        &budget,
+                        reset_on_context_limit,
+                    )
+                    .await?;
                     assistant_content(&messages[turn_start..])
                 }
             };
@@ -400,21 +707,18 @@ where
                 {
                     return Err(err);
                 }
-            } else if content_blocks_have_text(&send_content) {
-                match transport.send(chat, send_content).await {
-                    Ok(_) => {}
-                    Err(err @ Error::Api { code: 403, .. }) => {
-                        let snapshot = {
-                            let mut st = state.lock().await;
-                            st.mark_dead(chat);
-                            st.clone()
-                        };
-                        store.commit(&snapshot).await?;
-                        eprintln!("[telegram] 403 dead chat_id={chat}; marked dead");
-                        let _ = err;
-                    }
-                    Err(other) => return Err(other),
-                }
+            } else if content_blocks_have_text(&send_content)
+                && let Err(err) = send_direct_and_mark_dead(
+                    &transport,
+                    store.as_ref(),
+                    &state,
+                    chat,
+                    send_content,
+                )
+                .await
+                && err.api_code() != Some(403)
+            {
+                return Err(err);
             }
 
             // 6. Ack: advances and persists the offset. Never skipped after a
