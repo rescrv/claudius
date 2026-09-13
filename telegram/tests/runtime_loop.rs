@@ -59,11 +59,16 @@ struct InMemTransport {
     store: Arc<dyn StateStore>,
     interrupted: Arc<AtomicBool>,
     sent: Arc<Mutex<Vec<(i64, String)>>>,
+    allowed_user_ids: Vec<i64>,
     polled: bool,
 }
 
 #[async_trait]
 impl ChatTransport for InMemTransport {
+    fn allowed_user_ids(&self) -> &[i64] {
+        &self.allowed_user_ids
+    }
+
     async fn recv(&mut self) -> Result<Vec<Inbound>, Error> {
         if self.polled {
             // Second poll: nothing new; signal shutdown and return empty.
@@ -105,6 +110,12 @@ fn echo_filter() -> Box<dyn Fn(&Inbound) -> PreFilter + Send> {
     Box::new(|inb: &Inbound| PreFilter::handled_text(inb.text.to_uppercase()))
 }
 
+fn inbound_from(id: i64, chat: i64, text: &str, from_user_id: Option<i64>) -> Inbound {
+    let mut inbound = Inbound::new(UpdateId(id), ChatId(chat), text);
+    inbound.from_user_id = from_user_id;
+    inbound
+}
+
 #[tokio::test]
 async fn loop_commits_history_and_advances_offset() {
     let store: Arc<dyn StateStore> = Arc::new(InMemoryStateStore::new());
@@ -121,6 +132,7 @@ async fn loop_commits_history_and_advances_offset() {
         store: Arc::clone(&store),
         interrupted: Arc::clone(&interrupted),
         sent: Arc::clone(&sent),
+        allowed_user_ids: Vec::new(),
         polled: false,
     };
 
@@ -154,6 +166,50 @@ async fn loop_commits_history_and_advances_offset() {
 }
 
 #[tokio::test]
+async fn loop_acks_but_ignores_users_not_in_allow_list() {
+    let store: Arc<dyn StateStore> = Arc::new(InMemoryStateStore::new());
+    let state = Arc::new(Mutex::new(store.load().await.unwrap()));
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let sent = Arc::new(Mutex::new(Vec::new()));
+
+    let transport = InMemTransport {
+        updates: vec![
+            inbound_from(0, 10, "denied", Some(8)),
+            inbound_from(1, 11, "allowed", Some(7)),
+            inbound_from(2, 12, "anonymous", None),
+        ],
+        state: Arc::clone(&state),
+        store: Arc::clone(&store),
+        interrupted: Arc::clone(&interrupted),
+        sent: Arc::clone(&sent),
+        allowed_user_ids: vec![7],
+        polled: false,
+    };
+
+    let config = LoopConfig {
+        store: Arc::clone(&store),
+        state: Arc::clone(&state),
+        budget: Arc::new(Budget::from_dollars_flat_rate(0.0, 1000)),
+        use_outbox: false,
+        interrupted: Arc::clone(&interrupted),
+        pre_filter: Some(echo_filter()),
+    };
+    let client = Anthropic::new(Some("dummy".to_string())).unwrap();
+
+    run_agent_loop(EchoAgent, transport, client, config)
+        .await
+        .unwrap();
+
+    assert_eq!(sent.lock().await.clone(), vec![(11, "ALLOWED".to_string())]);
+
+    let committed = store.load().await.unwrap();
+    assert_eq!(committed.next_offset, 3);
+    assert!(committed.conversation(ChatId(10)).is_none());
+    assert!(committed.conversation(ChatId(12)).is_none());
+    assert_eq!(committed.conversation(ChatId(11)).unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn loop_persists_native_blocks_but_sends_text_only() {
     let store: Arc<dyn StateStore> = Arc::new(InMemoryStateStore::new());
     let state = Arc::new(Mutex::new(store.load().await.unwrap()));
@@ -166,6 +222,7 @@ async fn loop_persists_native_blocks_but_sends_text_only() {
         store: Arc::clone(&store),
         interrupted: Arc::clone(&interrupted),
         sent: Arc::clone(&sent),
+        allowed_user_ids: Vec::new(),
         polled: false,
     };
 
@@ -210,6 +267,7 @@ async fn restart_does_not_reprocess_acked_updates() {
             store: Arc::clone(&store),
             interrupted: Arc::clone(&interrupted),
             sent: Arc::clone(&sent),
+            allowed_user_ids: Vec::new(),
             polled: false,
         };
         let config = LoopConfig {
@@ -239,6 +297,7 @@ async fn restart_does_not_reprocess_acked_updates() {
             store: Arc::clone(&store),
             interrupted: Arc::clone(&interrupted),
             sent: Arc::clone(&sent),
+            allowed_user_ids: Vec::new(),
             polled: false,
         };
         let config = LoopConfig {

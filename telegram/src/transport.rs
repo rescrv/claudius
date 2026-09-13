@@ -82,6 +82,24 @@ pub fn content_blocks_have_text(content: &[ContentBlock]) -> bool {
 /// inside `recv`.
 #[async_trait::async_trait]
 pub trait ChatTransport: Send {
+    /// Returns the Telegram user ids allowed to drive this transport.
+    ///
+    /// An empty slice means "allow every user". Transports that cannot identify
+    /// a sender should keep the default unless they intentionally want the
+    /// shared loop to reject messages without `from_user_id`.
+    fn allowed_user_ids(&self) -> &[i64] {
+        &[]
+    }
+
+    /// Returns whether an inbound sender is allowed to drive the agent.
+    ///
+    /// The default policy allows everyone when [`allowed_user_ids`](Self::allowed_user_ids)
+    /// is empty, and otherwise requires a present user id in that allow-list.
+    fn is_user_allowed(&self, from_user_id: Option<i64>) -> bool {
+        let allowed = self.allowed_user_ids();
+        allowed.is_empty() || from_user_id.is_some_and(|id| allowed.contains(&id))
+    }
+
     /// Blocks until at least one inbound message is available, or the poll window
     /// elapses (returning an empty `Vec`).
     ///

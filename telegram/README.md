@@ -10,7 +10,7 @@ double-processing messages.
 - **`ChatTransport`** — a duplex transport trait with a split `recv`/`ack` cursor.
   - **`TelegramTransport`** — long-polling Bot API client (offset advancement,
     60s long polls, `429` `retry_after` backoff, `403` dead-channel detection,
-    4096-char chunking).
+    4096-char chunking, optional Telegram user-id allow-list).
   - **`StdinTransport`** — the terminal behavior behind the same trait, for
     token-free integration testing.
   - Transport `send` takes native `Vec<claudius::ContentBlock>` content; concrete
@@ -65,6 +65,12 @@ allowlist; CI uses an in-memory mock and needs no network.
    cargo run --bin echo -- --state /tmp/echo-state.json
    ```
 
+   To restrict access, pass Telegram user ids:
+
+   ```bash
+   cargo run --bin echo -- --state /tmp/echo-state.json --allowed-user-ids 123,456
+   ```
+
 3. Message the bot in Telegram; it replies with your text uppercased.
 4. Validate durability: stop the process (Ctrl-C), restart with the same
    `--state` path, and confirm already-handled messages are not reprocessed.
@@ -74,7 +80,7 @@ allowlist; CI uses an in-memory mock and needs no network.
    confirm the chat is recorded in `dead_chats`.
 
 Flags: `--token`, `--state`, `--poll-timeout` (default 50s),
-`--delete-webhook-on-start`, `--stdin`.
+`--allowed-user-ids`, `--delete-webhook-on-start`, `--stdin`.
 
 ## Testing
 
