@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::env;
-use std::error::Error as StdError;
 use std::fs;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -9,8 +8,7 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use futures::{Stream, StreamExt, stream};
-use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{Client as ReqwestClient, Response, header};
+use http::header::{self, HeaderMap, HeaderValue};
 use serde::Deserialize;
 use tokio::time::sleep;
 
@@ -23,6 +21,7 @@ use crate::observability::{
     CLIENT_RETRY_BACKOFF,
 };
 use crate::sse::process_message_stream_sse;
+use crate::transport::{HttpRequest, HttpResponse, Transport, append_query_params};
 use crate::types::{
     DeletedMessageBatch, Message, MessageBatch, MessageBatchCreateParams, MessageBatchListParams,
     MessageBatchListResponse, MessageBatchResult, MessageCountTokensParams, MessageCreateParams,
@@ -123,19 +122,6 @@ fn debug_stream_request(url: &str, params: &MessageCreateParams) {
     }
 }
 
-fn format_reqwest_error(err: &reqwest::Error) -> String {
-    let mut parts = vec![err.to_string()];
-    let mut source = StdError::source(err);
-    while let Some(inner) = source {
-        let detail = inner.to_string();
-        if !parts.iter().any(|part| part == &detail) {
-            parts.push(detail);
-        }
-        source = inner.source();
-    }
-    parts.join(": ")
-}
-
 const MAX_MESSAGE_BATCH_RESULT_LINE_BYTES: usize = 64 * 1024 * 1024;
 
 struct MessageBatchJsonlState<S> {
@@ -143,26 +129,6 @@ struct MessageBatchJsonlState<S> {
     buffer: Vec<u8>,
     pending_lines: VecDeque<Vec<u8>>,
     finished: bool,
-}
-
-fn map_batch_result_stream_error(err: reqwest::Error) -> Error {
-    let details = format_reqwest_error(&err);
-    if err.is_timeout() {
-        Error::timeout(
-            format!("Message batch results stream timed out: {details}"),
-            None,
-        )
-    } else if err.is_connect() {
-        Error::connection(
-            format!("Message batch results stream connection error: {details}"),
-            Some(Box::new(err)),
-        )
-    } else {
-        Error::streaming(
-            format!("Error in message batch results stream: {details}"),
-            Some(Box::new(err)),
-        )
-    }
 }
 
 fn parse_message_batch_result_line(line: &[u8]) -> Result<MessageBatchResult> {
@@ -195,7 +161,7 @@ fn process_message_batch_result_jsonl<S>(
     byte_stream: S,
 ) -> impl Stream<Item = Result<MessageBatchResult>>
 where
-    S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Unpin + 'static,
+    S: Stream<Item = Result<Bytes>> + Unpin + 'static,
 {
     let state = MessageBatchJsonlState {
         byte_stream,
@@ -251,7 +217,7 @@ where
                 }
                 Some(Err(err)) => {
                     state.finished = true;
-                    return Some((Err(map_batch_result_stream_error(err)), state));
+                    return Some((Err(err), state));
                 }
                 None => {
                     state.finished = true;
@@ -265,7 +231,7 @@ where
 #[derive(Debug, Clone)]
 pub struct Anthropic {
     api_key: String,
-    client: ReqwestClient,
+    client: Transport,
     base_url: String,
     timeout: Duration,
     max_retries: usize,
@@ -278,20 +244,12 @@ pub struct Anthropic {
 }
 
 impl Anthropic {
-    fn build_http_client(timeout: Duration) -> Result<ReqwestClient> {
-        ReqwestClient::builder()
-            .connect_timeout(timeout)
-            .read_timeout(timeout)
-            .pool_max_idle_per_host(10) // Connection pooling optimization
-            .pool_idle_timeout(Duration::from_secs(90))
-            .tcp_keepalive(Duration::from_secs(60))
-            .build()
-            .map_err(|e| {
-                Error::http_client(
-                    format!("Failed to build HTTP client: {e}"),
-                    Some(Box::new(e)),
-                )
-            })
+    /// Build the HTTP transport shared by all requests.
+    ///
+    /// The transport backend is selected by cargo features: `reqwest-backend`
+    /// (the default) or `hyper-boring`.
+    fn build_http_client(timeout: Duration) -> Result<Transport> {
+        Transport::new(timeout)
     }
 
     /// Resolve an API key value, handling file:// URLs
@@ -637,7 +595,7 @@ impl Anthropic {
     }
 
     /// Process API response errors and convert to our Error type
-    async fn process_error_response(response: Response) -> Error {
+    async fn process_error_response(response: HttpResponse) -> Error {
         let status = response.status();
         let status_code = status.as_u16();
 
@@ -670,12 +628,9 @@ impl Anthropic {
 
         let error_body = match response.text().await {
             Ok(body) => body,
-            Err(e) => {
-                return Error::http_client(
-                    format!("Failed to read error response: {e}"),
-                    Some(Box::new(e)),
-                );
-            }
+            // Read failures are already mapped to the appropriate error kind
+            // by the transport.
+            Err(e) => return e,
         };
 
         // Try to parse as JSON first
@@ -709,39 +664,34 @@ impl Anthropic {
         }
     }
 
-    /// Convert reqwest errors to appropriate Error types
-    fn map_request_error(&self, e: reqwest::Error) -> Error {
-        let details = format_reqwest_error(&e);
-        if e.is_timeout() {
-            Error::timeout(
-                format!("Request timed out: {details}"),
-                Some(self.timeout.as_secs_f64()),
+    /// Serialize a request body, mapping serialization failures.
+    fn serialize_request_body(body: &impl serde::Serialize) -> Result<Vec<u8>> {
+        serde_json::to_vec(body).map_err(|e| {
+            Error::serialization(
+                format!("Failed to serialize request body: {e}"),
+                Some(Box::new(e)),
             )
-        } else if e.is_connect() {
-            Error::connection(format!("Connection error: {details}"), Some(Box::new(e)))
-        } else {
-            Error::http_client(format!("Request failed: {details}"), Some(Box::new(e)))
-        }
+        })
     }
 
-    fn map_response_body_error(&self, e: reqwest::Error) -> Error {
-        let details = format_reqwest_error(&e);
-        if e.is_timeout() {
-            Error::timeout(
-                format!("Response body timed out: {details}"),
-                Some(self.timeout.as_secs_f64()),
-            )
-        } else if e.is_connect() {
-            Error::connection(
-                format!("Response body connection error: {details}"),
-                Some(Box::new(e)),
-            )
-        } else {
-            Error::http_client(
-                format!("Failed to read response body: {details}"),
-                Some(Box::new(e)),
-            )
+    /// Execute a request through the HTTP transport, converting non-success
+    /// responses into typed errors.
+    async fn execute_request(&self, request: HttpRequest) -> Result<HttpResponse> {
+        let response = self.client.execute(request).await?;
+        if !response.is_success() {
+            return Err(Self::process_error_response(response).await);
         }
+        Ok(response)
+    }
+
+    /// Read and parse a successful response body as JSON.
+    async fn parse_json_response<T: serde::de::DeserializeOwned>(
+        response: HttpResponse,
+    ) -> Result<T> {
+        let body = response.bytes().await?;
+        serde_json::from_slice::<T>(&body).map_err(|e| {
+            Error::serialization(format!("Failed to parse response: {e}"), Some(Box::new(e)))
+        })
     }
 
     /// Execute a POST request with error handling
@@ -752,28 +702,12 @@ impl Anthropic {
         headers: Option<HeaderMap>,
     ) -> Result<T> {
         let headers = headers.unwrap_or_else(|| self.default_headers());
+        let serialized = Self::serialize_request_body(body)?;
 
-        let response = self
-            .client
-            .post(url)
-            .headers(headers)
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| self.map_request_error(e))?;
+        let request = HttpRequest::post_body(url.to_string(), headers, serialized);
+        let response = self.execute_request(request).await?;
 
-        if !response.status().is_success() {
-            return Err(Self::process_error_response(response).await);
-        }
-
-        let body = response
-            .bytes()
-            .await
-            .map_err(|e| self.map_response_body_error(e))?;
-
-        serde_json::from_slice::<T>(&body).map_err(|e| {
-            Error::serialization(format!("Failed to parse response: {e}"), Some(Box::new(e)))
-        })
+        Self::parse_json_response(response).await
     }
 
     /// Execute a GET request with error handling
@@ -784,31 +718,15 @@ impl Anthropic {
         headers: Option<HeaderMap>,
     ) -> Result<T> {
         let headers = headers.unwrap_or_else(|| self.default_headers());
-        let mut request = self.client.get(url).headers(headers);
+        let url = match query_params {
+            Some(params) => append_query_params(url, params),
+            None => url.to_string(),
+        };
 
-        if let Some(params) = query_params {
-            for (key, value) in params {
-                request = request.query(&[(key, value)]);
-            }
-        }
+        let request = HttpRequest::get(url, headers);
+        let response = self.execute_request(request).await?;
 
-        let response = request
-            .send()
-            .await
-            .map_err(|e| self.map_request_error(e))?;
-
-        if !response.status().is_success() {
-            return Err(Self::process_error_response(response).await);
-        }
-
-        let body = response
-            .bytes()
-            .await
-            .map_err(|e| self.map_response_body_error(e))?;
-
-        serde_json::from_slice::<T>(&body).map_err(|e| {
-            Error::serialization(format!("Failed to parse response: {e}"), Some(Box::new(e)))
-        })
+        Self::parse_json_response(response).await
     }
 
     /// Execute an empty-body POST request with error handling.
@@ -819,26 +737,10 @@ impl Anthropic {
     ) -> Result<T> {
         let headers = headers.unwrap_or_else(|| self.default_headers());
 
-        let response = self
-            .client
-            .post(url)
-            .headers(headers)
-            .send()
-            .await
-            .map_err(|e| self.map_request_error(e))?;
+        let request = HttpRequest::post_empty(url.to_string(), headers);
+        let response = self.execute_request(request).await?;
 
-        if !response.status().is_success() {
-            return Err(Self::process_error_response(response).await);
-        }
-
-        let body = response
-            .bytes()
-            .await
-            .map_err(|e| self.map_response_body_error(e))?;
-
-        serde_json::from_slice::<T>(&body).map_err(|e| {
-            Error::serialization(format!("Failed to parse response: {e}"), Some(Box::new(e)))
-        })
+        Self::parse_json_response(response).await
     }
 
     /// Execute a DELETE request with error handling.
@@ -849,26 +751,10 @@ impl Anthropic {
     ) -> Result<T> {
         let headers = headers.unwrap_or_else(|| self.default_headers());
 
-        let response = self
-            .client
-            .delete(url)
-            .headers(headers)
-            .send()
-            .await
-            .map_err(|e| self.map_request_error(e))?;
+        let request = HttpRequest::delete(url.to_string(), headers);
+        let response = self.execute_request(request).await?;
 
-        if !response.status().is_success() {
-            return Err(Self::process_error_response(response).await);
-        }
-
-        let body = response
-            .bytes()
-            .await
-            .map_err(|e| self.map_response_body_error(e))?;
-
-        serde_json::from_slice::<T>(&body).map_err(|e| {
-            Error::serialization(format!("Failed to parse response: {e}"), Some(Box::new(e)))
-        })
+        Self::parse_json_response(response).await
     }
 
     /// Execute a streaming GET request with error handling.
@@ -876,22 +762,11 @@ impl Anthropic {
         &self,
         url: &str,
         headers: Option<HeaderMap>,
-    ) -> Result<Response> {
+    ) -> Result<HttpResponse> {
         let headers = headers.unwrap_or_else(|| self.default_headers());
 
-        let response = self
-            .client
-            .get(url)
-            .headers(headers)
-            .send()
-            .await
-            .map_err(|e| self.map_request_error(e))?;
-
-        if !response.status().is_success() {
-            return Err(Self::process_error_response(response).await);
-        }
-
-        Ok(response)
+        let request = HttpRequest::get(url.to_string(), headers);
+        self.execute_request(request).await
     }
 
     /// Send a message to the API and get a non-streaming response.
@@ -1014,16 +889,11 @@ impl Anthropic {
                     HeaderValue::from_static("text/event-stream"),
                 );
 
-                let response = self
-                    .client
-                    .post(&url)
-                    .headers(headers)
-                    .json(params)
-                    .send()
-                    .await
-                    .map_err(|e| self.map_request_error(e))?;
+                let serialized = Self::serialize_request_body(params)?;
+                let request = HttpRequest::post_body(url, headers, serialized);
+                let response = self.client.execute(request).await?;
 
-                if !response.status().is_success() {
+                if !response.is_success() {
                     return Err(Self::process_error_response(response).await);
                 }
 
@@ -1041,7 +911,7 @@ impl Anthropic {
         };
 
         // Get the byte stream from the response
-        let stream = response.bytes_stream();
+        let stream = response.into_byte_stream();
 
         // Create an SSE processor
         Ok(process_message_stream_sse(stream))
@@ -1293,7 +1163,9 @@ impl Anthropic {
             }
         };
 
-        Ok(process_message_batch_result_jsonl(response.bytes_stream()))
+        Ok(process_message_batch_result_jsonl(
+            response.into_byte_stream(),
+        ))
     }
 
     /// List available models from the API.
@@ -1487,7 +1359,7 @@ Connection: close\r\n\r\n{}",
     async fn retry_logic_with_backoff() {
         let client = Anthropic {
             api_key: "test".to_string(),
-            client: ReqwestClient::new(),
+            client: Anthropic::build_http_client(Duration::from_secs(1)).unwrap(),
             base_url: "http://localhost".to_string(),
             timeout: Duration::from_secs(1),
             max_retries: 2,
@@ -1522,7 +1394,7 @@ Connection: close\r\n\r\n{}",
     async fn retry_logic_with_non_retryable_error() {
         let client = Anthropic {
             api_key: "test".to_string(),
-            client: ReqwestClient::new(),
+            client: Anthropic::build_http_client(Duration::from_secs(1)).unwrap(),
             base_url: "http://localhost".to_string(),
             timeout: Duration::from_secs(1),
             max_retries: 2,
@@ -1555,7 +1427,7 @@ Connection: close\r\n\r\n{}",
     async fn retry_logic_max_retries_exceeded() {
         let client = Anthropic {
             api_key: "test".to_string(),
-            client: ReqwestClient::new(),
+            client: Anthropic::build_http_client(Duration::from_secs(1)).unwrap(),
             base_url: "http://localhost".to_string(),
             timeout: Duration::from_secs(1),
             max_retries: 2,
@@ -1589,7 +1461,7 @@ Connection: close\r\n\r\n{}",
         // Test that 529 errors are properly mapped to rate_limit and are retryable
         let client = Anthropic {
             api_key: "test".to_string(),
-            client: ReqwestClient::new(),
+            client: Anthropic::build_http_client(Duration::from_secs(1)).unwrap(),
             base_url: "http://localhost".to_string(),
             timeout: Duration::from_secs(1),
             max_retries: 2,
@@ -1858,7 +1730,7 @@ Connection: close\r\n\r\n{}",
     fn request_error_mapping() {
         let client = Anthropic::new(Some("test_key".to_string())).unwrap();
 
-        // Test different types of reqwest errors are mapped correctly
+        // Test different types of backend errors are mapped correctly
         // Note: These are unit tests for the mapping logic, not integration tests
         let _timeout = Duration::from_secs(30);
         assert_eq!(client.timeout, DEFAULT_TIMEOUT); // Should use default initially
@@ -1871,7 +1743,7 @@ Connection: close\r\n\r\n{}",
 
         let client = Anthropic {
             api_key: "test".to_string(),
-            client: ReqwestClient::new(),
+            client: Anthropic::build_http_client(Duration::from_secs(1)).unwrap(),
             base_url: "http://localhost".to_string(),
             timeout: Duration::from_secs(1),
             max_retries: 1,
@@ -1916,7 +1788,7 @@ Connection: close\r\n\r\n{}",
     fn test_client() -> Anthropic {
         Anthropic {
             api_key: "test".to_string(),
-            client: ReqwestClient::new(),
+            client: Anthropic::build_http_client(Duration::from_secs(1)).unwrap(),
             base_url: "http://localhost".to_string(),
             timeout: Duration::from_secs(1),
             max_retries: 0,

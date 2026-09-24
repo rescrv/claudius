@@ -76,6 +76,28 @@ Add Claudius to your `Cargo.toml`:
 claudius = "0.33.0"
 ```
 
+### HTTP Backends
+
+Claudius supports two HTTP backends, selected with cargo features:
+
+- **`reqwest-backend`** (default): requests are issued with
+  [reqwest](https://github.com/seanmonstar/reqwest). The TLS stack is selected
+  with the `native-tls` (default) or `rustls-tls` features.
+- **`hyper-boring`**: requests are issued with
+  [hyper](https://github.com/hyperium/hyper) over BoringSSL via
+  [hyper-boring](https://github.com/cloudflare/boring). Both backends speak
+  HTTP/1.1 and share the same timeouts, pooling, and retry behavior.
+
+To use the BoringSSL backend, disable the default features and enable
+`hyper-boring`:
+
+```toml
+[dependencies]
+claudius = { version = "0.33.0", default-features = false, features = ["hyper-boring"] }
+```
+
+Add `"binaries"` to the feature list if you also want the command-line tools.
+
 ## Authentication
 
 Claudius uses the Anthropic API key for authentication. You can provide it in two ways:

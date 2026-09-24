@@ -8,12 +8,28 @@ license = "Apache-2.0"
 repository = "https://github.com/rescrv/claudius"
 
 [features]
-default = ["binaries", "native-tls"]
+default = ["binaries", "reqwest-backend", "native-tls"]
 
 binaries = []
 
-rustls-tls = ["reqwest/rustls"]
-native-tls = ["reqwest/native-tls"]
+# HTTP backend selection.
+#
+# By default claudius uses reqwest as its HTTP backend. Enabling the
+# `hyper-boring` feature switches the backend to hyper with BoringSSL (via
+# hyper-boring); combine it with `--no-default-features` to avoid compiling
+# reqwest entirely.
+reqwest-backend = ["dep:reqwest"]
+hyper-boring = [
+    "dep:boring",
+    "dep:http-body-util",
+    "dep:hyper",
+    "dep:hyper-boring",
+    "dep:hyper-util",
+]
+
+# TLS backend selection for the reqwest backend.
+rustls-tls = ["reqwest-backend", "reqwest/rustls"]
+native-tls = ["reqwest-backend", "reqwest/native-tls"]
 
 [dependencies]
 async-trait = "0.1.89"
@@ -22,8 +38,14 @@ bytes = "1.11.1"
 ctrlc = { version = "3.5.2", features = ["termination"] }
 futures = "0.3.32"
 getopts = "0.2.24"
+# Request and response types shared by both HTTP backends.
+http = "1.5.0"
 libc = "0.2.186"
-reqwest = { version = "0.13.4", default-features = false, features = ["json", "query", "stream"] }
+reqwest = { version = "0.13.4", default-features = false, features = [
+    "json",
+    "query",
+    "stream",
+], optional = true }
 rustyline = "18.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.150", features = ["preserve_order"] }
@@ -37,6 +59,18 @@ arrrg = "0.10.0"
 arrrg_derive = "0.10.0"
 biometrics = "0.14.0"
 utf8path = "0.11.0"
+
+# The hyper + BoringSSL HTTP backend (enable the `hyper-boring` feature).
+boring = { version = "5.2.0", optional = true }
+hyper = { version = "1.11.1", optional = true }
+hyper-boring = { version = "5.2.0", optional = true }
+hyper-util = { version = "0.1.20", features = [
+    "client",
+    "client-legacy",
+    "http1",
+    "tokio",
+], optional = true }
+http-body-util = { version = "0.1.5", optional = true }
 
 [[bin]]
 name = "median-text"
