@@ -5,7 +5,6 @@
 
 use bytes::Bytes;
 use futures::stream::{self, Stream, StreamExt};
-use std::error::Error as StdError;
 use std::time::{Duration, Instant};
 
 use crate::observability::{
@@ -51,7 +50,9 @@ struct SseState {
 ///
 /// This function takes a byte stream from an HTTP response and converts it into
 /// a stream of parsed [`SseEvent`] objects, handling SSE parsing, buffering,
-/// error conditions, DoS protection, and timeouts.
+/// error conditions, DoS protection, and timeouts. Stream errors must already
+/// be mapped to [`crate::Error`] (this is what the crate's HTTP backends
+/// produce).
 ///
 /// Production features:
 /// - Buffer size limits to prevent memory exhaustion
@@ -59,13 +60,10 @@ struct SseState {
 /// - Timeout handling for stalled connections
 /// - Graceful error recovery
 /// - UTF-8 validation with partial byte handling
-pub fn process_sse<S>(byte_stream: S) -> impl Stream<Item = Result<SseEvent>>
+pub fn process_sse<S>(stream: S) -> impl Stream<Item = Result<SseEvent>>
 where
-    S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Unpin + 'static,
+    S: Stream<Item = Result<Bytes>> + Unpin + 'static,
 {
-    // Convert reqwest errors to our error type
-    let stream = byte_stream.map(|result| result.map_err(map_http_stream_error));
-
     // Initialize state with production hardening
     let state = SseState {
         buffer: String::new(),
@@ -198,36 +196,6 @@ where
     })
 }
 
-fn map_http_stream_error(err: reqwest::Error) -> Error {
-    let details = format_reqwest_error(&err);
-    if err.is_timeout() {
-        Error::timeout(format!("HTTP stream timed out: {details}"), None)
-    } else if err.is_connect() {
-        Error::connection(
-            format!("HTTP stream connection error: {details}"),
-            Some(Box::new(err)),
-        )
-    } else {
-        Error::streaming(
-            format!("Error in HTTP stream: {details}"),
-            Some(Box::new(err)),
-        )
-    }
-}
-
-fn format_reqwest_error(err: &reqwest::Error) -> String {
-    let mut parts = vec![err.to_string()];
-    let mut source = StdError::source(err);
-    while let Some(inner) = source {
-        let detail = inner.to_string();
-        if !parts.iter().any(|part| part == &detail) {
-            parts.push(detail);
-        }
-        source = inner.source();
-    }
-    parts.join(": ")
-}
-
 /// Decode a raw [`SseEvent`] into a Claudius [`MessageStreamEvent`].
 pub fn parse_message_stream_event(event: &SseEvent) -> Result<MessageStreamEvent> {
     match event.event.as_str() {
@@ -275,7 +243,7 @@ pub fn process_message_stream_sse<S>(
     byte_stream: S,
 ) -> impl Stream<Item = Result<MessageStreamEvent>>
 where
-    S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Unpin + 'static,
+    S: Stream<Item = Result<Bytes>> + Unpin + 'static,
 {
     process_sse(byte_stream).map(|result| {
         result.and_then(|event| {
@@ -404,7 +372,7 @@ mod tests {
 
     #[tokio::test]
     async fn parse_ping_event() {
-        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from_static(
+        let stream = stream::iter(vec![Ok::<Bytes, Error>(Bytes::from_static(
             b"event: ping\ndata: {}\n\n",
         ))]);
 
@@ -422,7 +390,7 @@ mod tests {
 
     #[tokio::test]
     async fn parse_multiple_events() {
-        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from_static(
+        let stream = stream::iter(vec![Ok::<Bytes, Error>(Bytes::from_static(
             b"event: ping\ndata: {}\n\nevent: ping\ndata: {}\n\n",
         ))]);
 
@@ -449,7 +417,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_malformed_event() {
-        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from_static(
+        let stream = stream::iter(vec![Ok::<Bytes, Error>(Bytes::from_static(
             b"malformed data without proper format\n\n",
         ))]);
 
@@ -462,8 +430,8 @@ mod tests {
     #[tokio::test]
     async fn handle_split_event() {
         let stream = stream::iter(vec![
-            Ok::<Bytes, reqwest::Error>(Bytes::from_static(b"event: ping\n")),
-            Ok::<Bytes, reqwest::Error>(Bytes::from_static(b"data: {}\n\n")),
+            Ok::<Bytes, Error>(Bytes::from_static(b"event: ping\n")),
+            Ok::<Bytes, Error>(Bytes::from_static(b"data: {}\n\n")),
         ]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
@@ -480,7 +448,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_unknown_event_type_in_raw_parser() {
-        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from_static(
+        let stream = stream::iter(vec![Ok::<Bytes, Error>(Bytes::from_static(
             b"event: unknown_event\ndata: {}\n\n",
         ))]);
 
@@ -514,8 +482,8 @@ mod tests {
         let chunk2 = "b".repeat(chunk_size + 1000);
 
         let stream = stream::iter(vec![
-            Ok::<Bytes, reqwest::Error>(Bytes::from(chunk1)),
-            Ok::<Bytes, reqwest::Error>(Bytes::from(chunk2)),
+            Ok::<Bytes, Error>(Bytes::from(chunk1)),
+            Ok::<Bytes, Error>(Bytes::from(chunk2)),
         ]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
@@ -531,7 +499,7 @@ mod tests {
     async fn handle_event_size_limit() {
         let large_event_data = "b".repeat(MAX_EVENT_SIZE + 100);
         let data = format!("event: ping\ndata: {large_event_data}\n\n");
-        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from(data))]);
+        let stream = stream::iter(vec![Ok::<Bytes, Error>(Bytes::from(data))]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
         let event = sse_stream.next().await.unwrap();
@@ -544,9 +512,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_empty_events() {
-        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from_static(
-            b"\n\n",
-        ))]);
+        let stream = stream::iter(vec![Ok::<Bytes, Error>(Bytes::from_static(b"\n\n"))]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
         let event = sse_stream.next().await.unwrap().unwrap();
@@ -573,7 +539,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_multi_line_data() {
-        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from_static(
+        let stream = stream::iter(vec![Ok::<Bytes, Error>(Bytes::from_static(
             b"event: message_start\ndata: {\ndata: \"test\": true\ndata: }\n\n",
         ))]);
 
@@ -598,7 +564,7 @@ mod tests {
         data.extend_from_slice(&invalid_bytes);
         data.extend_from_slice(b"\n\n");
 
-        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from(data))]);
+        let stream = stream::iter(vec![Ok::<Bytes, Error>(Bytes::from(data))]);
         let mut sse_stream = Box::pin(process_sse(stream));
 
         if let Some(event) = sse_stream.next().await
@@ -611,8 +577,8 @@ mod tests {
     #[tokio::test]
     async fn handle_split_utf8_across_chunks() {
         let stream = stream::iter(vec![
-            Ok::<Bytes, reqwest::Error>(Bytes::from_static(b"event: ping\ndata: caf\xc3")),
-            Ok::<Bytes, reqwest::Error>(Bytes::from_static(b"\xa9\n\n")),
+            Ok::<Bytes, Error>(Bytes::from_static(b"event: ping\ndata: caf\xc3")),
+            Ok::<Bytes, Error>(Bytes::from_static(b"\xa9\n\n")),
         ]);
 
         let mut sse_stream = Box::pin(process_sse(stream));
@@ -699,7 +665,7 @@ mod tests {
 
     #[tokio::test]
     async fn process_message_stream_sse_decodes_ping() {
-        let stream = stream::iter(vec![Ok::<Bytes, reqwest::Error>(Bytes::from_static(
+        let stream = stream::iter(vec![Ok::<Bytes, Error>(Bytes::from_static(
             b"event: ping\ndata: {}\n\n",
         ))]);
 

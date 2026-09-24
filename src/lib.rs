@@ -21,6 +21,7 @@ mod prompt;
 mod pty;
 mod render;
 mod sse;
+mod transport;
 mod types;
 
 pub use accumulating_stream::AccumulatingStream;

@@ -21,12 +21,18 @@ jobs:
             ${{ runner.os }}-cargo-
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D clippy::all -D warnings
+      - name: cargo clippy (hyper-boring backend)
+        run: cargo clippy --no-default-features --features hyper-boring --all-targets -- -D clippy::all -D warnings
       - name: cargo build
         run: |
           cargo build --bin claudius-prompt --features native-tls
           cargo build --bin claudius-prompt --features rustls-tls
       - name: cargo test
         run: cargo test -- --test-threads=1
+        env:
+          CLAUDIUS_API_KEY: ${{ secrets.CLAUDIUS_API_KEY }}
+      - name: cargo test (hyper-boring backend)
+        run: cargo test --no-default-features --features hyper-boring -- --test-threads=1
         env:
           CLAUDIUS_API_KEY: ${{ secrets.CLAUDIUS_API_KEY }}
       - name: prompt tests
