@@ -24,6 +24,9 @@ pub enum KnownModel {
     /// Claude Mythos 5.1 (Project Glasswing limited release)
     ClaudeMythos51,
 
+    /// Claude Opus 5.5
+    ClaudeOpus55,
+
     /// Claude Opus 5
     ClaudeOpus5,
 
@@ -228,6 +231,14 @@ impl KnownModel {
                 cache_read: 50,
             },
 
+            // Claude Opus 5.5 — $4/$20, $5/$0.20
+            KnownModel::ClaudeOpus55 => TokenRates {
+                input: 400,
+                output: 2000,
+                cache_creation: 500,
+                cache_read: 20,
+            },
+
             // Claude Opus 5 — $5/$25, $6.25/$0.50
             KnownModel::ClaudeOpus5 => TokenRates {
                 input: 500,
@@ -262,6 +273,7 @@ impl fmt::Display for KnownModel {
         match self {
             KnownModel::ClaudeFable51 => write!(f, "claude-fable-5-1"),
             KnownModel::ClaudeMythos51 => write!(f, "claude-mythos-5-1"),
+            KnownModel::ClaudeOpus55 => write!(f, "claude-opus-5-5"),
             KnownModel::ClaudeOpus5 => write!(f, "claude-opus-5"),
             KnownModel::ClaudeSonnet5 => write!(f, "claude-sonnet-5"),
             KnownModel::ClaudeOpus4520251101 => write!(f, "claude-opus-4-5-20251101"),
@@ -313,6 +325,7 @@ impl<'de> Deserialize<'de> for Model {
         match s.as_str() {
             "claude-fable-5-1" => Ok(Model::Known(KnownModel::ClaudeFable51)),
             "claude-mythos-5-1" => Ok(Model::Known(KnownModel::ClaudeMythos51)),
+            "claude-opus-5-5" => Ok(Model::Known(KnownModel::ClaudeOpus55)),
             "claude-opus-5" => Ok(Model::Known(KnownModel::ClaudeOpus5)),
             "claude-sonnet-5" => Ok(Model::Known(KnownModel::ClaudeSonnet5)),
             "claude-opus-4-5-20251101" => Ok(Model::Known(KnownModel::ClaudeOpus4520251101)),
@@ -358,6 +371,7 @@ impl FromStr for KnownModel {
         match s {
             "claude-fable-5-1" => Ok(KnownModel::ClaudeFable51),
             "claude-mythos-5-1" => Ok(KnownModel::ClaudeMythos51),
+            "claude-opus-5-5" => Ok(KnownModel::ClaudeOpus55),
             "claude-opus-5" => Ok(KnownModel::ClaudeOpus5),
             "claude-sonnet-5" => Ok(KnownModel::ClaudeSonnet5),
             "claude-opus-4-5-20251101" => Ok(KnownModel::ClaudeOpus4520251101),
@@ -567,6 +581,7 @@ mod tests {
         for (known, id) in [
             (KnownModel::ClaudeFable51, "claude-fable-5-1"),
             (KnownModel::ClaudeMythos51, "claude-mythos-5-1"),
+            (KnownModel::ClaudeOpus55, "claude-opus-5-5"),
             (KnownModel::ClaudeOpus5, "claude-opus-5"),
             (KnownModel::ClaudeSonnet5, "claude-sonnet-5"),
         ] {
@@ -660,6 +675,15 @@ mod tests {
             assert_eq!(rates.cache_creation, 1250);
             assert_eq!(rates.cache_read, 100);
         }
+    }
+
+    #[test]
+    fn token_rates_opus_55() {
+        let rates = KnownModel::ClaudeOpus55.token_rates();
+        assert_eq!(rates.input, 400); // $4/MTok
+        assert_eq!(rates.output, 2000); // $20/MTok
+        assert_eq!(rates.cache_creation, 500); // $5/MTok
+        assert_eq!(rates.cache_read, 20); // $0.20/MTok
     }
 
     #[test]
