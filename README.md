@@ -194,8 +194,8 @@ while let Some(event) = stream.next().await {
 Claudius supports all Anthropic models via a typed enum:
 
 ```rust
-// Use a current general-purpose model
-let model = Model::Known(KnownModel::ClaudeOpus5);
+// Use the current general-purpose model
+let model = Model::Known(KnownModel::ClaudeOpus55);
 
 // Use the current speed/intelligence balance
 let model = Model::Known(KnownModel::ClaudeSonnet5);
